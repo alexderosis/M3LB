@@ -14,6 +14,7 @@
 //==============================================================================
 #include "Check.hpp"
 #include "collision/BGK.hpp"
+#include "collision/ChargeCentralMoments.hpp"
 #include "collision/ScalarRegularised.hpp"
 #include "core/Types.hpp"
 
@@ -196,6 +197,90 @@ static void scalar_regularised(Real w) {
   }
 }
 
+//------------------------------------------------------------------------------
+//  THE EHD CHARGE OPERATOR, against the scheme MATLAB/D3Q27_CM_EHD.m generates.
+//
+//  Its `Lq = diag([1, omegaq, omegaq, omegaq, 1, ...])` says exactly four
+//  things, and each is a check below: the charge is conserved, the three FLUX
+//  central moments decay by (1 - omega) about the DRIFT velocity, every other
+//  moment lands on equilibrium, and at omega = 1 the whole thing is projection
+//  onto equilibrium. The fourth is the sharpest -- it is the only one that
+//  would survive a wrong basis.
+//------------------------------------------------------------------------------
+template <class L>
+static void charge_cm(Real w) {
+  const std::string n = std::string(L::name) + " w=" + std::to_string(double(w));
+  using CC = ChargeCentralMoments<L>;
+  CC cc; cc.omega = w;
+
+  // A drift velocity that is NOT the fluid velocity and has all three
+  // components distinct -- a basis error that happens to be symmetric would
+  // survive equal ones.
+  const Real ku = Real(0.031), kv = Real(-0.017), kw = (L::D == 3) ? Real(0.009) : Real(0);
+
+  Real h[L::Q], h0[L::Q];
+  for (int i = 0; i < L::Q; ++i)
+    h0[i] = h[i] = weight<L, Real>(i) * Real(0.4) + Real(0.013) * Real((i * 5) % 4 - 1);
+  const Real q0 = CC::charge(h0);
+
+  // Pre-collision central moments about the drift velocity.
+  Real kpre[CC::NM]; const Real ub[3] = {ku, kv, kw};
+  CC::Basis::template to_moments<true>(h0, ub, kpre);
+
+  cc.collide(h, ku, kv, kw, w);
+
+  // 1. the charge is conserved, exactly
+  check::near(CC::charge(h), q0, TOL(), n + ": charge conserved");
+
+  Real kpost[CC::NM];
+  CC::Basis::template to_moments<true>(h, ub, kpost);
+
+  // 2. the flux moments decayed by exactly (1 - omega)
+  for (int a = 0; a < L::D; ++a) {
+    const int slot = CC::Basis::index_of(a == 0, a == 1, (L::D == 3) && a == 2);
+    check::near(kpost[slot], (Real(1) - w) * kpre[slot], TOL(),
+                n + ": flux " + std::to_string(a) + " decays by (1-omega)");
+  }
+
+  // 3. every moment of order >= 2 is at equilibrium, and IN THIS BASIS THAT IS
+  //    ZERO. ProductBasis is shifted -- phi_2 = C^2 - cs2 -- so the product-form
+  //    equilibrium has exactly one nonzero moment. The reference implementation
+  //    sets q cs2, q cs4, q cs6 in those slots because its transform is the
+  //    MONOMIAL one; the same state, a different basis. This assertion was
+  //    written the monomial way first and failed against a correct operator,
+  //    which is the trap CLAUDE.md lists first.
+  check::near(kpost[0], q0, TOL(), n + ": zeroth moment is the charge");
+  for (int m = 0; m < CC::NM; ++m) {
+    if (CC::Basis::order(m) <= 1) continue;           // charge and fluxes, above
+    check::near(kpost[m], Real(0), TOL(),
+                n + ": moment " + std::to_string(m) + " at equilibrium (= 0 here)");
+  }
+
+  // 4. at omega = 1 the operator is projection onto equilibrium, so colliding
+  //    a second time changes nothing at all.
+  if (w == Real(1)) {
+    Real again[L::Q];
+    for (int i = 0; i < L::Q; ++i) again[i] = h[i];
+    cc.collide(again, ku, kv, kw, w);
+    double worst = 0.0;
+    for (int i = 0; i < L::Q; ++i)
+      worst = std::max(worst, std::abs(double(again[i]) - double(h[i])));
+    check::ok(worst <= double(TOL()),
+              n + ": omega = 1 is a projection (worst " + std::to_string(worst) + ")");
+    // and it equals seed_value, which is the same equilibrium by another route
+    worst = 0.0;
+    for (int i = 0; i < L::Q; ++i)
+      worst = std::max(worst, std::abs(double(h[i]) -
+                                       double(CC::seed_value(i, q0, ku, kv, kw))));
+    check::ok(worst <= double(TOL()),
+              n + ": omega = 1 matches seed_value (worst " + std::to_string(worst) + ")");
+  }
+
+  // 5. omega <-> diffusivity round trip, on a lattice where cs2 = 1/3
+  check::near(CC::omega_from_diffusivity(CC::diffusivity_from_omega(w)), w, TOL(),
+              n + ": omega <-> D round trip");
+}
+
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   {
@@ -215,6 +300,10 @@ int main(int argc, char** argv) {
     for (Real w : {Real(0.4), Real(1.0), Real(1.8), Real(1.997)}) {
       scalar_regularised<D3Q7>(w);
       scalar_regularised<D2Q5>(w);
+    }
+    for (Real w : {Real(0.4), Real(1.0), Real(1.8)}) {
+      charge_cm<D3Q27>(w);
+      charge_cm<D2Q9>(w);
     }
     viscosity_roundtrip<D2Q9>();
     viscosity_roundtrip<D3Q19>();

@@ -64,6 +64,8 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 |---|---|---|
 | single-phase, single-component | `FluidSolver` | **the default — see the rule below** |
 | + temperature / passive scalar | `ScalarSolver` alongside | own lattice, velocity is an input; `ScalarBGK` by default, `ScalarRegularised` above ω ≈ 1.9 |
+| + charge carriers in an electric field | `ScalarSolver` + `ChargeCentralMoments` | D3Q27, advects at the **drift** velocity `u + KE`, not at `u` |
+| + electric potential (Poisson) | `ScalarSolver` + `ScalarBGK` + `add_source` | no new solver — see `validation/ehd_hydrostatic.cpp` |
 | + magnetic field | `MagneticSolver` | Dellar vector distribution |
 | two-phase, diffuse interface | `PhaseFieldSolver` | conservative Allen–Cahn, prescribed interface width, density ratio ~100 |
 | two-phase, diffuse, high ratio | `ColourGradientSolver` | no interface equation; width is an *outcome*; 1000 in the source paper's own static tests |
@@ -226,6 +228,17 @@ These produce plausible, converged, wrong answers rather than crashes.
   zero so that `field = 0` means *neutrally buoyant*, and use `ScalarOutflow` —
   which is on-node, zero-gradient, and reports the real temperature — where an
   on-node adiabatic wall is what you actually need.
+- **THE HALF CELL IS HARMLESS UNTIL YOU DIFFERENTIATE IT.** The tree's default
+  wall family puts the plate at the halfway plane, and `rb_high_ra`'s banner
+  measures that as costing "1% in H, 3% in Ra" — negligible. It is **not**
+  negligible when the quantity of interest is a *derivative* of the field
+  carrying the boundary value. In `validation/ehd_hydrostatic.cpp` the electric
+  field is `E = −∇φ`, and with halfway plates the one-sided stencil works purely
+  from interior nodes and never sees the imposed φ: measured as a uniform +3.3%
+  bias in the bulk charge at H = 40, halving to +1.3% at H = 80, which is
+  O(1/H) and dragged the whole convergence rate to 1.0. On-node plates
+  (`ScalarMoment`, Dellar's condition) fixed it — C = 10 at H = 80 went from
+  11.19% to 1.49%. Ask which family you need before defaulting to halfway.
 - **A MOMENT INDEX MUST BE A COMPILE-TIME CONSTANT.** The moment operators reach
   their exponents through `Basis::p_of(n)`, which is a lookup in a 432-byte
   table. Called with a compile-time `n` it folds and the moment arrays live in
