@@ -60,3 +60,7 @@ cmbench-*.log
 # doc/m3lb.tex, which is where a number belongs.
 run_rb*/
 run_csf3_*/
+
+# Build trees from this session (build_th, build_th32). Same rule as above --
+# the pattern only matched build/ and build-*/.
+build_*/

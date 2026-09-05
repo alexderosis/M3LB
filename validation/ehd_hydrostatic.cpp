@@ -131,7 +131,7 @@
 //  not.
 //
 //    usage: ehd_hydrostatic [-ny H] [-nx NX] [-c C] [-steps N] [-conv]
-//                           [-profile] [-watch N] [-skip FRACTION]
+//                           [-profile] [-csv PREFIX] [-watch N] [-skip FRACTION]
 //                           [--kokkos-num-threads=4]
 //==============================================================================
 #include "collision/ChargeCentralMoments.hpp"
@@ -171,6 +171,7 @@ static double q_analytic(double y, double a, double b) {
 //  error against the analytic profile, Eq. (79).
 //------------------------------------------------------------------------------
 static bool profile = false;
+static std::string csv;      // -csv PATH: the WHOLE profile, for a figure
 static std::size_t watch = 0;
 static double skip_frac = 0.0;
 static double solve(Index nx, Index H, double C, std::size_t steps, bool verbose) {
@@ -350,6 +351,26 @@ static double solve(Index nx, Index H, double C, std::size_t steps, bool verbose
     }
     std::fflush(stdout);
   }
+  // The console profile prints eight rows, which answers "where does the error
+  // live" and cannot draw a curve. This writes every node.
+  if (!csv.empty()) {
+    char path[512];
+    std::snprintf(path, sizeof path, "%s_C%g_H%lld.csv", csv.c_str(), C,
+                  (long long)H);
+    if (FILE* f = std::fopen(path, "w")) {
+      std::fprintf(f, "y_over_H,q_num_over_q0,q_analytic_over_q0,rel_percent\n");
+      const double q0 = C / (double(H) * double(H));
+      for (Index y = 0; y <= H; ++y) {
+        const double yh = double(y) / double(H);
+        const double an = q_analytic(yh, r->a, r->b) / (double(H) * double(H));
+        const double qn = double(hq(d.id(0, y, 0)));
+        std::fprintf(f, "%.6f,%.8e,%.8e,%.6f\n", yh, qn / q0, an / q0,
+                     100.0 * (qn - an) / an);
+      }
+      std::fclose(f);
+      std::printf("      wrote %s\n", path);
+    }
+  }
   if (verbose) {
     std::printf("    C = %5.1f  H = %4lld   l2 error %8.4f %%   (paper, model C: %.4f)\n",
                 C, (long long)H, err, r->err_modelC);
@@ -375,6 +396,7 @@ int main(int argc, char** argv) {
     if (a == "-steps" && i + 1 < argc) steps = std::size_t(std::atol(argv[++i]));
     if (a == "-conv")                  conv  = true;
     if (a == "-profile")               profile = true;
+    if (a == "-csv" && i + 1 < argc)   csv = argv[++i];
     if (a == "-watch" && i + 1 < argc)  watch = std::size_t(std::atol(argv[++i]));
     if (a == "-skip"  && i + 1 < argc)  skip_frac = std::atof(argv[++i]);
   }
