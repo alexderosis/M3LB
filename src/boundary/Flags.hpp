@@ -22,6 +22,7 @@ enum CellType : std::uint8_t {
   Solid    = 1,   // halfway bounce-back
   Excluded = 2,   // not part of the simulation; skipped entirely
   RegWall  = 3,   // regularised velocity boundary, then collide
+  SpecWall = 4,   // specular reflection -- free slip. See boundary/Specular.hpp
 };
 
 }  // namespace lbm

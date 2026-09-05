@@ -51,26 +51,74 @@
 //  free-slip, not periodic and not no-slip. A = 0.614 is the least unstable
 //  HALF-wavelength, so that box holds one convection cell.
 //
-//  THIS TREE HAS NO FREE-SLIP WALL. Adding specular reflection to Esoteric Pull
-//  is not a small change -- bounce-back is cheap there only because opposite
-//  directions are adjacent slots, and a mirror about a wall normal is a
-//  different permutation. So this case uses the exact equivalence instead: a
-//  free-slip box of width Lx IS the mirror-symmetric half of a PERIODIC box of
-//  width 2Lx. On the mirror planes of the doubled solution u_x is odd and phi
-//  and q are even, which is Eqs. (14)-(16) exactly. The doubled box's smallest
-//  admissible wavenumber is 2 pi / (2 Lx) = pi / Lx, i.e. precisely the most
-//  unstable mode, so the mode the paper's box selects is the one this box
-//  selects too. It costs 2x the cells and imposes nothing.
+//  THE DEFAULT IS A DOUBLED PERIODIC BOX, and it is the BETTER discretisation
+//  rather than a substitute for a missing feature. A free-slip box of width Lx
+//  is the mirror-symmetric half of a periodic box of width 2Lx: on the mirror
+//  planes u_x is odd and phi and q are even, which is Eqs. (14)-(16) exactly,
+//  and the doubled box's smallest admissible wavenumber pi/Lx is precisely the
+//  most unstable mode. It costs 2x the cells and it has NO LATERAL BOUNDARY AT
+//  ALL -- so it never has to discretise one.
 //
-//  WHAT IT DOES ADMIT that free-slip does not: laterally antisymmetric modes,
-//  and a continuous family of translations of the symmetric one. So the
-//  wavelength is MEASURED rather than assumed -- the run reports the fraction
-//  of lateral kinetic energy in mode m = 1 (one full wave across the doubled
-//  box = one cell per free-slip box). A number near 1 means the doubled box
-//  realised the paper's state; a number well below it means it did not, and the
-//  peak velocity is then not comparable. `-half` runs the undoubled periodic box
-//  instead, which is a DIFFERENT problem -- it admits only wavelengths <= Lx and
-//  so forbids the fundamental. It exists to show that, not as an option.
+//  THIS FILE ONCE CLAIMED THE DOUBLED BOX WAS FORCED ON IT because specular
+//  reflection could not be added to Esoteric Pull. That was wrong on both
+//  counts and the correction is the point of this section. boundary/Specular.hpp
+//  now exists -- its banner derives why the pairing never obstructed it -- and
+//  `-freeslip` runs the real wall on one half-box. The wall itself is EXACT:
+//  validation/specular.cpp closes a half-channel with it and reproduces the full
+//  channel it is the mirror of to 5.5e-14 relative, with the symmetry plane on
+//  16.5000 and mass drift 1.5e-16.
+//
+//  AND THE REAL WALL IS WORSE HERE. Measured at T = 190 on D2Q9:
+//
+//      ny    -freeslip   doubled    gap
+//      41     3.7419     3.5995    +3.96 %   (both converged)
+//      81     3.8759     3.7522    +3.30 %   (both still creeping)
+//     163     3.8209     3.7597    +1.63 %   (both still creeping)
+//
+//  The two are exactly equivalent in the continuum, so a gap that large is a
+//  discretisation difference and it had to be chased. It is NOT the seed's
+//  phase: the doubled solution is mirror-symmetric to 0.000e+00 about x = 0 and
+//  x = nxh, 3.5e-2 about the half-cell planes, and shifting the seed half a cell
+//  (`-sphase 0.5`) moves the answer by 0.09 %. It is the LATERAL SCALAR WALL.
+//
+//  85.7 % OF THE SQUARED DIFFERENCE LIES WITHIN THREE CELLS OF A LATERAL WALL,
+//  in columns that are 24 % of the domain, and the free-slip charge saw-tooths
+//  there -- 0.248, 0.142, 0.205, 0.142, 0.153 against the doubled box's smooth
+//  0.190, 0.187, 0.176, 0.161, 0.142. The cell-to-cell mode amplitude is 0.4808
+//  at the wall against 0.0167 for the doubled box, twenty-nine times larger, and
+//  ten times its own mid-box level.
+//
+//  THE MECHANISM IS omega_q -> 2, ARRIVING THROUGH THE BOUNDARY. omega_q is
+//  1.99952 at these parameters. ChargeCentralMoments annihilates the ghost
+//  moments in the BULK, which is the whole point of its relaxation schedule --
+//  but the lateral wall is ScalarAdiabatic, i.e. bounce-back, applied outside
+//  the collision, and at omega -> 2 bounce-back re-injects an odd-even mode that
+//  never damps. It is the same mechanism ScalarRegularised exists to fix
+//  (CLAUDE.md records it for the collision at Ra = 1e14), reaching the solution
+//  through the boundary instead. A fixed-width boundary layer is why the gap
+//  falls at roughly FIRST order rather than second.
+//
+//  ScalarOutflow instead of ScalarAdiabatic (`-latout`) does not fix it and is
+//  kept only to record that: it is an OPEN boundary, not a mirror, and it bleeds
+//  charge -- q/q0 reaches -0.1652 against -0.0211, an eightfold worse violation
+//  of the maximum principle, and the answer moves to 3.5077. What this case
+//  actually wants is an ON-NODE ZERO-FLUX scalar wall, which this tree does not
+//  have; CLAUDE.md already lists that gap and this is its second and sharper
+//  measurement.
+//
+//  SO: `-freeslip` is the reference's literal boundary and is kept because it is
+//  an INDEPENDENT lateral discretisation -- the gap between the two geometries
+//  measures the lateral boundary error the way the D2Q9/D3Q27 gap measures the
+//  interior, and neither geometry alone can show it. The doubled box is the
+//  default because removing a boundary beats discretising it badly.
+//
+//  WHAT THE DOUBLED BOX ADMITS that free-slip does not: laterally antisymmetric
+//  modes, and a continuous family of translations of the symmetric one. So the
+//  wavelength is MEASURED rather than assumed -- every run reports the dominant
+//  lateral wavenumber of u_y at mid-depth and its share of the lateral kinetic
+//  energy. `-half` runs the undoubled periodic box, which is a DIFFERENT problem
+//  -- it admits only wavelengths <= Lx and so forbids the fundamental. It exists
+//  to show that, not as an option.
 //
 //  ===================== ON-NODE PLATES, THROUGHOUT ==========================
 //  The hydrostatic case established that halfway plates are FIRST ORDER here,
@@ -121,12 +169,22 @@
 //  the physics as discretised here and not of the stencil. D2Q9 is 3.7x faster
 //  (20.5 s -> 5.5 s at ny = 41), which is what makes the refinement affordable.
 //
-//  IT IS ALREADY GRID INDEPENDENT AT THE COARSEST GRID, and that is the finding
-//  that does NOT match the paper. Measured on D2Q9: 3.7472 at ny = 81 and 3.7597
-//  at ny = 163 -- 0.33 % for a factor of two. Table 5's own sequence over the
-//  same grids is 3.33 -> 3.64, i.e. 9.3 %. So the disagreement is entirely at the
-//  COARSE end: this case does not reproduce Table 5's coarse-grid values because
-//  it does not have Table 5's coarse-grid error.
+//  IT IS NEARLY GRID INDEPENDENT BY ny = 81, and that is the finding that does
+//  NOT match the paper. Measured on D2Q9 in the doubled box: 3.5995 at ny = 41,
+//  3.7472 at ny = 81, 3.7597 at ny = 163 -- +4.24 % then +0.33 %. Table 5's own
+//  sequence over the last two grids is 3.33 -> 3.64, i.e. 9.3 %. So the
+//  disagreement is at the COARSE end: this case does not reproduce Table 5's
+//  coarse-grid values because it does not have Table 5's coarse-grid error.
+//
+//  TWO HONEST CAVEATS ON THAT SEQUENCE, both found while chasing the free-slip
+//  gap above. The ny = 81 and ny = 163 runs both STOPPED on the clock still
+//  creeping rather than meeting the tolerance, so 0.33 % is a difference between
+//  two values that were each still rising -- only ny = 41 is a converged point.
+//  And a refinement that holds the lateral ALIGNMENT fixed cannot see an error
+//  that depends on it: the doubled box's mirror planes sit on nodes at every
+//  resolution, so this sequence is blind by construction to the half-cell
+//  question that `-freeslip` answers. Grid independence within one family is not
+//  grid independence.
 //
 //  The likely reason is the one increment 1 already measured: on-node plates beat
 //  halfway plates 11.19 % -> 1.49 % at H = 80, because E = -grad phi is a
@@ -162,7 +220,8 @@
 //
 //    usage: ehd_electroconvection [-ny NY] [-t T] [-a A] [-u0 U] [-c C] [-m M]
 //                                 [-alpha A] [-tf N] [-amp A] [-tol E]
-//                                 [-dump PREFIX] [-lat 2d|3d] [-half] [-watch]
+//                                 [-dump PREFIX] [-lat 2d|3d] [-freeslip]
+//                                 [-half] [-watch]
 //                                 [--kokkos-num-threads=4]
 //==============================================================================
 #include "collision/ChargeCentralMoments.hpp"
@@ -170,6 +229,7 @@
 #include "collision/ScalarBGK.hpp"
 #include "core/Types.hpp"
 #include "boundary/Regularized.hpp"
+#include "boundary/Specular.hpp"
 #include "equilibrium/Equilibrium.hpp"
 #include "forcing/Forcing.hpp"
 #include "memory/EsotericPull.hpp"
@@ -181,6 +241,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 using namespace lbm;
 
@@ -221,6 +282,9 @@ struct Opts {
   double amp = 1e-2;          // seed, in units of q0
   double tol = 2e-4;          // |d u_max| / u_max over one t0
   bool   doubled = true;      // periodic box of 2 Lx -- see the banner
+  bool   freeslip = false;    // -freeslip: the real wall, on one half-box
+  double sphase = 0.0;        // lateral seed phase, in CELLS -- see the banner
+  bool   latout = false;      // -latout: ScalarOutflow (on-node) lateral walls
   bool   watch = false;
   bool   d3 = false;          // -lat 3d: D3Q27 + D3Q7, what GPU/ will run
   std::string dump;           // <prefix>_q_*.bin and <prefix>_u_*.bin
@@ -254,7 +318,18 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   const Index H  = o.ny - 1;                      // on-node plates at 0 and H
   const Index ny = o.ny;
   const Index nxh = Index(o.aspect * double(ny) + 0.5);   // the paper's own nx
-  const Index nx = o.doubled ? 2 * nxh : nxh;
+  // THREE LATERAL GEOMETRIES, and only two of them solve the paper's problem.
+  //   freeslip : nxh fluid columns between two SPECULAR ghost columns. This is
+  //              Eqs. (14)-(16) directly, once boundary/Specular.hpp existed.
+  //   doubled  : a periodic box of width 2 nxh, the mirror-symmetric double of
+  //              the above. Equivalent for the symmetric state; it was the only
+  //              option before the specular wall was written.
+  //   half     : a periodic box of width nxh. A DIFFERENT problem -- it admits
+  //              only wavelengths <= Lx and so forbids the fundamental. Kept to
+  //              show that, not as an option.
+  const bool fs = o.freeslip;
+  const Index nx = fs ? nxh + 2 : (o.doubled ? 2 * nxh : nxh);
+  const Index x0 = fs ? 1 : 0, x1 = fs ? nxh : nx - 1;   // first/last fluid column
   const Index nz = 1;
 
   const double dphi = 1.0, rho0 = 1.0;
@@ -270,7 +345,8 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   if (verbose) {
     std::printf("  T = %6.1f   %lld x %lld  (H = %lld, A = %.3f%s)   u0 = %.4g\n",
                 Tel, (long long)nx, (long long)ny, (long long)H,
-                double(nxh) / double(ny), o.doubled ? ", doubled" : ", HALF BOX",
+                double(nxh) / double(ny),
+                fs ? ", free-slip" : (o.doubled ? ", doubled" : ", HALF BOX"),
                 u0);
     std::printf("    K = %.4g  eps = %.4g  nu = %.4g (tau = %.4f)  q0 = %.4g"
                 "  D = %.3g (omega_q = %.6f)\n", Kmob, eps, nu, 3.0 * nu + 0.5,
@@ -287,7 +363,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   // different lattice from the other two. The driver reads qf(n) inside the
   // potential's source and phi(n) inside the charge's drift, and both are
   // therefore the same node.
-  Domain d(nx, ny, nz, /*periodic x*/ true, /*y*/ false, /*z*/ true);
+  Domain d(nx, ny, nz, /*periodic x*/ !fs, /*y*/ false, /*z*/ true);
 
   // ---- the fluid ----------------------------------------------------------
   // F = q E arrives as three Views; FieldGuo applies Guo's source with the
@@ -298,22 +374,39 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   fcoll.omega_bulk = Real(1);              // trace to equilibrium, as rb_high_ra
   fcoll.forcing.Ex = Fx;  fcoll.forcing.Ey = Fy;  fcoll.forcing.Ez = Fz;
   FluidSol fl(d, fcoll);
-  fl.set_geometry([&](Index, Index, Index) -> CellType { return Fluid; });
+  fl.set_geometry([&](Index x, Index, Index) -> CellType {
+    return (fs && (x == 0 || x == nx - 1)) ? Solid : Fluid;
+  });
   using WS = typename FluidSol::WallSpec;
   fl.set_regularized_walls([&](Index, Index y, Index) -> WS {
     if (y == 0)      return WS{NrmYm, Real(0), Real(0), Real(0)};
     if (y == ny - 1) return WS{NrmYp, Real(0), Real(0), Real(0)};
     return WS{};
   });
+  // AFTER the regularised walls, deliberately: the two setters overlap on the
+  // four corner cells and the last one wins. Specular winning is correct there
+  // -- a corner cell is in the GHOST COLUMN, outside the fluid in x, and what
+  // the fluid needs from it is the x-mirror of the plate node beside it, which
+  // is exactly what specular reflection produces.
+  if (fs)
+    fl.set_specular_walls([&](Index x, Index, Index) -> std::uint8_t {
+      if (x == 0)      return NrmXm;
+      if (x == nx - 1) return NrmXp;
+      return NrmNone;
+    });
   fl.initialize(Real(rho0));
 
   // ---- the charge ---------------------------------------------------------
   ChargeOp ccoll;
   ccoll.omega = ChargeOp::omega_from_diffusivity(Real(Dq));
   ChargeSol chg(d, ccoll);
-  chg.set_geometry([&](Index, Index y, Index) -> ScalarCell {
+  // The plates take precedence at the corners, so a corner ghost carries the
+  // plate's own value -- which is what its mirror partner carries too.
+  chg.set_geometry([&](Index x, Index y, Index) -> ScalarCell {
     if (y == 0)      return ScalarMoment;      // injector q = q0, Eq. (12)
     if (y == ny - 1) return ScalarOutflow;      // collector d_y q = 0, Eq. (13)
+    if (fs && (x == 0 || x == nx - 1))
+      return o.latout ? ScalarOutflow : ScalarAdiabatic;         // d_n q = 0, Eq. (15)
     return ScalarBulk;
   });
   chg.set_wall_values([&](Index, Index, Index) -> Real { return Real(q0); });
@@ -324,8 +417,11 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   pcoll.omega = PotOp::omega_from_diffusivity(Real(o.beta));
   pcoll.T_ref = Real(0);
   PotSol pot(d, pcoll);
-  pot.set_geometry([&](Index, Index y, Index) -> ScalarCell {
-    return (y == 0 || y == ny - 1) ? ScalarMoment : ScalarBulk;
+  pot.set_geometry([&](Index x, Index y, Index) -> ScalarCell {
+    if (y == 0 || y == ny - 1) return ScalarMoment;
+    if (fs && (x == 0 || x == nx - 1))
+      return o.latout ? ScalarOutflow : ScalarAdiabatic;         // d_n phi = 0, Eq. (14)
+    return ScalarBulk;
   });
   pot.set_wall_values([&](Index, Index y, Index) -> Real {
     return (y == 0) ? Real(dphi) : Real(0);
@@ -333,6 +429,9 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
 
   // ---- initial state, Eqs. (17)-(20) plus the seed ------------------------
   const Index Hc = H, nxc = nx;
+  const bool  fsc = fs;
+  const double sph = o.sphase;
+  const Index x0c = x0, x1c = x1, nxhc = nxh;
 
   const Real ampq = Real(o.amp * q0);
   const double dec = double(H) / 8.0;         // seed depth, a fixed FRACTION of H
@@ -362,7 +461,12 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
     Index px, py, pz; d.coords(n, px, py, pz);
     const Index x = px - d.hx, y = py - d.hy;
     if (y <= 0 || y >= Hc) return Real(0);
-    const double lat = 0.5 * (1.0 + Kokkos::cos(2.0 * M_PI * double(x) / double(nxc)));
+    // The fundamental of the box in use. In the doubled box that is one full
+    // wave across 2 Lx; in the free-slip box it is the half wave across Lx with
+    // its extrema ON the two mirror planes -- the same physical mode.
+    const double ph = fsc ? (M_PI * (double(x - x0c) + 0.5) / double(nxhc))
+                          : (2.0 * M_PI * (double(x) + sph) / double(nxc));
+    const double lat = 0.5 * (1.0 + Kokkos::cos(ph));
     return Real(double(ampq) * lat * Kokkos::exp(-double(y) / dec));
   });
   pot.finalize_geometry();
@@ -408,7 +512,15 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       kx(n) = ky(n) = kz(n) = Real(0);
       Fx(n) = Fy(n) = Fz(n) = Real(0);
       if (y < 0 || y > Hc) return;
-      const Index xm = (x - 1 + nxc) % nxc, xp = (x + 1) % nxc;
+      if (fsc && (x < x0c || x > x1c)) return;      // ghost column: no field
+      // At a symmetry plane phi is EVEN, so phi(x0-1) = phi(x0): the central
+      // stencil folds back on itself and Ex vanishes on the plane, which is
+      // d_n phi = 0, Eq. (14). Reading the ghost node instead would be wrong
+      // twice over -- it is outside the mirror, and ScalarAdiabatic reports
+      // ZERO at its own node (CLAUDE.md lists that trap), so the difference
+      // would be taken against nothing.
+      const Index xm = fsc ? (x == x0c ? x0c : x - 1) : (x - 1 + nxc) % nxc;
+      const Index xp = fsc ? (x == x1c ? x1c : x + 1) : (x + 1) % nxc;
       double Ey;
       // The plates ARE nodes, so the one-sided stencils start from the imposed
       // potential. That is the whole point of the on-node family here.
@@ -420,8 +532,8 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
                + 0.5 * double(phi(d.id(x, y - 2, 0))));
       else
         Ey = -0.5 * (double(phi(d.id(x, y + 1, 0))) - double(phi(d.id(x, y - 1, 0))));
-      const double Ex = -0.5 * (double(phi(d.id(xp, y, 0)))    // x is periodic,
-                                - double(phi(d.id(xm, y, 0))));// central always
+      const double Ex = -0.5 * (double(phi(d.id(xp, y, 0)))
+                                - double(phi(d.id(xm, y, 0))));
       const double qn = double(qf(n));
       Fx(n) = Real(qn * Ex);                  // Coulomb, Eq. (6)
       Fy(n) = Real(qn * Ey);
@@ -455,7 +567,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       double peak = 0.0, qlo = 1e300, qhi = -1e300;
       long nbad = 0;
       for (Index y = 0; y <= H; ++y)
-        for (Index x = 0; x < nx; ++x) {
+        for (Index x = x0; x <= x1; ++x) {
           const Index n = d.id(x, y, 0);
           const double a = double(hux(n)), b = double(huy(n)), q = double(hq(n));
           if (!std::isfinite(a) || !std::isfinite(b) || !std::isfinite(q)) { ++nbad; continue; }
@@ -492,13 +604,27 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       //
       // (Note for anyone reading a dumped field instead: the dumps carry |u|,
       // which is rectified, so a u_y pattern at m appears there at 2m.)
+      //
+      // A FREE-SLIP RUN IS MIRRORED FIRST, so m counts the same thing in both
+      // geometries: the doubled box's own field is what the mirror of the
+      // free-slip field would be, and comparing a length-nxh transform with a
+      // length-2nxh one would compare two different indices wearing one name.
+      const Index nsig = fs ? 2 * nxh : nx;
+      std::vector<double> sig(static_cast<std::size_t>(nsig), 0.0);
+      for (Index k = 0; k < nsig; ++k) {
+        Index xs;
+        if (!fs)                 xs = k;
+        else if (k < nxh)        xs = x0 + k;
+        else                     xs = x0 + (2 * nxh - 1 - k);
+        sig[std::size_t(k)] = double(huy(d.id(xs, H / 2, 0)));
+      }
       double e[8] = {0}, etot = 0.0;
       for (int m = 1; m < 8; ++m) {
         double cr = 0.0, ci = 0.0;
-        for (Index x = 0; x < nx; ++x) {
-          const double v = double(huy(d.id(x, H / 2, 0)));
-          const double th = 2.0 * M_PI * double(m) * double(x) / double(nx);
-          cr += v * std::cos(th);  ci -= v * std::sin(th);
+        for (Index k = 0; k < nsig; ++k) {
+          const double th = 2.0 * M_PI * double(m) * double(k) / double(nsig);
+          cr += sig[std::size_t(k)] * std::cos(th);
+          ci -= sig[std::size_t(k)] * std::sin(th);
         }
         e[m] = cr * cr + ci * ci;  etot += e[m];
       }
@@ -526,10 +652,13 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       if (!o.dump.empty()) {
         char tag[32];
         std::snprintf(tag, sizeof tag, "_%04d.bin", frame++);
-        figdump::scalar_slice(o.dump + "_q" + tag, nx, ny, [&](Index x, Index y) {
-          return double(hq(d.id(x, y, 0))) / q0;
+        figdump::scalar_slice(o.dump + "_q" + tag, x1 - x0 + 1, ny,
+                              [&](Index xi, Index y) {
+          return double(hq(d.id(x0 + xi, y, 0))) / q0;
         });
-        figdump::scalar_slice(o.dump + "_u" + tag, nx, ny, [&](Index x, Index y) {
+        figdump::scalar_slice(o.dump + "_u" + tag, x1 - x0 + 1, ny,
+                              [&](Index xi, Index y) {
+          const Index x = x0 + xi;
           const Index m = d.id(x, y, 0);
           return std::sqrt(double(hux(m)) * double(hux(m)) +
                            double(huy(m)) * double(huy(m))) / u0;
@@ -606,6 +735,9 @@ int main(int argc, char** argv) {
     else if (a == "-tol"   && i + 1 < argc) o.tol    = std::atof(argv[++i]);
     else if (a == "-dump"  && i + 1 < argc) o.dump   = argv[++i];
     else if (a == "-lat"   && i + 1 < argc) o.d3 = (std::string(argv[++i]) == "3d");
+    else if (a == "-sphase" && i + 1 < argc) o.sphase = std::atof(argv[++i]);
+    else if (a == "-latout")                o.latout = true;
+    else if (a == "-freeslip")              o.freeslip = true;
     else if (a == "-half")                  o.doubled = false;
     else if (a == "-watch")                 o.watch   = true;
   }

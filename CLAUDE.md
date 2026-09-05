@@ -64,6 +64,7 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 |---|---|---|
 | single-phase, single-component | `FluidSolver` | **the default — see the rule below** |
 | + temperature / passive scalar | `ScalarSolver` alongside | own lattice, velocity is an input; `ScalarBGK` by default, `ScalarRegularised` above ω ≈ 1.9 |
+| free-slip / symmetry wall | `set_specular_walls` | exact mirror; **no scalar companion** — see below |
 | + charge carriers in an electric field | `ScalarSolver` + `ChargeCentralMoments` | D3Q27, advects at the **drift** velocity `u + KE`, not at `u` |
 | + electric potential (Poisson) | `ScalarSolver` + `ScalarBGK` + `add_source` | no new solver — see `validation/ehd_hydrostatic.cpp` |
 | + magnetic field | `MagneticSolver` | Dellar vector distribution |
@@ -239,6 +240,32 @@ These produce plausible, converged, wrong answers rather than crashes.
   O(1/H) and dragged the whole convergence rate to 1.0. On-node plates
   (`ScalarMoment`, Dellar's condition) fixed it — C = 10 at H = 80 went from
   11.19% to 1.49%. Ask which family you need before defaulting to halfway.
+- **A ZERO-FLUX SCALAR WALL RINGS AT ω → 2, AND THE COLLISION CANNOT SAVE IT.**
+  Measured 2026-09-05 in `validation/ehd_electroconvection.cpp -freeslip`.
+  `ChargeCentralMoments` annihilates the ghost moments in the *bulk* — that is
+  its whole relaxation schedule — but `ScalarAdiabatic` is bounce-back applied
+  *outside* the collision, and at ω_q = 1.99952 bounce-back re-injects an
+  odd–even mode that never damps. The cell-to-cell amplitude reaches **0.4808**
+  in the first columns against 0.0167 for a boundary-free box: 29× larger, and
+  10× its own mid-box level. 85.7% of the error sits within three cells of the
+  wall, in columns that are 24% of the domain, so it falls at roughly *first*
+  order — 3.96% at ny=41, 3.30% at 81, 1.63% at 163. `ScalarOutflow` is not the
+  fix: it is an *open* boundary, and it bled charge to −0.165 q0 against −0.021.
+  The gap the tree actually has is an **on-node zero-flux scalar wall**.
+- **REMOVING A BOUNDARY CAN BEAT DISCRETISING IT.** Same measurement, and it
+  inverted the reasoning it was meant to check. A free-slip box of width Lx is
+  the mirror-symmetric half of a *periodic* box of width 2Lx, so the doubled box
+  solves the same problem with **no lateral boundary at all**. It costs 2× the
+  cells and is the better discretisation, not a workaround for a missing
+  feature — the real free-slip wall, which is exact for the fluid, is worse here
+  because its scalar companion is not. Keep both anyway: the gap between two
+  lateral discretisations measures the lateral boundary error the way the
+  D2Q9/D3Q27 gap measures the interior, and neither alone can show it.
+- **GRID INDEPENDENCE WITHIN ONE FAMILY IS NOT GRID INDEPENDENCE.** The doubled
+  box's mirror planes sit on nodes at every resolution, so refining it cannot
+  see an error that depends on the half-cell alignment. `ehd_electroconvection`
+  reported 0.33% from ny=81 to 163 and was 3.3% from the other alignment. Ask
+  what a refinement holds *fixed* before quoting it as convergence.
 - **A MOMENT INDEX MUST BE A COMPILE-TIME CONSTANT.** The moment operators reach
   their exponents through `Basis::p_of(n)`, which is a lookup in a 432-byte
   table. Called with a compile-time `n` it folds and the moment arrays live in
@@ -313,6 +340,12 @@ Do not spend time on these without saying so first; several are deliberate.
 - **No MPI.** Single rank. `Domain` carries halo machinery but there is no
   exchange.
 - **No contact line or wetting model** in the phase field; no open boundary for φ.
+- **Free-slip walls exist for the FLUID only** (`set_specular_walls`,
+  `src/boundary/Specular.hpp`, added 2026-09-05; exact to 5.5e-14 against the
+  channel it mirrors, `validation/specular.cpp`). Axis-aligned normals only, no
+  specular corners, and **no on-node zero-flux scalar condition to pair with
+  it** — see the ω → 2 entry above before using one on a case that carries a
+  scalar.
 - **The free surface has no surface tension** (uniform gas pressure, no curvature
   term) and **no gas dynamics** — an enclosed bubble does not compress.
 - **The free surface's moving obstacle is not reliable.** The cause is in

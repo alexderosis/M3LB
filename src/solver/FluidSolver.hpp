@@ -16,6 +16,7 @@
 //==============================================================================
 #include "boundary/Flags.hpp"
 #include "boundary/Regularized.hpp"
+#include "boundary/Specular.hpp"
 #include "core/Types.hpp"
 
 #include <array>
@@ -42,6 +43,7 @@ class FluidSolver {
       : dom_(dom), coll_(coll), pop_(dom),
         flags_("flags", dom.n_padded),
         bc_nrm_("bc_nrm", dom.n_padded),
+        spec_nrm_("spec_nrm", dom.n_padded),
         bc_ext_("bc_ext", dom.n_padded),
         bc_tag_("bc_tag", dom.n_padded),
         bc_don_("bc_don", dom.n_padded),
@@ -154,6 +156,44 @@ class FluidSolver {
 
   Index active_count() const { return n_active_; }
   Index wall_count() const { return n_walls_; }
+
+  //----------------------------------------------------------------------------
+  // Specular (free-slip / symmetry) walls. fn(x, y, z) -> NormalCode; NrmNone
+  // leaves the cell alone, an axis code marks it SpecWall with that normal.
+  //
+  // The marked cell is a GHOST, not a fluid node: like a Solid cell it sits
+  // outside the flow and the reflecting plane lands halfway between it and the
+  // last fluid node. It does not collide and reports no macroscopic state.
+  //
+  // Call this AFTER set_geometry, which resets every flag.
+  //----------------------------------------------------------------------------
+  template <class Fn>
+  void set_specular_walls(Fn fn) {
+    auto h_nrm = Kokkos::create_mirror_view(spec_nrm_);
+    for (Index n = 0; n < dom_.n_padded; ++n) h_nrm(n) = NrmNone;
+    for (Index z = 0; z < dom_.nz; ++z)
+      for (Index y = 0; y < dom_.ny; ++y)
+        for (Index x = 0; x < dom_.nx; ++x) {
+          const std::uint8_t code = fn(x, y, z);
+          if (code == NrmNone) continue;
+          // Only axis normals have an exact specular permutation on a lattice.
+          // An oblique or corner cell is a setup error, not something to
+          // approximate silently -- see Specular.hpp's "what this does not do".
+          if (code > NrmZm) {
+            std::fprintf(stderr,
+                "set_specular_walls: normal code %u at (%lld,%lld,%lld) is not an "
+                "axis normal; specular reflection is defined for NrmXp..NrmZm only.\n",
+                unsigned(code), (long long)x, (long long)y, (long long)z);
+            std::abort();
+          }
+          const Index n = dom_.id(x, y, z);
+          h_nrm(n) = code;
+          h_flags_(n) = SpecWall;
+        }
+    Kokkos::deep_copy(spec_nrm_, h_nrm);
+    Kokkos::deep_copy(flags_, h_flags_);
+    rebuild_lists();
+  }
 
   void set_fd_corners(bool on) { fd_corners_ = on; }
 
@@ -507,6 +547,7 @@ class FluidSolver {
     const Domain d  = dom_;
     auto flags = flags_;
     auto bc_nrm = bc_nrm_; auto bc_tag = bc_tag_; auto wall_u = wall_u_;
+    auto spec_nrm = spec_nrm_;
     auto bc_rho = bc_rho_; auto bc_unk = bc_unk_; auto bc_don = bc_don_; auto bc_onrm = bc_onrm_;
     const bool fd_corners = fd_corners_ && has_shear_omega<Collision>;
     const bool force_bc   = force_bc_;
@@ -526,6 +567,23 @@ class FluidSolver {
       // of silent corruption. That distinction is not hypothetical -- see the
       // note on rebuild_lists().
       if (flag == Excluded) return;
+      // SPECULAR REFLECTION -- free slip. The node loads its complete incoming
+      // set, permutes it about the wall normal and stores it back. Every slot
+      // touched here is one this node already both reads and writes in the
+      // ordinary scheme (see Specular.hpp), so this is race-free and needs no
+      // buffer. It does NOT collide: the cell is a ghost.
+      if (flag == SpecWall) {
+        const int ax = mirror_axis(spec_nrm(n));
+        Neighbours<L> nbs;
+        d.template fill_neighbours<L, NF, NS>(n, nbs);
+        Real fin[Q], fout[Q];
+        fin[0] = acc.load_rest(nbs);
+        for (int i = 1; i < Q; i += 2) acc.load_pair(nbs, i, fin[i], fin[i + 1]);
+        for (int i = 0; i < Q; ++i) fout[i] = fin[mirror_table<L>.m[ax][i]];
+        acc.store_rest(nbs, fout[0]);
+        for (int i = 1; i < Q; i += 2) acc.store_pair(nbs, i, fout[i], fout[i + 1]);
+        return;
+      }
       // Esoteric Pull's bounce-back is the identity on the storage, so a solid
       // cell is skipped outright -- no load, no store, no arithmetic.
       if constexpr (Streaming::implicit_bounce_back) {
@@ -929,6 +987,11 @@ class FluidSolver {
 
   View1D<std::uint8_t> flags_;
   View1D<std::uint8_t> bc_nrm_, bc_ext_;
+  // Specular walls carry their own normal rather than sharing bc_nrm_:
+  // set_regularized_walls() CLEARS bc_nrm_ over the whole domain, so the two
+  // setters would silently depend on call order. One byte per node against a
+  // trap that produces a plausible wrong answer is the right trade.
+  View1D<std::uint8_t> spec_nrm_;
   // One entry per DISTINCT wall state, not per wall node -- but a profiled
   // inlet makes almost every node distinct, so this must not be a uint8_t.
   // At uint8_t the index wrapped silently at 256 states and nodes past that
