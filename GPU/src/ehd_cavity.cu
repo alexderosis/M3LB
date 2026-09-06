@@ -69,6 +69,43 @@ struct RestInit {
   }
 };
 
+//------------------------------------------------------------------------------
+//  THE INITIALISERS ARE STRUCTS, NOT LAMBDAS, and that is a device requirement
+//  rather than a style choice. initialise_with instantiates a __global__
+//  template on the functor's type, and the closure type of an ordinary host
+//  lambda cannot be a template argument of a __global__ instantiation --
+//  nvcc rejects it outright unless it is an extended (__device__) lambda. A
+//  HOST BUILD ACCEPTS THE LAMBDA HAPPILY, because nothing there is __global__,
+//  so this is exactly the class of error the host build cannot find and the
+//  device build finds immediately. Every other driver here uses the same shape.
+//------------------------------------------------------------------------------
+struct PotentialInit {
+  int H;
+  // phi starts at its CHARGE-FREE solution, not at zero. Eq. (19) says zero,
+  // but Poisson is elliptic: that is where a relaxation starts, not a state of
+  // the system. Against phi = dphi on the plate, zero puts the whole potential
+  // difference across one cell and the drift K E goes supersonic.
+  LBM_HD Real operator()(int, int y, int) const {
+    const double yy = y < 0 ? 0.0 : (y > H ? double(H) : double(y));
+    return Real(1.0 - yy / double(H));
+  }
+};
+
+struct ChargeInit {
+  int H;
+  Real amp;                          // in lattice units, already scaled by q0
+  Real dec;                          // seed depth
+  LBM_HD Real operator()(int x, int y, int) const {
+    if (y <= 0 || y >= H) return Real(0);
+    double lat = 0.0;
+    const double ph[4] = {0.0, 1.1, 2.3, 0.7};
+    for (int m = 0; m < 4; ++m)
+      lat += 0.25 * 0.5 * (1.0 + cos(M_PI * double(m + 1) * (double(x) + 0.5) / 64.0
+                                     + ph[m]));
+    return Real(double(amp) * lat * exp(-double(y) / double(dec)));
+  }
+};
+
 struct Opts {
   int n = 129, nz = 1;
   double T = 1000, u0 = 5e-3, C = 10, M = 10, Sc = 1e3, alpha = -1, beta = 0.3;
@@ -165,24 +202,9 @@ static Out solve(const Opts& o, bool hydro, double I0, bool verbose) {
   chg.advect_with(kx.data(), ky.data(), kz.data());
 
   fl.initialise_with(RestInit{});
-  // phi starts at its CHARGE-FREE solution, not at zero. Eq. (19) says zero,
-  // but Poisson is elliptic: that is where a relaxation starts, not a state of
-  // the system. Against phi = dphi on the plate, zero puts the whole potential
-  // difference across one cell and the drift K E goes supersonic.
-  const int Hc = H;
-  pot.initialise_with([Hc](int, int y, int) {
-    const double yy = y < 0 ? 0.0 : (y > Hc ? double(Hc) : double(y));
-    return Real(1.0 - yy / double(Hc));
-  });
-  const double ampq = (hydro ? 0.0 : o.amp) * q0, dec = double(H) / 8.0;
-  chg.initialise_with([Hc, ampq, dec](int x, int y, int) {
-    if (y <= 0 || y >= Hc) return Real(0);
-    double lat = 0.0;
-    const double ph[4] = {0.0, 1.1, 2.3, 0.7};
-    for (int m = 0; m < 4; ++m)
-      lat += 0.25 * 0.5 * (1.0 + std::cos(M_PI * double(m + 1) * (x + 0.5) / 64.0 + ph[m]));
-    return Real(ampq * lat * std::exp(-double(y) / dec));
-  });
+  pot.initialise_with(PotentialInit{H});
+  chg.initialise_with(ChargeInit{H, Real((hydro ? 0.0 : o.amp) * q0),
+                                 Real(double(H) / 8.0)});
 
   EhdParams ep;
   ep.phi = pot.field_device(); ep.q = chg.field_device();

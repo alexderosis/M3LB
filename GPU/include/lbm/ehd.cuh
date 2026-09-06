@@ -172,7 +172,11 @@ LBM_HD LBM_INLINE void ehd_node(const EhdParams& p, long n) {
 }
 
 #if defined(__CUDACC__)
-__global__ inline void ehd_kernel(EhdParams p, long N) {
+// Templated rather than `inline`: nvcc ignores an inline qualifier on a
+// __global__ function (warning 20050) but a header still needs one definition
+// per translation unit, and a template gives that without the qualifier.
+template <int Unused = 0>
+__global__ void ehd_kernel(EhdParams p, long N) {
   const long n = blockIdx.x * blockDim.x + threadIdx.x;
   if (n >= N) return;
   ehd_node(p, n);
@@ -186,7 +190,7 @@ inline void ehd_pass(const EhdParams& p) {
   const long N = long(p.nx) * p.ny * p.nz;
 #if defined(__CUDACC__)
   const int B = 256, G = int((N + B - 1) / B);
-  ehd_kernel<<<G, B>>>(p, N);
+  ehd_kernel<0><<<G, B>>>(p, N);
   LBM_CUDA_CHECK(cudaGetLastError());
 #else
   for (long n = 0; n < N; ++n) ehd_node(p, n);
