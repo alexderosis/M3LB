@@ -50,6 +50,7 @@
 //    usage: ehd_cavity [-n N] [-t T] [-u0 U] [-c C] [-m M] [-sc SC]
 //                      [-alpha A] [-beta B] [-tf N] [-tavg N] [-amp A]
 //                      [-tfh N] [-watch]
+//                      [-dump PREFIX] [-dumpn K]
 //==============================================================================
 #include "lbm/backend.cuh"
 #include "lbm/ehd.cuh"
@@ -58,10 +59,28 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <vector>
 
 using namespace lbm;
+
+//------------------------------------------------------------------------------
+//  A field plane in this tree's dump format: two int32 (nx, ny) then nx*ny
+//  float32, row major. Deliberately the SAME format the Kokkos side writes, so
+//  doc/fig/bin2vtk.py converts either one to ParaView's legacy VTK without
+//  knowing which codebase produced it -- and so a device dump and a host dump
+//  can be differenced directly.
+//------------------------------------------------------------------------------
+static void write_plane(const std::string& path, int nx, int ny,
+                        const std::vector<float>& v) {
+  std::ofstream o(path, std::ios::binary);
+  const std::int32_t a = nx, b = ny;
+  o.write(reinterpret_cast<const char*>(&a), sizeof a);
+  o.write(reinterpret_cast<const char*>(&b), sizeof b);
+  o.write(reinterpret_cast<const char*>(v.data()),
+          std::streamsize(v.size() * sizeof(float)));
+}
 
 struct RestInit {
   LBM_HD Macro operator()(int, int, int) const {
@@ -111,6 +130,8 @@ struct Opts {
   double T = 1000, u0 = 5e-3, C = 10, M = 10, Sc = 1e3, alpha = -1, beta = 0.3;
   double tf = 30, tavg = 15, tfh = 12, amp = 0;
   bool watch = false, profile = false;
+  int  dumpn = 0;             // -dumpn K: a frame every K probes
+  std::string dump;           // -dump PREFIX
 };
 
 //------------------------------------------------------------------------------
@@ -229,7 +250,7 @@ static Out solve(const Opts& o, bool hydro, double I0, bool verbose) {
   const std::size_t probe = std::size_t(t0 / 20) ? std::size_t(t0 / 20) : 1;
   Out r;
   double sNe = 0, sNe2 = 0, ring[20] = {0};
-  int nprobe = 0;
+  int nprobe = 0, frame = 0;
   std::vector<Real> hq, hrho, hux, huy, huz, hky;
   const double tavg0 = o.tf - o.tavg;
 
@@ -303,6 +324,37 @@ static Out solve(const Opts& o, bool hydro, double I0, bool verbose) {
                     "   q/q0 [%7.4f, %7.4f]   dq_x = %.3e   max|Fy| = %.3e\n",
                     tt, r.umax, r.Ie, ne, r.qlo, r.qhi, (qmax - qmin) / q0, fmax);
       }
+      // ---- frames ---------------------------------------------------------
+      // Written at probe time because the fields are already on the host there;
+      // a separate cadence would mean a second transfer for no extra
+      // information. q, |u| and phi, so ParaView can colour by any of them.
+      if (!o.dump.empty() && !hydro && o.dumpn > 0 && (nprobe % o.dumpn) == 0) {
+        std::vector<Real> hp;
+        pot.field_to_host(hp);
+        std::vector<float> f(std::size_t(nx) * std::size_t(ny));
+        char tag[32];
+        std::snprintf(tag, sizeof tag, "_%04d.bin", frame);
+        for (int y = 0; y < ny; ++y)
+          for (int x = 0; x < nx; ++x)
+            f[std::size_t(y) * std::size_t(nx) + std::size_t(x)] =
+                float(double(hq[std::size_t(node_id(x, y, 0, nx, ny))]) / q0);
+        write_plane(o.dump + "_q" + tag, nx, ny, f);
+        for (int y = 0; y < ny; ++y)
+          for (int x = 0; x < nx; ++x) {
+            const std::size_t m = std::size_t(node_id(x, y, 0, nx, ny));
+            f[std::size_t(y) * std::size_t(nx) + std::size_t(x)] =
+                float(std::sqrt(double(hux[m]) * double(hux[m]) +
+                                double(huy[m]) * double(huy[m])) / o.u0);
+          }
+        write_plane(o.dump + "_u" + tag, nx, ny, f);
+        for (int y = 0; y < ny; ++y)
+          for (int x = 0; x < nx; ++x)
+            f[std::size_t(y) * std::size_t(nx) + std::size_t(x)] =
+                float(double(hp[std::size_t(node_id(x, y, 0, nx, ny))]));
+        write_plane(o.dump + "_phi" + tag, nx, ny, f);
+        ++frame;
+      }
+
       const double ago = ring[nprobe % 20];
       ring[nprobe % 20] = r.Ie;
       ++nprobe;
@@ -352,6 +404,8 @@ int main(int argc, char** argv) {
     else if (a == "-amp"   && i + 1 < argc) o.amp   = std::atof(argv[++i]);
     else if (a == "-watch")                 o.watch = true;
     else if (a == "-profile")               o.profile = true;
+    else if (a == "-dump"  && i + 1 < argc) o.dump  = argv[++i];
+    else if (a == "-dumpn" && i + 1 < argc) o.dumpn = std::atoi(argv[++i]);
   }
 
   std::printf("Closed square EHD cavity   %s   D3Q27 fluid + charge / D3Q7 potential"

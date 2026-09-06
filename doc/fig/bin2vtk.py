@@ -25,6 +25,12 @@ dialog) and the animation controls become live.
       bin2vtk.py FIELD.bin OUT.vtk                  one plane
       bin2vtk.py --glob 'rb_T_*.bin' --out T        a whole series -> T_0000.vtk...
       bin2vtk.py --glob 'rb_T_*.bin' --out T --pair rb_u    T and |u| in one file
+      bin2vtk.py --glob 'cav_q_*.bin' --out q --pair cav_u --names Charge Speed
+
+    --names renames the scalars ParaView shows. The defaults are Temperature
+    and Speed, which is what the thermal cases dump; a charge density called
+    "Temperature" in the ParaView menu is a small lie that survives into every
+    figure made from it.
 
     The --pair form puts both scalars in each file, which is what you want for
     ParaView: colour by Temperature, then switch to Speed without reloading.
@@ -71,12 +77,15 @@ def main(argv):
         pattern = argv[1]
         out = 'field'
         pair = None
+        names = ['Temperature', 'Speed']
         i = 2
         while i < len(argv):
             if argv[i] == '--out':
                 out = argv[i + 1]; i += 2
             elif argv[i] == '--pair':
                 pair = argv[i + 1]; i += 2
+            elif argv[i] == '--names':
+                names = [argv[i + 1], argv[i + 2]]; i += 3
             else:
                 i += 1
         files = sorted(globmod.glob(pattern))
@@ -85,14 +94,14 @@ def main(argv):
             return 1
         for k, fn in enumerate(files):
             nx, ny, v = read_plane(fn)
-            arrays = [('Temperature', v)]
+            arrays = [(names[0], v)]
             if pair:
                 # same frame number, the paired prefix
                 tag = fn.rsplit('_', 1)[-1]
                 pf = '%s_%s' % (pair, tag)
                 if os.path.exists(pf):
                     _, _, u = read_plane(pf)
-                    arrays.append(('Speed', u))
+                    arrays.append((names[1], u))
                 else:
                     print('  (no pair for %s)' % fn, file=sys.stderr)
             dst = '%s_%04d.vtk' % (out, k)
