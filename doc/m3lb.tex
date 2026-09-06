@@ -1341,6 +1341,86 @@ surface has no exact specular permutation on a lattice and is not faked. Two
 specular walls meeting at an edge would need both mirrors composed and are
 rejected at setup rather than approximated.
 
+\subsection{The on-node zero-flux scalar wall}
+\label{sec:scalarspec}
+
+The mirror of \S\ref{sec:specular} is a \emph{fluid} boundary and it is a ghost
+cell: the plane falls half a cell outside the last fluid node. A scalar in this
+solver is frequently on-node instead --- \code{ScalarMoment} puts a Dirichlet
+value exactly \emph{at} a node, for the reason \S\ref{sec:ehdhydro} measures,
+namely that $\bm{E}=-\nabla\varphi$ is a \emph{derivative} of the field carrying the
+boundary value and a halfway stencil never sees the imposed potential. A
+zero-flux condition half a cell away from an on-node Dirichlet one mixes two wall
+families, so the scalar needs its own variant, and \code{ScalarSpecular}
+(\code{mirror\_unknowns}) is it.
+
+\paragraph{It acts on the unknowns only.} After streaming, a wall node holds real
+data in every direction that arrived from inside the domain and nothing usable in
+every direction that would have arrived from outside. Mirror symmetry about the
+node says the missing population equals its normal-reflected partner, and that
+partner is one of the arrived ones:
+\begin{equation}
+  q(-1)=q(+1) \quad\Longrightarrow\quad
+  g_i \leftarrow g_{m(i)} \ \ \text{for every } i \text{ with }
+  \bm{c}_i\!\cdot\!\nn < 0 ,
+  \label{eq:scalarspec}
+\end{equation}
+with $m(\cdot)$ the same mirror permutation as \eqref{eq:specular}. Everything
+else is left alone and the node then \emph{collides} like any other. Three
+properties follow, and each is the reason one of the pre-existing conditions
+fails where this one is needed.
+
+\begin{itemize}
+  \item \textbf{It reports the real value.} $\sum_i g_i$ at the node is the
+  field. \code{ScalarAdiabatic} reports a structural \emph{zero}, which is
+  harmless at a node nothing reads and fatal in a case that differentiates
+  $\varphi$ or integrates $q$ across the wall column.
+  \item \textbf{It reverses only the normal component.} Bounce-back reverses all
+  of them, and at $\omega\to2$ a full reversal re-injects an odd--even mode that
+  never damps. A mirror does not.
+  \item \textbf{The normal flux vanishes identically}, $\sum_i g_i
+  \bm{c}_i\!\cdot\!\nn = 0$ by the symmetry of the mirrored set --- exactly, not
+  to $O(\Delta x)$.
+\end{itemize}
+
+\paragraph{Checked as an identity, not as a rate.} A box of width $M$ closed by
+two of these mirrors is not merely similar to the periodic box of width $2M$ whose
+mirror it is; it is the same problem. \code{validation/scalar\_specular.cpp}
+advects a scalar by a solenoidal, mirror-symmetric velocity field and compares
+node for node:
+
+\begin{center}
+\begin{tabular}{llll}
+\hline
+lattice & $\omega$ & $\max|q_{\rm half}-q_{\rm full}|$ & relative \\
+\hline
+D2Q9 & 1.99 & $8.9\times10^{-15}$ & $5.3\times10^{-15}$ \\
+D2Q5 & 1.99 & $7.3\times10^{-15}$ & $4.3\times10^{-15}$ \\
+D2Q5 & 1.00 & $4.4\times10^{-16}$ & $3.1\times10^{-16}$ \\
+D3Q7 & 1.00 & $4.4\times10^{-16}$ & $3.0\times10^{-16}$ \\
+\hline
+\end{tabular}
+\end{center}
+
+The hard case is run first and deliberately: $\omega=1.99$ is where the two
+existing conditions fail. The same test prints two guards, because an identity is
+easy to satisfy vacuously. The reference field must still carry structure --- two
+nearly-uniform fields agree to round-off whatever the wall does --- and the same
+half box closed by \code{ScalarAdiabatic} is reported as a control, where the
+disagreement is the size of the field itself.
+
+\paragraph{A cell type is either prescribed or closed, and the source list is
+what will not tell you.} \code{ScalarSolver}'s source kernel visited
+\code{ScalarBulk} only. That is right for Dirichlet, Moment, Outflow and
+Adiabatic, all of which are overwritten downstream so a source added to them
+would be discarded --- and wrong for \code{ScalarSpecular}, which is a bulk node
+carrying a mirror closure. The Poisson source $\beta q/\varepsilon$ was therefore
+absent in the wall columns, which quietly solved $\nabla^2\varphi=0$ instead.
+Measured on \S\ref{sec:ehdcavity}'s hydrostatic reference at $N=41$: $I_0$ came
+out $+8.87\,\%$ against $+0.51\,\%$ for the boundary-free box, and the
+convergence fell from second order to first. Nothing failed; it merely looked
+like a mediocre boundary condition.
+
 \subsection{Outflow: constant back-pressure}
 \label{sec:outflow}
 
@@ -6386,6 +6466,207 @@ published value. All four overshoot near $t/t_0\approx1$ before settling.
 \label{fig:ehdplots}
 \end{figure}
 
+\subsubsection{The closed square cavity, and the electric Nusselt number}
+\label{sec:ehdcavity}
+
+Their Sec.~3.2.3, after Zhang et al.: a square $A=1$, $L_x\equiv L_y$, with
+\emph{every} wall closed,
+\begin{equation}
+  \uu = \bm 0,\qquad \partial_x q = 0,\qquad \partial_x\varphi = 0
+  \qquad\text{at } x = 0,\,L_x .
+  \label{eq:cavwalls}
+\end{equation}
+Three things change from \S\ref{sec:ehdconv}, and each changes what the case can
+be trusted to say.
+
+\paragraph{The side walls are real.} \S\ref{sec:ehdconv} has free-slip sides and
+is run in a doubled periodic box precisely so that there is no lateral boundary
+to discretise. Equation \eqref{eq:cavwalls} is not a mirror --- $\uu=\bm 0$ is
+not $\uu\!\cdot\!\nn=0$ --- so that escape is closed and the lateral scalar wall
+must be built. It is the wall of \S\ref{sec:scalarspec}, and this case is why
+that section exists: measured here with the \emph{fluid frozen}, so that nothing
+but the charge/potential pair is in play, the two conditions the solver already
+had both fail.
+
+\begin{center}
+\begin{tabular}{llll}
+\hline
+lateral scalar wall & $N=41$ & $N=81$ & \\
+\hline
+none (periodic, not the paper's problem) & $-0.026\,q_0$ & $-0.022\,q_0$ & reference \\
+\code{ScalarAdiabatic} (bounce-back)     & non-finite    & non-finite    & inside $0.05\,t_0$ \\
+\code{ScalarOutflow} (open, on-node)     & $-0.083\,q_0$ & $-0.279\,q_0$ & $I_0$ $158\,\%$ wrong \\
+\code{ScalarSpecular} (mirror, on-node)  & \multicolumn{2}{l}{reproduces the periodic interior} & \\
+\hline
+\end{tabular}
+\end{center}
+
+The entries are the worst excursion of $q$ outside its bound $[0,q_0]$. Two
+things are worth reading off. The open boundary gets \emph{worse} under
+refinement, which is the signature of a boundary condition that is wrong rather
+than merely inaccurate. And $\omega_q\to2$ is unavoidable here rather than
+incidental: $\alpha$ is tied to $T$ (below), so the interesting end of the sweep
+is the low-diffusion end.
+
+Every wall in this case is therefore on-node --- \code{RegWall} for momentum,
+\code{ScalarMoment} for the plates, \code{ScalarSpecular} for the sides --- so it
+is one wall family throughout and not two mixed.
+
+\paragraph{The diffusion number is tied to $T$.} Their Sec.~3.2 quotes
+$\alpha=10^{-4}$ and Sec.~3.2.3 additionally fixes $\mathit{Sc}=10^{3}$. Those
+are the same statement only at $T=1000$, and the definitions say which is the
+rule:
+\begin{equation}
+  \alpha=\frac{D}{K\Delta\varphi},\quad
+  \mathit{Sc}=\frac{\nu}{D},\quad
+  \nu=\frac{\varepsilon\Delta\varphi}{KT},\quad
+  \varepsilon=M^2K^2
+  \ \Longrightarrow\
+  \alpha=\frac{M^2}{T\,\mathit{Sc}} .
+  \label{eq:alphasc}
+\end{equation}
+$M=10$, $\mathit{Sc}=10^3$ gives $\alpha=0.1/T$, i.e.\ $10^{-4}$ at $T=1000$
+exactly. Their Eq.~(81) writes the diffusive flux with the coefficient
+$M^2/(T\,\mathit{Sc})$ rather than with $\alpha$, which settles it: $\mathit{Sc}$
+is the invariant across the sweep. So $\alpha$ follows $T$, and $\alpha=10^{-5}$
+at $T=10^4$ puts $\omega_q$ at $1.9994$.
+
+\paragraph{The answer is an integral, and its divisor is measured.} Their
+Eqs.~(81)--(82),
+\begin{equation}
+  I_e=\frac{1}{V}\int_V\!\Big[q\,(u_y+KE_y)-\frac{M^2}{T\,\mathit{Sc}}\,
+  \partial_y q\Big]\,\mathrm{d}V,
+  \qquad N_e=\frac{I_e}{I_0},
+  \label{eq:ne}
+\end{equation}
+with $I_0$ the same integral in the hydrostatic state at the same forcing. Every
+run here computes its own $I_0$ by solving the same problem with the Coulomb
+force switched off and the seed removed, on the same grid, with the same stencils
+and the same walls. That is deliberate: $N_e$ is a ratio, so discretisation error
+common to the two states divides out, and what survives is the enhancement due to
+motion rather than the sum of that and a grid error. Taking $I_0$ from a formula
+would put the grid error into $N_e$ undivided.
+
+The formula is still printed, as a \emph{check} on the numerical $I_0$ rather
+than as its source. At $D=0$ the hydrostatic current is uniform, $j=KqE$ with
+$\mathrm{d}E/\mathrm{d}y=q/\varepsilon$, so
+\begin{equation}
+  E(y)^2=E_0^2+\frac{2jy}{K\varepsilon},\qquad E_0=\frac{j}{Kq_0},\qquad
+  \int_0^H\!E\,\mathrm{d}y=\Delta\varphi,
+  \label{eq:j0}
+\end{equation}
+and one bisection in $j$ closes it. The strongest evidence that the pair is
+consistent is not that agreement, though: it is that below the onset of
+convection the code returns $N_e=1.0000\pm0.0000$ with the fluid at rest, to
+four figures, because numerator and denominator are then literally the same
+computation.
+
+\paragraph{What it measures.} $N=129$, $u_0=5\times10^{-3}$, forty drift times with the
+last fifteen averaged, from the reference's own initial condition (zero charge, zero
+velocity, so the only seed is round-off). Fig.~8's values are digitised from its
+log--log axes by eye and carry roughly $\pm0.05$ on the plateau, so nothing here is
+scored against them.
+
+\begin{center}
+\begin{tabular}{rrrrrr}
+\hline
+$T$ & $N_e$ & Fig.~8 & diff & Ma & $\mathrm{Re}_{\rm cell}$ \\
+\hline
+  150 & 1.0000 & ---  & ---      & 0.000 & 0.0 \\
+  250 & 1.0003 & 1.03 & $-2.9$\% & 0.001 & 0.0 \\
+  500 & 1.5950 & 1.75 & $-8.9$\% & 0.030 & 0.1 \\
+ 1000 & 1.6963 & 1.88 & $-9.8$\% & 0.048 & 0.4 \\
+ 1500 & 1.7505 & 1.93 & $-9.3$\% & 0.054 & 0.7 \\
+ 3000 & 1.9785 & 2.35 & $-15.8$\% & 0.087 & 2.3 \\
+ 5000 & 2.5974 & 2.80 & $-7.2$\% & \emph{0.138} & \emph{6.2} \\
+10000 & 3.3810 & 3.20 & $+5.7$\% & \emph{0.163} & \emph{14.7} \\
+\hline
+\end{tabular}
+\end{center}
+
+The shape is reproduced: hydrostatic below onset, a steep rise, a shallow plateau, then
+renewed growth, with $\kappa=+0.35$ over $1500\to10^4$ against Fig.~8's own points at
+$0.27$ and its drawn guide at $0.50$. The level sits $9$--$13\,\%$ low wherever the grid
+is trustworthy.
+
+\paragraph{Read the last two rows against the last two columns first.} $T=5000$ and
+$T=10^4$ are the only entries that look like agreement, and they are the only two that
+break this solver's own rules --- Ma against a $0.087$ guideline, and a cell Reynolds
+number where the reference's $H=499$ gives $1.6$ and $4.2$. Refining settles it. At
+$T=5000$, $N_e$ is $2.8558$ at $N=81$, $2.8017$ at $N=129$ and $2.4903$ at $N=201$
+($\mathrm{Re}_{\rm cell}=8.5$, $6.1$, $3.6$); unseeded at $N=201$ it is $2.4366$. The
+sequence falls monotonically, so the coarse grid was \emph{passing through} the published
+value rather than reproducing it, and the converged deficit is the same $\sim\!13\,\%$ the
+well-resolved mid-range shows. Halving $u_0$ at $N=129$ moves $2.8017$ to $2.7104$, so
+compressibility is a $3\,\%$ term and not the explanation. When the badly-behaved runs
+agree and the well-behaved ones do not, the agreement is what to distrust.
+
+\paragraph{The seed chooses a branch, and the usual check cannot see it.} This solver's
+standing defence of a seed is that it sets the transient and not the answer, tested by
+changing its amplitude and watching the converged value hold. In a \emph{subcritical}
+bifurcation that test passes and still misleads:
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\hline
+$T=250$ & amp $10^{-2}$ & amp $10^{-4}$ & amp $0$ & Fig.~8 \\
+\hline
+$N_e$        & 1.3922 & 1.2400 & 1.0003 & 1.03 \\
+$u_{\max}/u_0$ & 2.000 & 1.990  & 0.078  & --- \\
+\hline
+\end{tabular}
+\end{center}
+
+Two decades of seed give the same saturated amplitude --- exactly what seed-independence
+looks like --- and no seed at all gives no convection. The seed was not setting the
+amplitude, it was deciding which branch the flow reached, and the reference starts from
+exactly zero. At $T=500$ the unseeded run is also \emph{steady} (r.m.s.\ $0.0007$ against
+$0.107$) and closer to the reference, $1.6583$ against $1.75$: there the seed was
+selecting a different and worse attractor rather than merely triggering the instability.
+The same bistability is what the reference's own \S3.2.1 hysteresis loop is about.
+
+\paragraph{The fields.} Animations of $q/q_0$ at $N=201$ over eight drift times reproduce
+each of Fig.~9's four states and the specific features its text names: at $T=250$ a
+smooth diffusive layer with no electroconvective structure; at $T=1000$ a single coherent
+plume-like roll rising to the centre with clean separation from the lateral layers; at
+$T=5000$ multiple filaments and secondary vortices with sharp gradients along the walls;
+and at $T=10^4$ irregular plumes climbing \emph{both} vertical walls with counter-rotating
+charge spirals in \emph{both} upper corners around a disordered, charge-depleted core.
+
+\begin{figure}[htbp]
+\centering
+\begin{tabular}{@{}cccc@{}}
+\includegraphics[width=0.235\linewidth]{fig/cav_q_250.png} &
+\includegraphics[width=0.235\linewidth]{fig/cav_q_1000.png} &
+\includegraphics[width=0.235\linewidth]{fig/cav_q_5000.png} &
+\includegraphics[width=0.235\linewidth]{fig/cav_q_10000.png} \\
+\small (a) $T=250$ & \small (b) $T=1000$ & \small (c) $T=5000$ &
+\small (d) $T=10^4$ \\
+\end{tabular}
+\caption{\textbf{Closed square cavity}: charge density $q/q_0$ at $t/t_0=8$,
+$201\times201$, injector along the bottom edge (\S\ref{sec:ehdcavity}). Colour is
+linear on $[0,\,0.5\,q_0]$ and saturates, as in Fig.~\ref{fig:ehdfields}. These are
+the four states of the reference's Fig.~9 and they carry the features its text
+names individually: (a) a smooth diffusive layer with no electroconvective
+structure, the flow still hydrostatic; (b) a single coherent plume-like roll
+rising toward the centre, cleanly separated from the lateral layers; (c) multiple
+filaments and secondary vortices, with sharp gradients along the walls; (d)
+irregular plumes climbing \emph{both} vertical walls, counter-rotating charge
+spirals in \emph{both} upper corners, and a disordered, charge-depleted core.
+Panel (a) is run unseeded --- with a seed the cavity convects at $T=250$, which is
+the branch selection discussed above --- and (b)--(d) carry a $10^{-4}q_0$
+perturbation so the flow is developed inside the window.}
+\label{fig:cavfields}
+\end{figure}
+
+\paragraph{What it does not do.} It does not run the reference's $500^2$ grid, which is
+what $\mathrm{Re}_{\rm cell}$ says $T\ge5000$ actually needs; on this hardware that is
+about five hours for a single $T$. The $9$--$13\,\%$ deficit is therefore \emph{measured}
+but not \emph{explained} --- resolution and Mach number are both excluded as the whole
+cause, and no third candidate has been tested. The charge dips to $-0.028\,q_0$ at
+$T=5000$, a small but genuine violation of the maximum principle, and it appears only in
+the under-resolved runs.
+
 %==============================================================================
 %==============================================================================
 \section{Demonstrator: flow in a patient-specific aorta}
@@ -8518,6 +8799,31 @@ they take minutes and are excluded from \code{ctest}.
 Stated plainly, because each has been measured.
 
 \begin{enumerate}[leftmargin=1.4em,itemsep=4pt]
+\item \textbf{The closed cavity's electric Nusselt number is $9$--$13\,\%$ below
+  the reference, and that is measured rather than explained}
+  (\S\ref{sec:ehdcavity}). The \emph{shape} of Fig.~8 is reproduced --- $N_e=1$
+  below onset, a steep rise, a plateau, renewed growth at $\kappa=+0.35$ --- but
+  the level is low wherever the grid is trustworthy. Four candidates are
+  excluded: refinement moves the answer \emph{away} from the reference rather
+  than toward it ($2.8558\to2.8017\to2.4903$ at $N=81,129,201$), halving $u_0$
+  moves it $3\,\%$, the seed is excluded by the unseeded sweep, and the wall
+  columns contribute under $1\,\%$. No fifth candidate has been tested. The
+  reference's $500^2$ grid is what the cell Reynolds number says $T\ge5000$
+  needs and costs about five hours per $T$ on one machine, so the comparison at
+  matched resolution has not been made.
+
+\item \textbf{The two specular walls sit on different planes.} The fluid's
+  (\S\ref{sec:specular}) is a ghost cell, so its mirror is half a cell outside
+  the last fluid node; the scalar's (\S\ref{sec:scalarspec}) is on-node, because
+  the Dirichlet family it must pair with is on-node. Each is exact against the
+  box it mirrors --- $5.5\times10^{-14}$ and $5.3\times10^{-15}$ --- but they are
+  exact about planes half a cell apart. They pair in \S\ref{sec:ehdcavity},
+  where every wall is on-node; they do \emph{not} pair in
+  \S\ref{sec:ehdconv}'s free-slip variant, so that geometry's gap must not be
+  read as a measurement of the scalar wall alone. Closing it needs an on-node
+  specular fluid wall, which does not exist here. Axis-aligned normals only, and
+  no specular corners, in either.
+
 \item \textbf{The central-moment operators are unusable on a GPU in this code.}
   Two \code{MomentCollision} configurations did not finish in seventeen minutes at
   $64^3$ over 50 steps, where BGK took $\sim0.03$\,s --- roughly four orders of

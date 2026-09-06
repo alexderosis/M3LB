@@ -128,6 +128,7 @@ enum ScalarCell : std::uint8_t {
   ScalarExcluded  = 3,   // not part of the simulation
   ScalarMoment    = 4,   // fixed value AT the node, Dellar's moment condition
   ScalarOutflow   = 5,   // open boundary -- equilibrium at the donor's value
+  ScalarSpecular  = 6,   // zero flux AT the node. See boundary/Specular.hpp
 };
 
 }  // namespace lbm

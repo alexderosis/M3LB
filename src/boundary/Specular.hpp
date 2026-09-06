@@ -104,6 +104,60 @@ constexpr int mirror_axis(std::uint8_t code) {
 }
 
 //------------------------------------------------------------------------------
+//  THE ON-NODE ZERO-FLUX SCALAR WALL, and it is a DIFFERENT boundary from the
+//  fluid's SpecWall above even though it shares this table.
+//
+//  SpecWall is a GHOST cell: the mirror plane falls half a cell outside the
+//  last fluid node, the cell does not collide, and validation/specular.cpp
+//  measures the plane at 16.5000. That is right for a fluid, whose no-slip
+//  family is halfway anyway.
+//
+//  A scalar in this tree is often on-node -- ScalarMoment puts a Dirichlet
+//  value exactly ON the node, because E = -grad phi is a DERIVATIVE of the
+//  field carrying the boundary value and a halfway stencil never sees it
+//  (CLAUDE.md records that measurement: 11.19 % -> 1.49 %). A zero-flux
+//  condition half a cell away from an on-node Dirichlet one is the mixed-wall-
+//  family trap, so this variant puts the mirror plane ON the node.
+//
+//  It works on the UNKNOWN directions only. After streaming, a wall node holds
+//  real data in every direction that arrived from inside and garbage in every
+//  direction that would have arrived from outside. Mirror symmetry about the
+//  node says the missing one equals its normal-reflected partner, which IS one
+//  of the arrived ones:
+//
+//      q(-1) = q(+1)   =>   g_{+n}(0, streamed) = g_{-n}(0, streamed) mirrored.
+//
+//  So only the unknowns are overwritten, everything else is left alone, and the
+//  node then COLLIDES like any other. Three consequences, and each of them is
+//  the reason one of the existing options fails here:
+//
+//    * it reports the REAL value at the node (Sum g_i is meaningful), whereas
+//      ScalarAdiabatic reports zero -- fatal in a case that differentiates phi
+//      and integrates q;
+//    * it reverses only the NORMAL component, whereas bounce-back reverses all
+//      of them. At omega -> 2 a full reversal re-injects an odd-even mode that
+//      never damps (CLAUDE.md's ringing entry); a mirror does not;
+//    * the normal flux Sum_i g_i c_i.n vanishes identically by the symmetry of
+//      the mirrored set, so it is zero-flux exactly and not to O(dx).
+//
+//  Safe on Esoteric Pull for the same reason SpecWall is: the read set and the
+//  write set at a node are the SAME Q slots, so any function of the loaded
+//  values may be stored back.
+//------------------------------------------------------------------------------
+template <class L, class R>
+KOKKOS_INLINE_FUNCTION void mirror_unknowns(R* g, std::uint8_t code) {
+  int nv[3];
+  normal_of(code, nv);                       // OUTWARD normal
+  const int ax = nv[0] ? 0 : (nv[1] ? 1 : 2);
+  const int sg = nv[ax];
+  R h[L::Q];
+  for (int i = 0; i < L::Q; ++i) h[i] = g[i];
+  for (int i = 0; i < L::Q; ++i)
+    if (cvel<L>(i, ax) * sg < 0)             // points INTO the domain: unknown
+      g[i] = h[mirror_table<L>.m[ax][i]];
+}
+
+//------------------------------------------------------------------------------
 //  Every lattice in this tree is symmetric under reflection in each axis, so the
 //  mirror is a genuine permutation rather than a partial map. Assert it: a
 //  lattice that failed this would silently reflect some directions onto

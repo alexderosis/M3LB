@@ -64,7 +64,8 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 |---|---|---|
 | single-phase, single-component | `FluidSolver` | **the default — see the rule below** |
 | + temperature / passive scalar | `ScalarSolver` alongside | own lattice, velocity is an input; `ScalarBGK` by default, `ScalarRegularised` above ω ≈ 1.9 |
-| free-slip / symmetry wall | `set_specular_walls` | exact mirror; **no scalar companion** — see below |
+| free-slip / symmetry wall | `set_specular_walls` | exact mirror; **halfway** (ghost cell) |
+| zero-flux scalar wall | `ScalarSpecular` + `ScalarSolver::set_specular_walls` | **on-node**; the only one usable where the field is differentiated or integrated — see below |
 | + charge carriers in an electric field | `ScalarSolver` + `ChargeCentralMoments` | D3Q27, advects at the **drift** velocity `u + KE`, not at `u` |
 | + electric potential (Poisson) | `ScalarSolver` + `ScalarBGK` + `add_source` | no new solver — see `validation/ehd_hydrostatic.cpp` |
 | + magnetic field | `MagneticSolver` | Dellar vector distribution |
@@ -251,7 +252,33 @@ These produce plausible, converged, wrong answers rather than crashes.
   wall, in columns that are 24% of the domain, so it falls at roughly *first*
   order — 3.96% at ny=41, 3.30% at 81, 1.63% at 163. `ScalarOutflow` is not the
   fix: it is an *open* boundary, and it bled charge to −0.165 q0 against −0.021.
-  The gap the tree actually has is an **on-node zero-flux scalar wall**.
+  **THE GAP IS NOW CLOSED — by `ScalarSpecular`, and the sharper measurement is
+  `validation/ehd_cavity.cpp`,** whose closed square has no way to avoid a
+  lateral scalar wall the way the doubled box avoids one. At N=81, T=1000, with
+  the *fluid frozen* so nothing but the charge/potential pair is in play:
+  `ScalarAdiabatic` went **NON-FINITE inside 0.05 t0**; `ScalarOutflow` drove q
+  to −0.279 q0 and left the hydrostatic reference **158% wrong**, and it got
+  *worse* under refinement (−0.083 q0 at N=41); `ScalarSpecular` reproduced the
+  boundary-free box's interior to the printed digits. The mechanism is the
+  distinction between the two reflections: bounce-back reverses **every**
+  component, which is what injects the odd–even mode, while a mirror reverses
+  only the **normal** one. `ScalarSpecular` also acts on the *unknown*
+  directions only and then collides, so the node is a real node — it reports
+  the real value, where `ScalarAdiabatic` reports a structural **zero**. That
+  matters whenever the field is differentiated or integrated across the wall
+  column, which is exactly what `E = −∇φ` and Eq. (81)'s volume integral do.
+- **A BOUNDARY FLAG THAT DOES NOT TAKE THE SOURCE LEAVES ITS PDE UNSOLVED, AND
+  NOTHING CRASHES.** `ScalarSolver::source_kernel` skipped every cell that was
+  not `ScalarBulk`, which is right for Dirichlet, Moment, Outflow and Adiabatic
+  — all of them prescribed downstream, so the source would be thrown away — and
+  wrong for `ScalarSpecular`, which is a *bulk node carrying a mirror closure*.
+  The Poisson source `β q/ε` was therefore missing in the wall columns, so those
+  columns solved ∇²φ = 0 instead. Measured: I0 came out **+8.87%** at N=41
+  against +0.51% for the boundary-free box, and the convergence dropped from
+  second order to first. It looked exactly like a mediocre boundary condition
+  rather than like a bug. When adding a scalar cell type, ask whether it is
+  *prescribed* or *closed* — the source list is the thing that will not tell
+  you.
 - **REMOVING A BOUNDARY CAN BEAT DISCRETISING IT.** Same measurement, and it
   inverted the reasoning it was meant to check. A free-slip box of width Lx is
   the mirror-symmetric half of a *periodic* box of width 2Lx, so the doubled box
@@ -261,6 +288,32 @@ These produce plausible, converged, wrong answers rather than crashes.
   because its scalar companion is not. Keep both anyway: the gap between two
   lateral discretisations measures the lateral boundary error the way the
   D2Q9/D3Q27 gap measures the interior, and neither alone can show it.
+- **A SEED CHOOSES A BRANCH, NOT JUST A TRANSIENT.** Measured 2026-09-05 in
+  `validation/ehd_cavity.cpp`. The tree's usual defence of a seed is that it
+  sets the transient and not the answer, checked by halving the amplitude and
+  watching the converged value not move. In a SUBCRITICAL bifurcation that
+  check passes and still misleads: at T = 250 the saturated peak velocity is
+  `u_max/u0 = 2.00` at `-amp 1e-2` and `1.99` at `-amp 1e-4` — two decades of
+  seed, the same answer, exactly the stability the check looks for — while
+  `-amp 0` gives `0.08`, i.e. no convection at all. Ne reads 1.39, 1.24 and
+  **1.0003** against the reference's 1.03. The seed was not setting the
+  amplitude; it was deciding which BRANCH the flow landed on, and the reference
+  starts from exactly zero (its Eqs. 17-20) so its only seed is round-off. Two
+  rules follow. Seed-independence of the amplitude does not establish
+  seed-independence of the state. And where a case is known to be subcritical —
+  this one's own Sec. 3.2.1 plots a hysteresis loop — `-amp 0` is the protocol
+  that reproduces the reference, not a degenerate case to be avoided.
+- **REFINING TOWARD A PUBLISHED NUMBER IS NOT AGREEING WITH IT, AND A COARSE GRID
+  CAN PASS THROUGH THE RIGHT ANSWER.** Same case, T = 5000: Ne = 2.8558 at
+  N = 81, 2.8017 at N = 129, 2.4903 at N = 201, against a digitised 2.80. The
+  N = 129 run was within **0.1 %** of the reference and it meant nothing — the
+  sequence is monotonically falling and that grid was on its way past. The
+  converged deficit is about 11 %, which is also what every WELL-RESOLVED point
+  in the T sweep showed while the two under-resolved ones "agreed". The tell was
+  available before the ladder was run: the runs that matched were the only ones
+  breaking the tree's own Mach and cell-Reynolds rules (Ma 0.136 and 0.183
+  against a 0.087 guideline). When the badly-behaved runs agree and the
+  well-behaved ones do not, believe the well-behaved ones.
 - **GRID INDEPENDENCE WITHIN ONE FAMILY IS NOT GRID INDEPENDENCE.** The doubled
   box's mirror planes sit on nodes at every resolution, so refining it cannot
   see an error that depends on the half-cell alignment. `ehd_electroconvection`
@@ -340,12 +393,22 @@ Do not spend time on these without saying so first; several are deliberate.
 - **No MPI.** Single rank. `Domain` carries halo machinery but there is no
   exchange.
 - **No contact line or wetting model** in the phase field; no open boundary for φ.
-- **Free-slip walls exist for the FLUID only** (`set_specular_walls`,
-  `src/boundary/Specular.hpp`, added 2026-09-05; exact to 5.5e-14 against the
-  channel it mirrors, `validation/specular.cpp`). Axis-aligned normals only, no
-  specular corners, and **no on-node zero-flux scalar condition to pair with
-  it** — see the ω → 2 entry above before using one on a case that carries a
-  scalar.
+- **The two specular walls sit on DIFFERENT PLANES, and that is the remaining
+  gap.** The fluid's (`set_specular_walls`, `CellType::SpecWall`,
+  `src/boundary/Specular.hpp`) is a **ghost cell**, so its mirror plane is half
+  a cell outside the last fluid node — exact to 5.5e-14 against the channel it
+  mirrors (`validation/specular.cpp`, plane measured at 16.5000). The scalar's
+  (`ScalarSpecular`, `mirror_unknowns`) is **on-node**, because the scalar
+  Dirichlet family it must pair with (`ScalarMoment`) is on-node for the reason
+  the half-cell entry above gives. Both are exact — `validation/specular.cpp`
+  and `validation/scalar_specular.cpp` each assert an identity against the box
+  they mirror, at 5.5e-14 and 5.3e-15 — but they are exact about planes half a
+  cell apart. So they PAIR in `validation/ehd_cavity.cpp`, where every wall is
+  on-node (`RegWall` + `ScalarMoment` + `ScalarSpecular`), and they do NOT pair
+  in `ehd_electroconvection -freeslip`, whose fluid mirror is halfway. Closing
+  that needs an on-node specular *fluid* wall; until then, do not read the
+  free-slip electroconvection gap as a measurement of the scalar wall alone.
+  Axis-aligned normals only, and no specular corners, in either.
 - **The free surface has no surface tension** (uniform gas pressure, no curvature
   term) and **no gas dynamics** — an enclosed bubble does not compress.
 - **The free surface's moving obstacle is not reliable.** The cause is in

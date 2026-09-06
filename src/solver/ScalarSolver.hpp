@@ -59,6 +59,7 @@
 //==============================================================================
 #include "collision/ScalarBGK.hpp"
 #include "boundary/MomentDirichlet.hpp"
+#include "boundary/Specular.hpp"
 #include "core/Types.hpp"
 #include "grid/Domain.hpp"
 #include "lattice/Lattices.hpp"
@@ -80,6 +81,7 @@ class ScalarSolver {
         flags_("sflags", dom.n_padded),
         unk_("sunk", dom.n_padded),
         don_("sdon", dom.n_padded),
+        spec_nrm_("spec_nrm", dom.n_padded),
         wall_("Twall", dom.n_padded),
         field_("T", dom.n_padded) {
     h_flags_ = Kokkos::create_mirror_view(flags_);
@@ -110,6 +112,29 @@ class ScalarSolver {
         for (Index x = 0; x < dom_.nx; ++x)
           h_wall_(dom_.id(x, y, z)) = fn(x, y, z);
     Kokkos::deep_copy(wall_, h_wall_);
+  }
+
+  // fn(x, y, z) -> NormalCode, the OUTWARD normal of a ScalarSpecular cell.
+  // Axis-aligned only: a corner has two normals and one mirror cannot serve
+  // both, so it aborts rather than silently mirroring about one of them.
+  template <class Fn>
+  void set_specular_walls(Fn fn) {
+    auto h = Kokkos::create_mirror_view(spec_nrm_);
+    Kokkos::deep_copy(h, spec_nrm_);
+    for (Index z = 0; z < dom_.nz; ++z)
+      for (Index y = 0; y < dom_.ny; ++y)
+        for (Index x = 0; x < dom_.nx; ++x) {
+          const std::uint8_t c = fn(x, y, z);
+          if (c == NrmNone) continue;
+          if (c > NrmZm) {
+            std::printf("ScalarSolver::set_specular_walls: cell (%lld,%lld,%lld)"
+                        " has a non-axis normal (code %d). A mirror needs one"
+                        " axis.\n", (long long)x, (long long)y, (long long)z, int(c));
+            std::abort();
+          }
+          h(dom_.id(x, y, z)) = c;
+        }
+    Kokkos::deep_copy(spec_nrm_, h);
   }
 
   // The velocity field that advects this scalar -- owned by the fluid solver.
@@ -305,6 +330,7 @@ class ScalarSolver {
     const auto coll = coll_;
     const Domain d  = dom_;
     auto flags = flags_; auto wall = wall_; auto field = field_; auto unk = unk_;
+    auto spec = spec_nrm_;
     auto ux = ux_, uy = uy_, uz = uz_;
     const bool have_u = ux.data() != nullptr;
 
@@ -355,6 +381,11 @@ class ScalarSolver {
           return;
         }
 
+        // On-node zero flux: rebuild only the directions that would have
+        // arrived from outside, then fall through and collide like a bulk
+        // node. See boundary/Specular.hpp for why this is not bounce-back.
+        if (flag == ScalarSpecular) mirror_unknowns<L>(g, spec(n));
+
         const Real dT = Collision::deviation(g);
         const Real vx = have_u ? ux(n) : Real(0);
         const Real vy = have_u ? uy(n) : Real(0);
@@ -372,6 +403,7 @@ class ScalarSolver {
     const Domain d = dom_;
     const auto coll = coll_;
     auto flags = flags_; auto wall = wall_; auto field = field_;
+    auto spec = spec_nrm_;
     Kokkos::parallel_for("scalar_field", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
       const std::uint8_t flag = flags(n);
       if (flag == ScalarExcluded) { field(n) = Real(0); return; }
@@ -390,6 +422,10 @@ class ScalarSolver {
       Real g[Q];
       g[0] = acc.load_rest(nb);
       for (int i = 1; i < Q; i += 2) acc.load_pair(nb, i, g[i], g[i + 1]);
+      // The unknown half of a specular node is whatever the halo held, so the
+      // sum is only the field once the mirror has been reapplied -- the same
+      // reconstruction the step uses, and it has to stay the same one.
+      if (flag == ScalarSpecular) mirror_unknowns<L>(g, spec(n));
       field(n) = coll.temperature(g);
     });
     Kokkos::fence();
@@ -436,7 +472,16 @@ class ScalarSolver {
     auto flags = flags_;
     Kokkos::parallel_for("scalar_source", Range(0, dom_.n_padded),
       KOKKOS_LAMBDA(Index n) {
-        if (flags(n) != ScalarBulk) return;
+        // A SPECULAR NODE TAKES THE SOURCE. It is a bulk node carrying a mirror
+        // closure, not a node whose value is prescribed -- unlike Dirichlet,
+        // Moment, Outflow and Adiabatic, which are all overwritten downstream
+        // and would only have the source thrown away. Withholding it here left
+        // the Poisson equation unsolved in the wall column of
+        // validation/ehd_cavity.cpp: measured as +8.87 % on I0 at N = 41
+        // against +0.51 % for the boundary-free box, first order rather than
+        // second, and it vanished when this line learnt about the flag.
+        const std::uint8_t fg = flags(n);
+        if (fg != ScalarBulk && fg != ScalarSpecular) return;
         const Real dC = fn(n);
         if (dC == Real(0)) return;
         Neighbours<L> nb;
@@ -455,6 +500,7 @@ class ScalarSolver {
   View1D<Index> don_;
   bool has_outflow_ = false;
   HostView1D<std::uint8_t> h_flags_;
+  View1D<std::uint8_t> spec_nrm_;
   View1D<Real> wall_, field_;
   HostView1D<Real> h_wall_;
   View1D<Real> ux_, uy_, uz_;
