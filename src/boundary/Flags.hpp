@@ -23,6 +23,13 @@ enum CellType : std::uint8_t {
   Excluded = 2,   // not part of the simulation; skipped entirely
   RegWall  = 3,   // regularised velocity boundary, then collide
   SpecWall = 4,   // specular reflection -- free slip. See boundary/Specular.hpp
+  // Free slip again, with the mirror plane ON the node instead of half a cell
+  // outside it: the node mirrors its UNKNOWN directions and then COLLIDES, so
+  // it is a real fluid node reporting a real rho and u. SpecWall is a ghost and
+  // does neither. Kept as a separate type rather than a mode of SpecWall
+  // because moving that plane would reinterpret validation/specular.cpp's
+  // 16.5000 assertion and every geometry built on it.
+  SpecNode = 5,
 };
 
 }  // namespace lbm

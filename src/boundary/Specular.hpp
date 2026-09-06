@@ -55,10 +55,17 @@
 //
 //  ================= WHAT THIS DOES NOT DO ===================================
 //  Axis-aligned normals only (NrmXp/Xm/Yp/Ym/Zp/Zm). An oblique free-slip
-//  surface has no exact specular permutation on a lattice and is not faked. Two
-//  specular walls meeting at an edge are not handled either: the corner cell
-//  would need both mirrors composed, and it is left to the caller to keep them
-//  apart. NrmCorner and the outflow codes are rejected at setup.
+//  surface has no exact specular permutation on a lattice and is not faked.
+//  NrmCorner and the outflow codes are rejected at setup.
+//
+//  Two specular walls meeting at an EDGE are not handled by SpecWall either --
+//  and that refusal is affordable only because the cell is a GHOST: a ghost
+//  outside the domain is never read diagonally by a fluid node, so the caller
+//  can simply keep the two walls apart. It stops being affordable the moment
+//  the mirror moves ON-NODE, where the edge cell is a real fluid node in the
+//  corner of a closed box. So the on-node variant further down this file
+//  (SpecNode, mirror_unknowns_faces) DOES compose them, and takes a face
+//  bitmask rather than a NormalCode for exactly that reason.
 //==============================================================================
 #include "boundary/Flags.hpp"
 #include "boundary/Regularized.hpp"      // NormalCode, normal_of
@@ -155,6 +162,87 @@ KOKKOS_INLINE_FUNCTION void mirror_unknowns(R* g, std::uint8_t code) {
   for (int i = 0; i < L::Q; ++i)
     if (cvel<L>(i, ax) * sg < 0)             // points INTO the domain: unknown
       g[i] = h[mirror_table<L>.m[ax][i]];
+}
+
+//------------------------------------------------------------------------------
+//  THE ON-NODE SPECULAR FLUID WALL, and why it needs a face MASK rather than a
+//  NormalCode.
+//
+//  SpecWall (above) is the ghost-cell mirror: exact, and its plane sits half a
+//  cell outside the last fluid node. SpecNode is the same reflection with the
+//  plane ON the node, built the same way ScalarSpecular is -- mirror the
+//  UNKNOWN directions only, then collide. It exists because CLAUDE.md's
+//  "the two specular walls sit on different planes" entry was a real gap: the
+//  scalar's zero-flux wall is on-node (it has to be, to pair with the on-node
+//  Dirichlet ScalarMoment), so in a case where every wall is on-node the fluid
+//  had no matching free-slip option and ehd_electroconvection -freeslip pairs a
+//  halfway fluid mirror with an on-node scalar one.
+//
+//  It is a NEW cell type and not a change to SpecWall on purpose.
+//  validation/specular.cpp asserts the ghost plane at 16.5000 to 5.5e-14 and
+//  -freeslip's geometry is built on that plane; moving it would silently
+//  reinterpret both.
+//
+//  WHY A MASK. A NormalCode names ONE outward direction, and an on-node wall
+//  can sit on an edge or a corner where two or three faces meet -- which the
+//  ghost version explicitly refuses ("two specular walls meeting at an edge are
+//  not handled"). It can be refused there because a ghost cell outside the
+//  domain is never read diagonally by a fluid node; an ON-NODE wall node is a
+//  real fluid node in the corner of a closed box and there is nowhere to put
+//  it. Reusing NormalCode is not an option even for the axis cases: NrmYp == 3
+//  would read as SpecXp|SpecXm.
+//
+//  WHAT THE MULTI-AXIS MIRROR IS. For direction i, negate every component whose
+//  sign points INTO the domain, i.e. compose the axis mirrors over exactly that
+//  subset. The image is then outward-pointing on every masked axis, so it is a
+//  direction that actually arrived; and the map is many-to-one by construction
+//  -- at a two-face edge the three inward quadrants all take the value of the
+//  one outward quadrant, which is what reflection in two planes says.
+//
+//  WHAT IT IMPOSES, measured in validation/specular_node.cpp rather than
+//  asserted here: Sum_i f_i c_n = 0 on every masked axis (no flux through any
+//  of the planes), Sum_i f_i c_n c_t = 0 for every masked normal against every
+//  other axis (no tangential stress, so du_t/dn = 0), and rho left free. At an
+//  edge the tangential momentum ALONG the edge survives, which is correct: the
+//  edge line is the intersection of two symmetry planes and flow along it is
+//  not constrained by either.
+//------------------------------------------------------------------------------
+enum SpecFace : std::uint8_t {
+  SpecNone = 0,
+  SpecXp   = 1u << 0,   // outward normal +x
+  SpecXm   = 1u << 1,
+  SpecYp   = 1u << 2,
+  SpecYm   = 1u << 3,
+  SpecZp   = 1u << 4,
+  SpecZm   = 1u << 5,
+};
+
+// Outward sign of the mask on axis `a`: +1, -1, or 0 if that axis is free.
+// A mask carrying BOTH faces of one axis is a setup error and is rejected at
+// setup rather than resolved here -- see set_specular_nodes.
+KOKKOS_INLINE_FUNCTION
+constexpr int face_sign(std::uint8_t faces, int a) {
+  const std::uint8_t pos = std::uint8_t(1u << (2 * a));
+  const std::uint8_t neg = std::uint8_t(1u << (2 * a + 1));
+  return (faces & pos) ? 1 : ((faces & neg) ? -1 : 0);
+}
+
+template <class L, class R>
+KOKKOS_INLINE_FUNCTION void mirror_unknowns_faces(R* f, std::uint8_t faces) {
+  R h[L::Q];
+  for (int i = 0; i < L::Q; ++i) h[i] = f[i];
+  for (int i = 0; i < L::Q; ++i) {
+    int j = i;
+    bool unknown = false;
+    for (int a = 0; a < 3; ++a) {
+      const int s = face_sign(faces, a);
+      if (s != 0 && cvel<L>(i, a) * s < 0) {   // points INTO the domain
+        j = mirror_table<L>.m[a][j];           // composition over the subset
+        unknown = true;
+      }
+    }
+    if (unknown) f[i] = h[j];
+  }
 }
 
 //------------------------------------------------------------------------------

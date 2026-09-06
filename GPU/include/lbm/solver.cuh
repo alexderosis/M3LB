@@ -30,6 +30,7 @@
 //  The fluid writes u as a by-product of a gather it was doing anyway.
 //==============================================================================
 #include "regularized.cuh"
+#include "specular.cuh"
 #include "streaming.cuh"
 
 namespace lbm {
@@ -64,6 +65,11 @@ struct FluidParams {
   Real* bc_pi  = nullptr;                   // 6 per node, corners only
   Real  bc_shear_omega = Real(1);           // for the FD corner route
   bool  fd_corners = true;
+
+  //---- on-node specular walls; null unless set_specular_nodes was called ------
+  // A SpecFace MASK per node, not a NormalCode: an on-node mirror can sit on an
+  // edge or a corner of a closed box. See specular.cuh.
+  const std::uint8_t* spec_faces = nullptr;
 };
 
 //------------------------------------------------------------------------------
@@ -87,13 +93,25 @@ LBM_HD LBM_INLINE void fluid_node_update(const FluidParams& p, long N, long n) {
   // T4 -- see the note in streaming.cuh on why a one-byte-per-node array costs
   // ten times what its byte count suggests.
   const std::uint8_t cell = HasGeometry ? p.flags[n] : std::uint8_t(Fluid);
-  if (HasGeometry && cell != Fluid && cell != RegWall) return;
+  if (HasGeometry && cell != Fluid && cell != RegWall && cell != SpecNode) return;
 
   int x, y, z;
   coords(n, p.nx, p.ny, x, y, z);
 
   Real f[27];
   gather<Parity>(p.f, N, x, y, z, p.nx, p.ny, p.nz, f);
+
+  // AN ON-NODE SPECULAR NODE MIRRORS ITS UNKNOWNS AND THEN FALLS THROUGH TO THE
+  // COLLISION. It is a real fluid node, not a skipped one -- the same asymmetry
+  // with Solid that RegWall has, and for the same reason.
+  //
+  // No unshift is needed. The mirror sends i to a j with the SAME weight (the
+  // weights are invariant under reflection in an axis), so permuting
+  // g_i = f_i - w_i gives exactly the shifted form of the permuted f_i. The
+  // regularised branch below does need one, because it REBUILDS the populations
+  // from moments rather than permuting them.
+  if (HasWalls && cell == SpecNode && p.spec_faces)
+    mirror_unknowns_faces<D3Q27>(f, p.spec_faces[n]);
 
   // A REGULARISED WALL REPLACES EVERY POPULATION AND THEN COLLIDES NORMALLY.
   // It is a fluid node, not a skipped one -- see the note on CellType in
@@ -179,7 +197,7 @@ template <int Parity, int FKind>
 LBM_HD LBM_INLINE void macro_node(const FluidParams& p, long N, long n,
                                   Real* rho, Real* ux, Real* uy, Real* uz) {
   const std::uint8_t cell = p.flags[n];
-  if (cell != Fluid && cell != RegWall) {
+  if (cell != Fluid && cell != RegWall && cell != SpecNode) {
     rho[n] = Real(1); ux[n] = uy[n] = uz[n] = Real(0);
     return;
   }
@@ -187,6 +205,13 @@ LBM_HD LBM_INLINE void macro_node(const FluidParams& p, long N, long n,
   coords(n, p.nx, p.ny, x, y, z);
   Real fl[27];
   gather<Parity>(p.f, N, x, y, z, p.nx, p.ny, p.nz, fl);
+
+  // Same reason as the RegWall note below: the streamed unknowns are not a
+  // state until the closure has run. Here the closure is the mirror, and unlike
+  // a regularised wall it leaves rho and the tangential velocity FREE, so the
+  // node reports a real state rather than an imposed one.
+  if (cell == SpecNode && p.spec_faces)
+    mirror_unknowns_faces<D3Q27>(fl, p.spec_faces[n]);
 
   // AT A REGULARISED WALL THE STREAMED POPULATIONS ARE NOT A STATE. This pass
   // runs between steps, so the unknown directions hold whatever was last left
@@ -394,8 +419,11 @@ __global__ void initialise(Real* __restrict__ f, const std::uint8_t* __restrict_
   int x, y, z;
   coords(n, nx, ny, x, y, z);
 
-  Macro m = (flags[n] == Fluid) ? init(x, y, z)
-                                : Macro{Real(1), Real(0), Real(0), Real(0)};
+  // SpecNode is seeded like a fluid node because it IS one -- it collides and
+  // carries a real state. Solid, Excluded and RegWall are seeded at rest.
+  Macro m = (flags[n] == Fluid || flags[n] == SpecNode)
+                ? init(x, y, z)
+                : Macro{Real(1), Real(0), Real(0), Real(0)};
   // A seed comes from a caller as a DENSITY, whichever storage is in use, so
   // `dens` is derived here rather than demanded. A shifted run that was handed
   // a raw seed would start with every population off by w_i, which is a
@@ -459,6 +487,7 @@ class Solver {
     cudaFree(ux_); cudaFree(uy_); cudaFree(uz_);
     cudaFree(bc_nrm_); cudaFree(bc_ext_); cudaFree(bc_tag_); cudaFree(bc_unk_);
     cudaFree(bc_rho_); cudaFree(bc_pi_); cudaFree(wall_u_);
+    cudaFree(spec_faces_);
   }
 
   Solver(const Solver&) = delete;
@@ -549,6 +578,47 @@ class Solver {
   // Latt et al. use (Sec. V) and the parent measures ~35% lower error with it on
   // the Re = 1000 cavity; the local closure is cheaper and operator-agnostic but
   // a corner offers few streamed directions to build a stress from.
+  //--------------------------------------------------------------------------
+  // ON-NODE specular (free-slip / symmetry) walls. One SpecFace MASK per node;
+  // SpecNone leaves the node alone, any other value marks it SpecNode.
+  //
+  // The marked node is a REAL FLUID NODE: it mirrors its unknown directions,
+  // collides, and reports a real rho and u. Edges and corners are allowed -- an
+  // on-node wall in a closed box has nowhere else to put them. See specular.cuh.
+  //
+  // CALL set_geometry FIRST if the run has solid cells; this overwrites the
+  // flags of the nodes it marks and leaves every other flag alone.
+  //--------------------------------------------------------------------------
+  void set_specular_nodes(const std::vector<std::uint8_t>& faces) {
+    if (long(faces.size()) != N_) {
+      std::fprintf(stderr, "set_specular_nodes: %zu masks for %ld nodes\n",
+                   faces.size(), N_);
+      std::exit(1);
+    }
+    if (check_spec_faces(faces, nx_, ny_) == 0) return;
+
+    const std::size_t NN = static_cast<std::size_t>(N_);
+    const std::uint8_t kFluid = Fluid;
+    std::vector<std::uint8_t> geo(NN, kFluid);
+    if (has_geometry_)
+      LBM_CUDA_CHECK(cudaMemcpy(geo.data(), flags_, sizeof(std::uint8_t) * N_,
+                                cudaMemcpyDeviceToHost));
+    for (long n = 0; n < N_; ++n)
+      if (faces[std::size_t(n)] != SpecNone) geo[std::size_t(n)] = SpecNode;
+    LBM_CUDA_CHECK(cudaMemcpy(flags_, geo.data(), sizeof(std::uint8_t) * N_,
+                              cudaMemcpyHostToDevice));
+    has_geometry_ = true;
+    // has_walls_ is the template flag for "boundary arrays exist", not
+    // "regularised walls exist". The RegWall branch it also enables is guarded
+    // by cell == RegWall, so a run with only specular nodes never reaches the
+    // null bc_nrm.
+    has_walls_ = true;
+
+    if (!spec_faces_) LBM_CUDA_CHECK(cudaMalloc(&spec_faces_, sizeof(std::uint8_t) * N_));
+    LBM_CUDA_CHECK(cudaMemcpy(spec_faces_, faces.data(), sizeof(std::uint8_t) * N_,
+                              cudaMemcpyHostToDevice));
+  }
+
   void set_fd_corners(bool on) { fd_corners_ = on; }
   long wall_count() const { return n_walls_; }
 
@@ -697,6 +767,7 @@ class Solver {
     p.bc_nrm = bc_nrm_;  p.bc_tag = bc_tag_;  p.bc_unk = bc_unk_;
     p.bc_ext = bc_ext_;  p.wall_u = wall_u_;
     p.bc_rho = bc_rho_;  p.bc_pi = bc_pi_;
+    p.spec_faces = spec_faces_;
     // THE SHEAR RATE, not just any rate: TRT's is omega_plus. See
     // reg_stress_from_gradient.
     p.bc_shear_omega = omega_;
@@ -765,6 +836,7 @@ class Solver {
   Real* bc_rho_ = nullptr;
   Real* bc_pi_  = nullptr;
   Real* wall_u_ = nullptr;
+  std::uint8_t* spec_faces_ = nullptr;
   long n_walls_ = 0;
   bool has_walls_ = false;
   bool has_corners_ = false;

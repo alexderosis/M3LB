@@ -887,6 +887,136 @@ static void specular_identity() {
 }
 
 //------------------------------------------------------------------------------
+// 3x  THE ON-NODE SPECULAR FLUID WALL (SpecNode), AS AN IDENTITY.
+//
+// Same claim as the scalar mirror above, applied to momentum: a box closed by
+// two on-node mirrors is not merely similar to the periodic box of twice the
+// width whose mirror it is, it is THE SAME PROBLEM node for node. A wall that
+// is only nearly a mirror still converges, so a rate would not see it.
+//
+// Two geometries, and the second is the one this tree needs. A half box in x
+// exercises single-face masks; a QUARTER box in x and z puts a TWO-FACE mask on
+// four edge lines, which is the case the parent tree's ghost-cell mirror
+// explicitly refuses and an on-node wall cannot -- in a closed box the edge node
+// is a real fluid node and there is nowhere else to put it.
+//
+// The initial state is even about every mirror plane: u_n odd in its own
+// direction, everything else even, all four planes on NODES.
+//------------------------------------------------------------------------------
+static void fluid_specular_node() {
+  const int M = 12, ny = 16, P = 8;
+  const double A = 0.03, aa = 0.02;
+
+  auto run = [&](bool mirror_x, bool mirror_z, std::vector<double>& out) {
+    const int nx = mirror_x ? M + 1 : 2 * M;
+    const int nz = mirror_z ? P + 1 : 2 * P;
+    host::Fluid fl(nx, ny, nz, Op::BGK, Real(0.0333));
+    const std::size_t N = std::size_t(nx) * ny * nz;
+    if (mirror_x || mirror_z) {
+      std::vector<std::uint8_t> faces(N, std::uint8_t(SpecNone));
+      for (int z = 0; z < nz; ++z)
+        for (int y = 0; y < ny; ++y)
+          for (int x = 0; x < nx; ++x) {
+            std::uint8_t m = SpecNone;
+            if (mirror_x && x == 0)      m = std::uint8_t(m | SpecXm);
+            if (mirror_x && x == nx - 1) m = std::uint8_t(m | SpecXp);
+            if (mirror_z && z == 0)      m = std::uint8_t(m | SpecZm);
+            if (mirror_z && z == nz - 1) m = std::uint8_t(m | SpecZp);
+            if (m != SpecNone) faces[std::size_t(node_id(x, y, z, nx, ny))] = m;
+          }
+      fl.set_specular_nodes(faces);
+    }
+    // Solenoidal by the amplitude relation A/M + 2B/ny + C/P = 0.
+    const double Ax = A, Cz = A * double(P) / double(M);
+    const double By = -0.5 * double(ny) * (Ax / double(M) + Cz / double(P));
+    fl.initialise_with([&](int x, int y, int z) {
+      const double sx = std::sin(M_PI * x / double(M)), cx = std::cos(M_PI * x / double(M));
+      const double sz = std::sin(M_PI * z / double(P)), cz = std::cos(M_PI * z / double(P));
+      const double sy = std::sin(2.0 * M_PI * y / ny),  cy = std::cos(2.0 * M_PI * y / ny);
+      Macro m;
+      m.rho = Real(1.0 + aa * cx * cy * cz);
+      m.ux  = Real(Ax * sx * cy * cz);
+      m.uy  = Real(By * cx * sy * cz);
+      m.uz  = Real(Cz * cx * cy * sz);
+      return m;
+    });
+    for (std::size_t t = 0; t < 200; ++t) fl.step();
+    std::vector<Real> rho, ux, uy, uz;
+    fl.macroscopic_to_host(rho, ux, uy, uz);
+    out.clear();
+    for (int z = 0; z <= P; ++z)
+      for (int y = 0; y < ny; ++y)
+        for (int x = 0; x <= M; ++x) {
+          const std::size_t n = std::size_t(node_id(x, y, z, nx, ny));
+          out.push_back(double(ux[n])); out.push_back(double(uy[n]));
+          out.push_back(double(uz[n])); out.push_back(double(rho[n]) - 1.0);
+        }
+  };
+
+  std::vector<double> ref, half, quarter;
+  run(false, false, ref);
+  run(true,  false, half);
+  run(true,  true,  quarter);
+
+  double w_half = 0, w_quart = 0, scale = 0;
+  for (std::size_t i = 0; i < ref.size(); ++i) {
+    w_half  = std::fmax(w_half,  std::fabs(ref[i] - half[i]));
+    w_quart = std::fmax(w_quart, std::fabs(ref[i] - quarter[i]));
+    scale   = std::fmax(scale, std::fabs(ref[i]));
+  }
+  const double tol = fp64 ? 1e-13 : 3e-6;
+  check(w_half  < tol, "SpecNode: half box in x vs the periodic box it mirrors",
+        w_half, 0.0);
+  check(w_quart < tol, "SpecNode: quarter box, four TWO-FACE edge lines",
+        w_quart, 0.0);
+  // Two decayed fields agree to round-off whatever the wall does.
+  check(scale > 1e-3, "SpecNode: the reference still carries structure", scale, 1e-3);
+
+  // ---- what the mirror imposes, on a random vector and with no solver -------
+  // The identities above would also pass for a wall that happened to be
+  // symmetric but was not zero-flux, because the SETUP is symmetric. So the
+  // permutation is checked directly. `tang` guards against a mirror that
+  // quietly became bounce-back: bounce-back kills EVERY momentum component and
+  // would still pass both flux tests and both identities.
+  auto moments = [&](std::uint8_t faces, const char* name, bool expect_tang) {
+    Real f[27];
+    unsigned st = 12345u;
+    for (int i = 0; i < 27; ++i) {
+      st = st * 1664525u + 1013904223u;
+      f[i] = Real(0.5 + double(st >> 8) / double(1u << 24));
+    }
+    mirror_unknowns_faces<D3Q27>(f, faces);
+    double mom[3] = {0, 0, 0}, str[3][3] = {};
+    for (int i = 0; i < 27; ++i) {
+      const int c[3] = {D3Q27::cx(i), D3Q27::cy(i), D3Q27::cz(i)};
+      for (int a = 0; a < 3; ++a) {
+        mom[a] += double(f[i]) * c[a];
+        for (int b = 0; b < 3; ++b) str[a][b] += double(f[i]) * c[a] * c[b];
+      }
+    }
+    double flux = 0, shear = 0, tang = 0;
+    for (int a = 0; a < 3; ++a) {
+      if (face_sign(faces, a) == 0) { tang = std::fmax(tang, std::fabs(mom[a])); continue; }
+      flux = std::fmax(flux, std::fabs(mom[a]));
+      for (int b = 0; b < 3; ++b)
+        if (b != a) shear = std::fmax(shear, std::fabs(str[a][b]));
+    }
+    char lbl[96];
+    std::snprintf(lbl, sizeof lbl, "SpecNode: %s, normal flux and shear", name);
+    check(flux < 1e-6 && shear < 1e-6, lbl, std::fmax(flux, shear), 0.0);
+    if (expect_tang) {
+      std::snprintf(lbl, sizeof lbl, "SpecNode: %s, tangential momentum survives", name);
+      check(tang > 1e-3, lbl, tang, 1e-3);
+    }
+  };
+  moments(SpecXm, "-x face", true);
+  moments(std::uint8_t(SpecXm | SpecZm), "-x-z edge", true);
+  // A three-face corner leaves no free axis, so `tang` is vacuously zero there
+  // and the guard does not apply.
+  moments(std::uint8_t(SpecXm | SpecYp | SpecZm), "corner", false);
+}
+
+//------------------------------------------------------------------------------
 // 4d  THE SOURCE REACHES A SPECULAR NODE.
 //
 // A specular cell is a BULK node carrying a mirror closure, not a node whose
@@ -1565,6 +1695,7 @@ int main() {
   shifted_storage();
   regularized_walls();
   closed_box();
+  fluid_specular_node();
 
   std::printf("\n  -- the passive scalar --\n");
   insulating_box();

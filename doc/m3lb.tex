@@ -1339,7 +1339,9 @@ a convergence test and fail this one. \code{validation/specular.cpp}.
 \paragraph{What it does not do.} Axis-aligned normals only: an oblique free-slip
 surface has no exact specular permutation on a lattice and is not faked. Two
 specular walls meeting at an edge would need both mirrors composed and are
-rejected at setup rather than approximated.
+rejected at setup rather than approximated --- which is affordable here only
+because the cell is a ghost, and stops being affordable once the plane moves
+on-node (\S\ref{sec:specnode}).
 
 \subsection{The on-node zero-flux scalar wall}
 \label{sec:scalarspec}
@@ -1420,6 +1422,91 @@ Measured on \S\ref{sec:ehdcavity}'s hydrostatic reference at $N=41$: $I_0$ came
 out $+8.87\,\%$ against $+0.51\,\%$ for the boundary-free box, and the
 convergence fell from second order to first. Nothing failed; it merely looked
 like a mediocre boundary condition.
+
+\subsection{The on-node specular fluid wall}
+\label{sec:specnode}
+
+\S\ref{sec:specular}'s mirror is exact and its plane sits half a cell outside the
+last fluid node; \S\ref{sec:scalarspec}'s is exact and its plane sits \emph{on}
+the node, because the Dirichlet family it must pair with is on-node. So the two
+were exact about planes half a cell apart, and a case whose walls are all
+on-node --- \S\ref{sec:ehdcavity} is one --- had no matching free-slip option
+for the fluid. \code{SpecNode} (\code{set\_specular\_nodes},
+\code{mirror\_unknowns\_faces}) is that option: the same construction as
+\eqref{eq:scalarspec}, applied to the fluid populations, so the node mirrors its
+\emph{unknown} directions and then collides like any other. It reports a real
+$\rho$ and a real $\uu$, where \code{SpecWall} is a ghost and reports neither.
+
+It is a new cell type rather than a mode of the old one on purpose:
+\code{validation/specular.cpp} asserts the ghost plane at $16.5000$ and
+\S\ref{sec:ehdconv}'s free-slip geometry is built on it, so moving that plane
+would silently reinterpret both.
+
+\paragraph{A face mask, not a normal.} A \code{NormalCode} names one outward
+direction. An on-node wall node can sit on an edge or a corner of a closed box,
+where two or three mirror planes meet, and unlike the ghost version it cannot
+refuse them --- a ghost outside the domain is never read diagonally, whereas an
+on-node node in the corner of a box is a real fluid node and there is nowhere
+else to put it. So the condition takes a bitmask over the six faces. Reusing the
+normal code would also collide outright, \code{NrmYp}$\,=3$ reading as
+\code{SpecXp|SpecXm}. For a direction $\bm{c}_i$ the mirror negates every
+component whose sign points \emph{into} the domain, i.e.\ composes the axis
+mirrors over exactly that subset. The image then points outward on every masked
+axis --- it is a direction that actually arrived --- and the map is many-to-one
+by construction: at a two-face edge the three inward quadrants all take the value
+of the single outward one, which is what reflection in two planes says. A mask
+carrying both faces of one axis is rejected at setup, since two mirror planes one
+cell apart would map an unknown onto another unknown.
+
+\paragraph{Checked as an identity, and against the wall it is not.} A box closed
+by two on-node mirrors is the same problem as the periodic box of twice the width
+whose mirror it is, node for node. \code{validation/specular\_node.cpp} runs both
+and compares, in two geometries:
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+geometry & what it exercises & worst relative \\
+\hline
+half box, D2Q9, $17\times20$ vs $32\times20$ & single-face masks & $1.9\times10^{-15}$ \\
+quarter box, D3Q27, $17\times20\times13$ & four two-face edge lines & $3.7\times10^{-15}$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\noindent The initial state is even about every mirror plane, drawn from a
+streamfunction so that it is solenoidal, and every plane falls on a node. Two
+guards accompany the number, because an identity is easy to satisfy vacuously.
+The reference must still carry structure: at $\tau=0.8$ the seeded mode decays by
+$e^{-4}$ over the run and arrives at $|\uu|=6\times10^{-4}$, close enough to
+nothing that the comparison would pass for any wall at all, which is why the case
+runs at $\tau=0.6$. And the same box closed by the \emph{halfway} mirror of
+\S\ref{sec:specular} is reported as a control: it is out by $16\,\%$ of the
+field. Both walls are exact; they are exact about different planes, and that
+control is what makes the distinction measurable rather than asserted.
+
+\paragraph{What the mirror imposes, checked without a solver.} A symmetric setup
+can hide a wall that is symmetric but not zero-flux, so the permutation is also
+applied to a random population vector and its moments read off directly. On every
+masked axis $\sum_i f_i \bm{c}_i\!\cdot\!\nn = 0$ and $\sum_i f_i
+(\bm{c}_i\!\cdot\!\nn)(\bm{c}_i\!\cdot\!\bm{t}) = 0$, both to $0$ exactly, so
+there is no normal flux and no tangential stress. The density is left \emph{free}
+--- the mirror imposes no value on it --- and the sharper statement, which is what
+the test asserts, is that an already-symmetric state is a fixed point: an
+equilibrium at $(\rho,\uu)$ with vanishing normal components is returned bit for
+bit. Momentum \emph{along} a two-face edge line survives, which is correct rather
+than a leak, the edge being the intersection of two symmetry planes and
+constrained by neither; the test asserts that it survives, which is what
+distinguishes the mirror from bounce-back --- bounce-back would kill every
+component and would still pass both flux tests on a symmetric setup.
+
+\paragraph{What has not been measured.} \S\ref{sec:ehdconv}'s free-slip variant
+still runs the halfway fluid mirror against an on-node scalar wall, so the gap
+recorded there has not been re-measured with both families on one plane. Writing
+the wall does not by itself close that gap. \code{GPU/} carries the same
+condition (\code{specular.cuh}), asserted the same way in
+\code{test/host\_physics.cpp}, at $1.6\times10^{-15}$ and $1.4\times10^{-15}$ in
+FP64 and $8\times10^{-7}$ in FP32.
 
 \subsection{Outflow: constant back-pressure}
 \label{sec:outflow}
@@ -8878,17 +8965,19 @@ Stated plainly, because each has been measured.
   against $2.80$. A matched-resolution comparison across the whole sweep has
   still not been made.
 
-\item \textbf{The two specular walls sit on different planes.} The fluid's
-  (\S\ref{sec:specular}) is a ghost cell, so its mirror is half a cell outside
-  the last fluid node; the scalar's (\S\ref{sec:scalarspec}) is on-node, because
-  the Dirichlet family it must pair with is on-node. Each is exact against the
-  box it mirrors --- $5.5\times10^{-14}$ and $5.3\times10^{-15}$ --- but they are
-  exact about planes half a cell apart. They pair in \S\ref{sec:ehdcavity},
-  where every wall is on-node; they do \emph{not} pair in
-  \S\ref{sec:ehdconv}'s free-slip variant, so that geometry's gap must not be
-  read as a measurement of the scalar wall alone. Closing it needs an on-node
-  specular fluid wall, which does not exist here. Axis-aligned normals only, and
-  no specular corners, in either.
+\item \textbf{There are now two specular fluid walls, on different planes, and
+  the free-slip electroconvection gap has not been re-measured with the new
+  one.} \S\ref{sec:specular}'s is a ghost cell, half a cell outside the last
+  fluid node; \S\ref{sec:specnode}'s is on-node, and pairs with the on-node
+  scalar wall of \S\ref{sec:scalarspec}. Each is exact against the box it
+  mirrors --- $5.5\times10^{-14}$, $1.9\times10^{-15}$ and $5.3\times10^{-15}$
+  respectively --- but exact about different planes, and the same box closed by
+  the wrong one is out by $16\,\%$ of the field. \S\ref{sec:ehdconv}'s free-slip
+  variant still runs the halfway fluid mirror against an on-node scalar wall, so
+  that geometry's gap must still not be read as a measurement of the scalar wall
+  alone. The wall now exists; the measurement that would close the question does
+  not. Axis-aligned faces only in both, and the ghost version additionally
+  refuses edges.
 
 \item \textbf{The central-moment operators are unusable on a GPU in this code.}
   Two \code{MomentCollision} configurations did not finish in seventeen minutes at

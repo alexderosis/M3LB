@@ -67,6 +67,10 @@
 #include "regularized.cuh"     // NormalCode, normal_of
 #include "streaming.cuh"
 
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
+
 namespace lbm {
 
 //------------------------------------------------------------------------------
@@ -108,6 +112,104 @@ LBM_HD LBM_INLINE void mirror_unknowns(Real* h, std::uint8_t code) {
       }
     }
   }
+}
+
+//==============================================================================
+//  THE ON-NODE SPECULAR FLUID WALL, and why it needs a face MASK.
+//
+//  Ported from src/boundary/Specular.hpp (2026-09-06). The scalar mirror above
+//  is the same construction; what is new here is that a FLUID node can sit on
+//  an EDGE or a CORNER of a closed box, where two or three mirror planes meet.
+//
+//  The parent tree's ghost-cell mirror (SpecWall) refuses those, and can: a
+//  ghost outside the domain is never read diagonally. An ON-NODE wall node is a
+//  real fluid node in the corner of a box and there is nowhere else to put it.
+//  A NormalCode names one outward direction, so it cannot express two, and
+//  reusing it would collide -- NrmYp == 3 would read as SpecXp|SpecXm. Hence a
+//  bitmask.
+//
+//  THE MULTI-AXIS MIRROR. For direction i, negate every component whose sign
+//  points INTO the domain. The image is then outward-pointing on every masked
+//  axis, i.e. a direction that actually arrived, and the map is many-to-one by
+//  construction: at a two-face edge the three inward quadrants all take the
+//  value of the one outward quadrant, which is what reflection in two planes
+//  says. It is NOT bounce-back -- momentum ALONG an edge line survives, which
+//  is correct, since the edge is the intersection of two symmetry planes and
+//  flow along it is constrained by neither.
+//
+//  Still no table, for the reason the banner above gives: the partner is found
+//  by a register search. Note the search is over the SAME loop the scalar
+//  version uses; only the target direction is built from up to three negations
+//  instead of one.
+//==============================================================================
+enum SpecFace : std::uint8_t {
+  SpecNone = 0,
+  SpecXp   = 1u << 0,   // outward normal +x
+  SpecXm   = 1u << 1,
+  SpecYp   = 1u << 2,
+  SpecYm   = 1u << 3,
+  SpecZp   = 1u << 4,
+  SpecZm   = 1u << 5,
+};
+
+// Outward sign of the mask on axis `a`: +1, -1, or 0 if that axis is free.
+// A mask carrying BOTH faces of one axis is rejected at setup, not here.
+LBM_HD LBM_INLINE int face_sign(std::uint8_t faces, int a) {
+  const std::uint8_t pos = std::uint8_t(1u << (2 * a));
+  const std::uint8_t neg = std::uint8_t(1u << (2 * a + 1));
+  return (faces & pos) ? 1 : ((faces & neg) ? -1 : 0);
+}
+
+template <class L>
+LBM_HD LBM_INLINE void mirror_unknowns_faces(Real* f, std::uint8_t faces) {
+  Real in[L::Q];
+  for (int i = 0; i < L::Q; ++i) in[i] = f[i];
+
+  for (int i = 0; i < L::Q; ++i) {
+    int want[3] = {L::cx(i), L::cy(i), L::cz(i)};
+    bool unknown = false;
+    for (int a = 0; a < 3; ++a) {
+      const int s = face_sign(faces, a);
+      if (s != 0 && cvel_at<L>(i, a) * s < 0) { want[a] = -want[a]; unknown = true; }
+    }
+    if (!unknown) continue;
+    for (int j = 0; j < L::Q; ++j) {
+      if (L::cx(j) == want[0] && L::cy(j) == want[1] && L::cz(j) == want[2]) {
+        f[i] = in[j];
+        break;
+      }
+    }
+  }
+}
+
+//------------------------------------------------------------------------------
+// Host-side validation of a mask array, shared by the device and host solvers so
+// the two cannot drift. Returns the number of marked nodes.
+//------------------------------------------------------------------------------
+inline long check_spec_faces(const std::vector<std::uint8_t>& faces, int nx, int ny) {
+  long marked = 0;
+  for (std::size_t n = 0; n < faces.size(); ++n) {
+    const std::uint8_t m = faces[n];
+    if (m == SpecNone) continue;
+    const long x = long(n) % nx, y = (long(n) / nx) % ny, z = long(n) / (long(nx) * ny);
+    if (m > 0x3F) {
+      std::fprintf(stderr, "set_specular_nodes: mask %u at (%ld,%ld,%ld) has bits "
+                   "outside SpecXp..SpecZm\n", unsigned(m), x, y, z);
+      std::exit(1);
+    }
+    // Both faces of one axis would ask for two mirror planes one cell apart,
+    // i.e. a domain one cell wide in that direction. The mirror would then map
+    // an unknown onto another unknown and the node would reflect garbage.
+    for (int a = 0; a < 3; ++a)
+      if ((m & (1u << (2 * a))) && (m & (1u << (2 * a + 1)))) {
+        std::fprintf(stderr, "set_specular_nodes: mask %u at (%ld,%ld,%ld) carries "
+                     "BOTH faces of axis %d; one plane per axis\n",
+                     unsigned(m), x, y, z, a);
+        std::exit(1);
+      }
+    ++marked;
+  }
+  return marked;
 }
 
 }  // namespace lbm

@@ -65,6 +65,7 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 | single-phase, single-component | `FluidSolver` | **the default — see the rule below** |
 | + temperature / passive scalar | `ScalarSolver` alongside | own lattice, velocity is an input; `ScalarBGK` by default, `ScalarRegularised` above ω ≈ 1.9 |
 | free-slip / symmetry wall | `set_specular_walls` | exact mirror; **halfway** (ghost cell) |
+| free-slip where the other walls are on-node | `set_specular_nodes` | exact mirror; **on-node**, collides, takes edges and corners |
 | zero-flux scalar wall | `ScalarSpecular` + `ScalarSolver::set_specular_walls` | **on-node**; the only one usable where the field is differentiated or integrated — see below |
 | + charge carriers in an electric field | `ScalarSolver` + `ChargeCentralMoments` | D3Q27, advects at the **drift** velocity `u + KE`, not at `u` |
 | + electric potential (Poisson) | `ScalarSolver` + `ScalarBGK` + `add_source` | no new solver — see `validation/ehd_hydrostatic.cpp` |
@@ -469,22 +470,38 @@ Do not spend time on these without saying so first; several are deliberate.
 - **No MPI.** Single rank. `Domain` carries halo machinery but there is no
   exchange.
 - **No contact line or wetting model** in the phase field; no open boundary for φ.
-- **The two specular walls sit on DIFFERENT PLANES, and that is the remaining
-  gap.** The fluid's (`set_specular_walls`, `CellType::SpecWall`,
-  `src/boundary/Specular.hpp`) is a **ghost cell**, so its mirror plane is half
-  a cell outside the last fluid node — exact to 5.5e-14 against the channel it
-  mirrors (`validation/specular.cpp`, plane measured at 16.5000). The scalar's
-  (`ScalarSpecular`, `mirror_unknowns`) is **on-node**, because the scalar
-  Dirichlet family it must pair with (`ScalarMoment`) is on-node for the reason
-  the half-cell entry above gives. Both are exact — `validation/specular.cpp`
-  and `validation/scalar_specular.cpp` each assert an identity against the box
-  they mirror, at 5.5e-14 and 5.3e-15 — but they are exact about planes half a
-  cell apart. So they PAIR in `validation/ehd_cavity.cpp`, where every wall is
-  on-node (`RegWall` + `ScalarMoment` + `ScalarSpecular`), and they do NOT pair
-  in `ehd_electroconvection -freeslip`, whose fluid mirror is halfway. Closing
-  that needs an on-node specular *fluid* wall; until then, do not read the
-  free-slip electroconvection gap as a measurement of the scalar wall alone.
-  Axis-aligned normals only, and no specular corners, in either.
+- **THERE ARE NOW TWO SPECULAR FLUID WALLS, ON DIFFERENT PLANES, AND PICKING
+  THE WRONG ONE IS SILENT.** `SpecWall` (`set_specular_walls`) is a **ghost
+  cell**: its mirror plane is half a cell outside the last fluid node, exact to
+  5.5e-14 against the channel it mirrors (`validation/specular.cpp`, plane
+  measured at 16.5000), and it neither collides nor reports a state. `SpecNode`
+  (`set_specular_nodes`, added 2026-09-06) puts the plane **on the node**: it
+  mirrors the UNKNOWN directions and then collides, so it is a real fluid node
+  reporting a real rho and u. It is the same construction as the scalar's
+  `ScalarSpecular`, and it was written because the on-node scalar families
+  (`ScalarMoment`, `ScalarSpecular`) had no fluid partner on their own plane.
+  Use `SpecNode` where the walls of the case are on-node; use `SpecWall` where
+  the no-slip family is halfway, which is the tree's default.
+  `validation/specular_node.cpp` asserts the on-node one as an IDENTITY against
+  the box it mirrors -- 1.9e-15 for the half box, 3.7e-15 for the quarter box --
+  and prints the control that makes the choice matter: the SAME box closed by
+  the halfway mirror is out by **16 % of the field**. They are exact about
+  different planes, not interchangeable.
+  **ONLY THE ON-NODE ONE TAKES AN EDGE.** `SpecWall` refuses two mirrors at a
+  corner and can afford to, because a ghost outside the domain is never read
+  diagonally; an on-node wall node in the corner of a closed box is a real fluid
+  node and there is nowhere else to put it. So `SpecNode` takes a face BITMASK
+  (`SpecXm | SpecZm`), not a `NormalCode` -- a NormalCode names one outward
+  direction, and reusing it would collide, `NrmYp == 3` reading as
+  `SpecXp|SpecXm`. Axis-aligned faces only in both; a mask carrying BOTH faces
+  of one axis is rejected at setup rather than resolved. `GPU/` has the same
+  wall (`specular.cuh`, `set_specular_nodes`), asserted the same way in
+  `test/host_physics.cpp`.
+  **WHAT IS NOT YET MEASURED.** `ehd_electroconvection -freeslip` still runs the
+  HALFWAY fluid mirror against an on-node scalar wall, so the free-slip/doubled
+  gap recorded in that file has NOT been re-measured with both families on one
+  plane. Writing the wall does not by itself close that gap; do not quote it as
+  closed until a run says so.
 - **The free surface has no surface tension** (uniform gas pressure, no curvature
   term) and **no gas dynamics** — an enclosed bubble does not compress.
 - **The free surface's moving obstacle is not reliable.** The cause is in

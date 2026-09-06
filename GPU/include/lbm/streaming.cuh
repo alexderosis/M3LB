@@ -105,6 +105,13 @@ enum CellType : std::uint8_t {
   Solid    = 1,
   Excluded = 2,
   RegWall  = 3,
+  // Free slip with the mirror plane ON the node: the node mirrors its UNKNOWN
+  // directions and then COLLIDES, so like RegWall it is a real fluid node and
+  // unlike Solid it is forced. The parent tree also has a GHOST-cell mirror
+  // (SpecWall) whose plane sits half a cell outside the last fluid node; this
+  // tree has only the on-node one, because the reason it was written is to pair
+  // with the on-node scalar walls above. See specular.cuh.
+  SpecNode = 4,
 };
 
 //------------------------------------------------------------------------------

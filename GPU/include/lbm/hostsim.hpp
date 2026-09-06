@@ -69,6 +69,23 @@ class Fluid {
     bc_rho_.assign(std::size_t(N_), Real(1));
     if (has_corners_ && fd_corners_) bc_pi_.assign(std::size_t(6 * N_), Real(0));
   }
+  // ON-NODE specular walls -- same contract as the device class: one SpecFace
+  // mask per node, and the marked node is a REAL FLUID NODE that collides and
+  // reports a real state. See specular.cuh.
+  void set_specular_nodes(const std::vector<std::uint8_t>& faces) {
+    if (long(faces.size()) != N_) {
+      std::fprintf(stderr, "set_specular_nodes: %zu masks for %ld nodes\n",
+                   faces.size(), N_);
+      std::exit(1);
+    }
+    if (check_spec_faces(faces, nx_, ny_) == 0) return;
+    spec_faces_ = faces;
+    for (long n = 0; n < N_; ++n)
+      if (faces[std::size_t(n)] != SpecNone) flags_[std::size_t(n)] = SpecNode;
+    has_geometry_ = true;
+    has_walls_ = true;
+  }
+
   void set_fd_corners(bool on) { fd_corners_ = on; }
   long wall_count() const { return n_walls_; }
   void set_magic(Real lambda) { omega_minus_ = omega_minus_for(omega_, lambda); }
@@ -97,7 +114,8 @@ class Fluid {
     for (long n = 0; n < N_; ++n) {
       int x, y, z;
       coords(n, nx_, ny_, x, y, z);
-      Macro m = (flags_[std::size_t(n)] == Fluid_)
+      Macro m = (flags_[std::size_t(n)] == Fluid_ ||
+                 flags_[std::size_t(n)] == SpecNode)
                     ? init(x, y, z)
                     : Macro{Real(1), Real(0), Real(0), Real(0)};
       // The seed is a DENSITY whichever storage is in use; `dens` follows.
@@ -178,12 +196,17 @@ class Fluid {
     p.omega = omega_; p.omega_bulk = omega_bulk_;
     p.omega_minus = omega_minus_;
     p.shifted = shifted_;
-    if (has_walls_) {
+    // has_walls_ means "boundary arrays exist", and set_specular_nodes sets it
+    // without filling the regularised ones, so each group is checked for itself
+    // rather than assumed present. A null here is never dereferenced -- the
+    // kernels guard on the cell flag -- but a dangling one would be.
+    if (!bc_nrm_.empty()) {
       p.bc_nrm = bc_nrm_.data();  p.bc_tag = bc_tag_.data();
       p.bc_unk = bc_unk_.data();  p.bc_ext = bc_ext_.data();
       p.wall_u = wall_u_.data();  p.bc_rho = bc_rho_.data();
       p.bc_pi = bc_pi_.empty() ? nullptr : bc_pi_.data();
     }
+    if (!spec_faces_.empty()) p.spec_faces = spec_faces_.data();
     p.bc_shear_omega = omega_;
     p.fd_corners = fd_corners_;
     return p;
@@ -244,6 +267,7 @@ class Fluid {
   std::vector<std::uint32_t> bc_unk_;
   std::vector<Real> bc_rho_, bc_pi_, wall_u_;
   long n_walls_ = 0;
+  std::vector<std::uint8_t> spec_faces_;
   bool has_walls_ = false;
   bool has_corners_ = false;
   bool fd_corners_ = true;

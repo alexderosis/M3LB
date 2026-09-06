@@ -45,6 +45,7 @@ class FluidSolver {
         bc_nrm_("bc_nrm", dom.n_padded),
         bc_ext_("bc_ext", dom.n_padded),
         spec_nrm_("spec_nrm", dom.n_padded),
+        spec_faces_("spec_faces", dom.n_padded),
         bc_tag_("bc_tag", dom.n_padded),
         bc_don_("bc_don", dom.n_padded),
         bc_onrm_("bc_onrm", dom.n_padded),
@@ -191,6 +192,58 @@ class FluidSolver {
           h_flags_(n) = SpecWall;
         }
     Kokkos::deep_copy(spec_nrm_, h_nrm);
+    Kokkos::deep_copy(flags_, h_flags_);
+    rebuild_lists();
+  }
+
+  //----------------------------------------------------------------------------
+  // ON-NODE specular walls. fn(x, y, z) -> a SpecFace MASK; SpecNone leaves the
+  // cell alone, any combination of opposite-free faces marks it SpecNode.
+  //
+  // Unlike set_specular_walls the marked cell is a REAL FLUID NODE: it mirrors
+  // its unknown directions, then collides, then reports rho and u. So it is the
+  // family to use where the fluid wall has to sit on the same plane as an
+  // on-node scalar wall (ScalarMoment / ScalarSpecular) -- see Specular.hpp and
+  // CLAUDE.md's "the two specular walls sit on different planes".
+  //
+  // Edges and corners ARE allowed, which is the other reason this is separate:
+  // an on-node wall in a closed box has nowhere else to put them.
+  //
+  // Call this AFTER set_geometry, which resets every flag.
+  //----------------------------------------------------------------------------
+  template <class Fn>
+  void set_specular_nodes(Fn fn) {
+    auto h_fc = Kokkos::create_mirror_view(spec_faces_);
+    for (Index n = 0; n < dom_.n_padded; ++n) h_fc(n) = SpecNone;
+    for (Index z = 0; z < dom_.nz; ++z)
+      for (Index y = 0; y < dom_.ny; ++y)
+        for (Index x = 0; x < dom_.nx; ++x) {
+          const std::uint8_t m = fn(x, y, z);
+          if (m == SpecNone) continue;
+          if (m > 0x3F) {
+            std::fprintf(stderr,
+                "set_specular_nodes: mask %u at (%lld,%lld,%lld) has bits outside "
+                "SpecXp..SpecZm.\n",
+                unsigned(m), (long long)x, (long long)y, (long long)z);
+            std::abort();
+          }
+          // Both faces of one axis would ask for two mirror planes one cell
+          // apart, i.e. a domain one cell wide in that direction. The mirror
+          // would then map an unknown onto another unknown and the node would
+          // reflect garbage. Reject rather than resolve.
+          for (int a = 0; a < 3; ++a)
+            if ((m & (1u << (2 * a))) && (m & (1u << (2 * a + 1)))) {
+              std::fprintf(stderr,
+                  "set_specular_nodes: mask %u at (%lld,%lld,%lld) carries BOTH faces "
+                  "of axis %d; an on-node mirror needs one plane per axis.\n",
+                  unsigned(m), (long long)x, (long long)y, (long long)z, a);
+              std::abort();
+            }
+          const Index n = dom_.id(x, y, z);
+          h_fc(n) = m;
+          h_flags_(n) = SpecNode;
+        }
+    Kokkos::deep_copy(spec_faces_, h_fc);
     Kokkos::deep_copy(flags_, h_flags_);
     rebuild_lists();
   }
@@ -391,7 +444,7 @@ class FluidSolver {
     t_ = 0;
     auto flags = flags_;
     seed_populations(KOKKOS_LAMBDA(Index n, int i) {
-      return (flags(n) == Fluid || flags(n) == RegWall)
+      return (flags(n) == Fluid || flags(n) == RegWall || flags(n) == SpecNode)
            ? Collision::seed_value(i, rho0, ux0, uy0, uz0)
            : Collision::seed_value(i, rho0, Real(0), Real(0), Real(0));
     });
@@ -407,7 +460,10 @@ class FluidSolver {
     t_ = 0;
     auto flags = flags_;
     seed_populations(KOKKOS_LAMBDA(Index n, int i) {
-      const FlowState s = (flags(n) == Fluid || flags(n) == RegWall) ? fn(n) : FlowState{};
+      // SpecNode is seeded like any fluid node: it is one. SpecWall is not --
+      // it is a ghost, and is left at rest with the solids.
+      const FlowState s = (flags(n) == Fluid || flags(n) == RegWall ||
+                           flags(n) == SpecNode) ? fn(n) : FlowState{};
       return Collision::seed_value(i, s.rho, s.ux, s.uy, s.uz);
     });
   }
@@ -547,7 +603,7 @@ class FluidSolver {
     const Domain d  = dom_;
     auto flags = flags_;
     auto bc_nrm = bc_nrm_; auto bc_tag = bc_tag_; auto wall_u = wall_u_;
-    auto spec_nrm = spec_nrm_;
+    auto spec_nrm = spec_nrm_; auto spec_faces = spec_faces_;
     auto bc_rho = bc_rho_; auto bc_unk = bc_unk_; auto bc_don = bc_don_; auto bc_onrm = bc_onrm_;
     const bool fd_corners = fd_corners_ && has_shear_omega<Collision>;
     const bool force_bc   = force_bc_;
@@ -606,6 +662,19 @@ class FluidSolver {
           return;
         }
       }
+
+      // ON-NODE SPECULAR. Overwrite the UNKNOWN directions with their
+      // mirror images and then fall through to the collision: this node is a
+      // real fluid node, not a ghost, so it must collide and report a state.
+      // That fall-through is the whole difference from the SpecWall branch
+      // above, which permutes everything and returns.
+      //
+      // No unshift is needed under shifted storage. The mirror sends i to a j
+      // with the same weight (the weights are invariant under reflection in an
+      // axis), so permuting g_i = f_i - w_i gives exactly the shifted form of
+      // the permuted f_i. A moment closure like RegWall's does need the
+      // unshift, because it rebuilds the populations rather than permuting them.
+      if (flag == SpecNode) mirror_unknowns_faces<L>(f, spec_faces(n));
 
       if (flag == RegWall) {
         // Replace every population from (rho, u, Pi^(1)) before colliding.
@@ -825,14 +894,38 @@ class FluidSolver {
     const auto coll = coll_;
     const Domain d  = dom_;
     auto flags = flags_;
-    auto bc_nrm = bc_nrm_; auto bc_tag = bc_tag_;
+    auto bc_nrm = bc_nrm_; auto bc_tag = bc_tag_; auto spec_faces = spec_faces_;
     auto bc_rho = bc_rho_; auto wall_u = wall_u_; auto bc_don = bc_don_; auto bc_onrm = bc_onrm_;
     const Real out_rho = outflow_rho_;
     const int out_order = out_order_;
     auto rho = rho_; auto ux = ux_; auto uy = uy_; auto uz = uz_;
     Kokkos::parallel_for("macro", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
-      if (flags(n) != Fluid && flags(n) != RegWall) {
+      if (flags(n) != Fluid && flags(n) != RegWall && flags(n) != SpecNode) {
         rho(n) = Real(0); ux(n) = uy(n) = uz(n) = Real(0); return;
+      }
+      // An on-node specular node is a real node, but its STREAMED populations
+      // still hold the unknown directions, so the raw sum is meaningless until
+      // the mirror has been applied -- exactly as for RegWall below. Mirror a
+      // local copy; the stored state is the kernel's business, not this one's.
+      if (flags(n) == SpecNode) {
+        Neighbours<L> nbs;
+        d.template fill_neighbours<L, NF, NS>(n, nbs);
+        Real fs[Q];
+        fs[0] = acc.load_rest(nbs);
+        for (int i = 1; i < Q; i += 2) acc.load_pair(nbs, i, fs[i], fs[i + 1]);
+        mirror_unknowns_faces<L>(fs, spec_faces(n));
+        if constexpr (Collision::Storage::shifted)
+          for (int i = 0; i < Q; ++i) fs[i] += weight<L, Real>(i);
+        Real sm = 0, mx = 0, my = 0, mz = 0;
+        for (int i = 0; i < Q; ++i) {
+          sm += fs[i];
+          mx += fs[i] * Real(cvel<L>(i, 0));
+          my += fs[i] * Real(cvel<L>(i, 1));
+          mz += fs[i] * Real(cvel<L>(i, 2));
+        }
+        const Real ir = Real(1) / sm;
+        rho(n) = sm; ux(n) = mx * ir; uy(n) = my * ir; uz(n) = mz * ir;
+        return;
       }
       // At a regularised wall the streamed populations still hold the unknown
       // directions, so their raw moments are meaningless. The velocity there is
@@ -940,14 +1033,18 @@ class FluidSolver {
     const auto coll = coll_;
     const Domain d  = dom_;
     auto flags = flags_;
+    auto spec_faces = spec_faces_;
     Real s = 0;
     Kokkos::parallel_reduce("reduce", Range(0, dom_.n_padded),
       KOKKOS_LAMBDA(Index n, Real& sum) {
-        if (flags(n) != Fluid && flags(n) != RegWall) return;
+        if (flags(n) != Fluid && flags(n) != RegWall && flags(n) != SpecNode) return;
         Neighbours<L> nb;
         d.template fill_neighbours<L, NF, NS>(n, nb);
         Real f[Q];
         for (int i = 0; i < Q; ++i) f[i] = acc.load(nb, i);
+        // Same reason as in macro_kernel: the streamed unknowns are garbage
+        // until the mirror runs, so a raw sum over a SpecNode is not its mass.
+        if (flags(n) == SpecNode) mirror_unknowns_faces<L>(f, spec_faces(n));
         const Macro m = coll.macroscopic(f, n);
         const Real r = Collision::density(m);
         sum += (axis < 0) ? r
@@ -992,6 +1089,10 @@ class FluidSolver {
   // setters would silently depend on call order. One byte per node against a
   // trap that produces a plausible wrong answer is the right trade.
   View1D<std::uint8_t> spec_nrm_;
+  // SpecNode's face MASK, and it cannot share spec_nrm_ either: a NormalCode
+  // names one outward direction and an on-node mirror can sit on an edge or a
+  // corner of a closed box, where two or three faces meet. See Specular.hpp.
+  View1D<std::uint8_t> spec_faces_;
   // One entry per DISTINCT wall state, not per wall node -- but a profiled
   // inlet makes almost every node distinct, so this must not be a uint8_t.
   // At uint8_t the index wrapped silently at 256 states and nodes past that
