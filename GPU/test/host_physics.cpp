@@ -772,6 +772,202 @@ static void insulating_box() {
 //  O(1/H) error that shrinks under refinement and so is easily mistaken for
 //  ordinary discretisation error.
 //==============================================================================
+//------------------------------------------------------------------------------
+// 4b  DELLAR'S MOMENT CONDITION: the plane ON the node.
+//
+// The same conduction problem as case 4, with ScalarMoment plates instead of
+// anti-bounce-back ones. The exact steady profile is then linear between the
+// NODES -- T(y) = y/(ny-1) -- rather than between planes half a cell outside
+// them. This is not a style preference: the EHD cases differentiate the field
+// carrying the boundary value, and a halfway stencil built from interior nodes
+// never sees the imposed value at all.
+//------------------------------------------------------------------------------
+static void on_node_dirichlet(Real D, const char* tag) {
+  const int nx = 4, ny = 18, nz = 1;
+  host::Scalar sc(nx, ny, nz, D, Real(0));
+  sc.set_periodicity(true, false, true);
+
+  std::vector<std::uint8_t> flags(std::size_t(nx) * ny * nz, std::uint8_t(ScalarBulk));
+  std::vector<Real> wall(std::size_t(nx) * ny * nz, Real(0));
+  for (int x = 0; x < nx; ++x) {
+    flags[std::size_t(node_id(x, 0,      0, nx, ny))] = ScalarMoment;
+    flags[std::size_t(node_id(x, ny - 1, 0, nx, ny))] = ScalarMoment;
+    wall [std::size_t(node_id(x, 0,      0, nx, ny))] = Real(0);
+    wall [std::size_t(node_id(x, ny - 1, 0, nx, ny))] = Real(1);
+  }
+  sc.set_geometry(flags, wall);
+  sc.initialise_with([](int, int, int) { return Real(0.5); });
+  for (std::size_t t = 0; t < 40000; ++t) sc.step();
+
+  const std::vector<Real>& T = sc.field();
+  double worst = 0;
+  for (int y = 0; y < ny; ++y) {
+    double t = 0;
+    for (int x = 0; x < nx; ++x) t += double(T[std::size_t(node_id(x, y, 0, nx, ny))]);
+    t /= double(nx);
+    worst = std::fmax(worst, std::fabs(t - double(y) / double(ny - 1)));
+  }
+  char buf[120];
+  std::snprintf(buf, sizeof buf,
+                "on-node Dirichlet at omega = %.4f: deviation from T = y/(ny-1)",
+                double(sc.omega()));
+  (void)tag;
+  check(worst < (fp64 ? 1e-9 : 2e-5), buf, worst, 0.0);
+  note("anti-bounce-back would put this profile on (y-0.5)/H instead -- half a");
+  note("cell out at each end, which is what makes E = -grad phi first order.");
+}
+
+//------------------------------------------------------------------------------
+// 4c  THE ON-NODE ZERO-FLUX WALL, CHECKED AS AN IDENTITY.
+//
+// A box of width M closed by two mirrors is not merely similar to the periodic
+// box of width 2M whose mirror it is; it is the SAME PROBLEM, so the two must
+// agree to round-off rather than to a tolerance. A wall that is NEARLY a mirror
+// also converges, so a rate would not test this.
+//
+// Everything is even about x = 0 and about x = M, both of which are NODES:
+// the streamfunction psi = A sin(pi x/M) cos(2 pi y/ny) is odd about both, so
+// u_x is odd (no flux through either plane), u_y even, and div u = 0. A
+// velocity with a divergence would pump the scalar, and a reference that grows
+// by two orders of magnitude is a fragile thing to regress against.
+//------------------------------------------------------------------------------
+static void specular_identity() {
+  const int M = 12, ny = 16, nz = 1;
+  const double U = 0.05;
+  auto run = [&](bool half, std::vector<Real>& out) {
+    const int nx = half ? M + 1 : 2 * M;
+    host::Scalar sc(nx, ny, nz, Real(0.02), Real(0));
+    sc.set_periodicity(!half, true, true);
+    const std::size_t N = std::size_t(nx) * ny * nz;
+    std::vector<std::uint8_t> flags(N, std::uint8_t(ScalarBulk)), nrm(N, std::uint8_t(NrmNone));
+    std::vector<Real> wall(N, Real(0));
+    if (half)
+      for (int y = 0; y < ny; ++y) {
+        flags[std::size_t(node_id(0,      y, 0, nx, ny))] = ScalarSpecular;
+        flags[std::size_t(node_id(nx - 1, y, 0, nx, ny))] = ScalarSpecular;
+        nrm  [std::size_t(node_id(0,      y, 0, nx, ny))] = NrmXm;
+        nrm  [std::size_t(node_id(nx - 1, y, 0, nx, ny))] = NrmXp;
+      }
+    sc.set_geometry(flags, wall);
+    if (half) sc.set_specular_walls(nrm);
+    std::vector<Real> ux(N), uy(N), uz(N, Real(0));
+    for (int y = 0; y < ny; ++y)
+      for (int x = 0; x < nx; ++x) {
+        const std::size_t n = std::size_t(node_id(x, y, 0, nx, ny));
+        ux[n] = Real(-U * std::sin(M_PI * x / double(M)) * std::sin(2.0 * M_PI * y / ny));
+        uy[n] = Real(-U * (double(ny) / (2.0 * M)) * std::cos(M_PI * x / double(M))
+                        * std::cos(2.0 * M_PI * y / ny));
+      }
+    sc.advect_with(ux.data(), uy.data(), uz.data());
+    sc.initialise_with([&](int x, int y, int) {
+      return Real(1.0 + 0.5 * std::cos(M_PI * x / double(M)) * std::cos(2.0 * M_PI * y / ny)
+                      + 0.3 * std::cos(2.0 * M_PI * x / double(M)));
+    });
+    for (std::size_t t = 0; t < 300; ++t) sc.step();
+    const std::vector<Real>& T = sc.field();
+    out.assign(std::size_t(M + 1) * ny, Real(0));
+    for (int y = 0; y < ny; ++y)
+      for (int x = 0; x <= M; ++x)
+        out[std::size_t(y) * std::size_t(M + 1) + std::size_t(x)] =
+            T[std::size_t(node_id(x, y, 0, nx, ny))];
+  };
+  std::vector<Real> full, half;
+  run(false, full); run(true, half);
+  double worst = 0, lo = 1e300, hi = -1e300;
+  for (std::size_t i = 0; i < full.size(); ++i) {
+    worst = std::fmax(worst, std::fabs(double(full[i]) - double(half[i])));
+    lo = std::fmin(lo, double(full[i])); hi = std::fmax(hi, double(full[i]));
+  }
+  check(worst < (fp64 ? 1e-12 : 2e-5),
+        "specular: half box vs the periodic box it mirrors", worst, 0.0);
+  // Two flat fields agree to round-off whatever the wall does, so the reference
+  // has to be shown still carrying structure for that number to mean anything.
+  check(hi - lo > 0.05, "specular: the reference still carries structure",
+        hi - lo, 0.05);
+}
+
+//------------------------------------------------------------------------------
+// 4d  THE SOURCE REACHES A SPECULAR NODE.
+//
+// A specular cell is a BULK node carrying a mirror closure, not a node whose
+// value is prescribed, so it must take the source like any other. Withholding
+// it leaves the PDE unsolved in the wall column, and in the parent tree that
+// read as a mediocre boundary condition rather than as a bug -- the Poisson
+// reference came out +8.87 % against +0.51 %, second order fell to first, and
+// nothing failed. With a uniform source and no diffusive gradient to drive,
+// EVERY node must climb at exactly S per step, wall column included.
+//------------------------------------------------------------------------------
+static void scalar_source_reaches_wall() {
+  const int nx = 10, ny = 6, nz = 1;
+  const Real S = Real(0.01);
+  host::Scalar sc(nx, ny, nz, Real(0.1), Real(0));
+  sc.set_periodicity(false, true, true);
+  const std::size_t N = std::size_t(nx) * ny * nz;
+  std::vector<std::uint8_t> flags(N, std::uint8_t(ScalarBulk)), nrm(N, std::uint8_t(NrmNone));
+  std::vector<Real> wall(N, Real(0)), src(N, S);
+  for (int y = 0; y < ny; ++y) {
+    flags[std::size_t(node_id(0,      y, 0, nx, ny))] = ScalarSpecular;
+    flags[std::size_t(node_id(nx - 1, y, 0, nx, ny))] = ScalarSpecular;
+    nrm  [std::size_t(node_id(0,      y, 0, nx, ny))] = NrmXm;
+    nrm  [std::size_t(node_id(nx - 1, y, 0, nx, ny))] = NrmXp;
+  }
+  sc.set_geometry(flags, wall);
+  sc.set_specular_walls(nrm);
+  // (a) A NEGLIGIBLE SOURCE MUST BE A NO-OP, CHECKED ACROSS STEPS.
+  //
+  // add_source is a read-modify-write of each node's own slots. gather and
+  // scatter are a STREAMING pair -- scatter puts in[i] where gather took
+  // out[i+1] from -- so handing the values back unswapped advances the field an
+  // extra step every time a source is added.
+  //
+  // TWO OBVIOUS TESTS OF THAT ARE BLIND, and both were written before this one.
+  // A constant source on a flat field: a uniform field is invariant under
+  // streaming. And a one-shot source compared before/after: the crossing merely
+  // SWAPS each opposite pair, and the field is their SUM, so it is unchanged
+  // until a step flips the parity. Only a differential test over several steps
+  // sees it: the same run with and without an utterly negligible source.
+  {
+    auto run = [&](bool with_source, std::vector<Real>& out) {
+      host::Scalar a(nx, ny, nz, Real(0.1), Real(0));
+      a.set_periodicity(false, true, true);
+      a.set_geometry(flags, wall);
+      a.set_specular_walls(nrm);
+      a.initialise_with([](int x, int y, int) {
+        return Real(1.0 + 0.3 * std::sin(2.0 * M_PI * y / 6.0) + 0.2 * (x % 3));
+      });
+      std::vector<Real> tiny(N, Real(1e-30));
+      for (int t = 0; t < 12; ++t) { if (with_source) a.add_source(tiny.data()); a.step(); }
+      out = a.field();
+    };
+    std::vector<Real> plain, sourced;
+    run(false, plain); run(true, sourced);
+    double worst_one = 0;
+    for (std::size_t i = 0; i < plain.size(); ++i)
+      worst_one = std::fmax(worst_one, std::fabs(double(plain[i]) - double(sourced[i])));
+    check(worst_one < (fp64 ? 1e-12 : 1e-6),
+          "a 1e-30 source changes nothing (it is not a streaming step)",
+          worst_one, 0.0);
+  }
+
+  // (b) and it must reach the specular column.
+  sc.initialise_with([](int, int, int) { return Real(0); });
+  const int steps = 50;
+  for (int t = 0; t < steps; ++t) { sc.add_source(src.data()); sc.step(); }
+  const std::vector<Real>& T = sc.field();
+  const double want = double(S) * steps;
+  double worst_bulk = 0, worst_wall = 0;
+  for (int y = 0; y < ny; ++y)
+    for (int x = 0; x < nx; ++x) {
+      const double v = double(T[std::size_t(node_id(x, y, 0, nx, ny))]);
+      if (x == 0 || x == nx - 1) worst_wall = std::fmax(worst_wall, std::fabs(v - want));
+      else                       worst_bulk = std::fmax(worst_bulk, std::fabs(v - want));
+    }
+  check(worst_bulk < (fp64 ? 1e-12 : 1e-5),
+        "uniform source: bulk climbs at exactly S per step", worst_bulk, 0.0);
+  check(worst_wall < (fp64 ? 1e-12 : 1e-5),
+        "uniform source: the SPECULAR column climbs at the same rate", worst_wall, 0.0);
+}
+
 static void conduction() {
   const int H = 16, nx = 4, nz = 4, ny = H + 2;
   host::Scalar sc(nx, ny, nz, Real(0.125), Real(0.5));
@@ -1322,6 +1518,15 @@ int main() {
   std::printf("\n  -- the passive scalar --\n");
   insulating_box();
   conduction();
+  // SWEEP OMEGA. Diffusivity 0.125 on D3Q7 is exactly omega = 1, where the
+  // collision wipes every non-equilibrium population and ANY consistent fill of
+  // the unknown directions gives the right answer. A single test there cannot
+  // see a boundary whose effective plane moves with tau, so it is not one test.
+  on_node_dirichlet(Real(0.125), "omega = 1");
+  on_node_dirichlet(Real(0.05),  "omega > 1");
+  on_node_dirichlet(Real(0.30),  "omega < 1");
+  specular_identity();
+  scalar_source_reaches_wall();
   diffusion();
   advection();
   open_boundary();

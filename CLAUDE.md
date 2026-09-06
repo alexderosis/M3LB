@@ -319,6 +319,36 @@ These produce plausible, converged, wrong answers rather than crashes.
   see an error that depends on the half-cell alignment. `ehd_electroconvection`
   reported 0.33% from ny=81 to 163 and was 3.3% from the other alignment. Ask
   what a refinement holds *fixed* before quoting it as convergence.
+- **`gather` AND `scatter` ARE A STREAMING PAIR, NOT A READ-MODIFY-WRITE.** In
+  `GPU/`, `scatter` writes `in[i]` into the slot `gather` took `out[i+1]` from —
+  that crossing IS the stream. So a pass that gathers, modifies and scatters
+  straight back does not update a node in place; it advances the field by a
+  step. Found 2026-09-06 while porting the EHD stack: the Poisson source did
+  exactly that, and the potential came out with a first-cell gradient 40 % short
+  of the interior one, which read as a bad boundary condition rather than as a
+  bug. The fix is to swap each opposite pair before storing — the same identity
+  that lets an adiabatic cell be skipped entirely. `src/`'s accessor does not
+  have this hazard: `acc.load(nb,i)` and `acc.scatter(nb,i,·)` address the same
+  slot.
+  **TWO OBVIOUS TESTS OF IT ARE BLIND, and both were written and passed before
+  the third caught it.** A constant source on a flat field: a uniform field is
+  invariant under streaming. A one-shot before/after comparison: the crossing
+  merely SWAPS each opposite pair, and the field is their sum, so nothing moves
+  until a step flips the parity. Only a DIFFERENTIAL run over several steps sees
+  it — the same case with and without a 1e-30 source, which gives 0.224 with the
+  bug and exactly 0 without (`GPU/test/host_physics.cpp`). When a test for an
+  in-place update passes, check that it would fail if the update streamed.
+- **A NODE WHOSE POPULATIONS ARE PRESCRIBED MUST NOT HAVE ITS FIELD RECOMPUTED.**
+  `GPU/`'s scalar field kernel summed an outflow node's populations like any
+  other node's, arguing that an outflow cell holds a real concentration. It
+  does — but the pass that set it wrote POST-COLLISION populations and the field
+  kernel runs at the NEXT parity, so what it sums is the post-STREAMING state:
+  everything that arrived, including whatever the periodic wrap delivered from
+  the opposite face. Harmless in an open channel, where the far face is far
+  away; wrong in `GPU/src/ehd_cavity.cu`'s closed box, where the collector read
+  **0.33 q0** against a neighbour at 0.075 because the wrap handed it the
+  injector. `src/` skips outflow nodes in its field kernel for this reason and
+  says so; `GPU/` now does too.
 - **A MOMENT INDEX MUST BE A COMPILE-TIME CONSTANT.** The moment operators reach
   their exponents through `Basis::p_of(n)`, which is a lookup in a 432-byte
   table. Called with a compile-time `n` it folds and the moment arrays live in
@@ -415,6 +445,25 @@ Do not spend time on these without saying so first; several are deliberate.
   `transfer_covered_mass()` and `settle()`, is written up in the module banner
   with measurements, and is not a caller error. Do not present a run with a
   moving obstacle as a result.
+- **`GPU/` HAS THE EHD STACK as of 2026-09-06** (`src/ehd_cavity.cu`,
+  `include/lbm/ehd.cuh`, `include/lbm/specular.cuh`). Porting it added four
+  things to the scalar module that `GPU/` did not have: Dellar's on-node
+  Dirichlet (`ScalarMoment`), the on-node zero-flux wall (`ScalarSpecular`), a
+  per-node source, and the central-moment charge collision. The solvers are now
+  templated on their lattice, so the charge is `ScalarSolverT<D3Q27>` and not a
+  second implementation; `ScalarSolver` and `ChargeSolver` are aliases.
+  **The charge collision is a CLOSED FORM, not the parent's moment transform,**
+  and that is deliberate: a 27-element moment array indexed at run time is the
+  local-memory trap named above. On a product lattice the target is separable
+  into two 1-D factors per axis, `E(+-1) = (cs2 + v^2 +- v)/2` and
+  `G(+-1) = v +- 1/2`, and the product is EXACT rather than an approximation —
+  it reproduces `k110 = 0`, which a naive product form does not.
+  `test/host_check.cpp` pins twelve moment identities against it.
+  **Cross-checked against the Kokkos twin at matched lattices** (D3Q27 charge,
+  D3Q7 potential, N = 21, T = 150): I0 = 1.3256e-05 against 1.3340e-05, 0.63 %
+  apart with no shared headers, the collector charge on 0.0722 q0 in both, and
+  Ne = 1.0001 below onset. That comparison is what found the two bugs recorded
+  above, and neither was in the new code.
 - **`GPU/` is D3Q27 only**, and that is now the main thing it does not share
   with `src/`. As of 2026-09-02 it also has TRT, shifted storage, central
   moments for *both* multiphase distributions (its phase field runs on D3Q7 or

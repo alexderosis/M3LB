@@ -1,0 +1,323 @@
+//==============================================================================
+//  Electroconvection in a CLOSED SQUARE CAVITY -- the CUDA twin.
+//
+//  Patnaik, Skillen & De Rosis, Eng. Comput. 41:4977-5002 (2025), Sec. 3.2.3,
+//  and the port of the parent tree's validation/ehd_cavity.cpp. A square with
+//  every wall closed,
+//
+//      u = 0,   d_x q = 0,   d_x phi = 0     at x = 0, Lx,
+//
+//  reported through an electric Nusselt number rather than a peak velocity.
+//
+//  ===================== WHAT THE PORT HAD TO ADD ============================
+//  The fluid side needed nothing: D3Q27 central moments, ForceField and on-node
+//  regularised walls with corners were all already here. The scalar side needed
+//  four things, and they are in the headers rather than in this driver:
+//
+//    ScalarMoment    Dellar's on-node Dirichlet. NOT optional: E = -grad phi is
+//                    a derivative of the field carrying the boundary value, and
+//                    the parent measured halfway plates as first order here.
+//    ScalarSpecular  the on-node zero-flux wall (specular.cuh). The closed
+//                    square cannot dodge a lateral scalar wall the way the
+//                    reference's Sec. 3.2.1 can, and both pre-existing
+//                    conditions fail there -- see that banner for the table.
+//    a source term   for the Poisson relaxation, which must reach specular
+//                    nodes as well as bulk ones (scalar.cuh, add_source).
+//    ChargeCM        the central-moment charge collision, in closed form
+//                    rather than through a 27-moment transform (core.cuh).
+//
+//  The solvers are templated on their lattice, so the charge is
+//  ScalarSolverT<D3Q27> and not a second implementation.
+//
+//  ===================== WHAT IT IS CHECKED AGAINST ==========================
+//  Its Kokkos twin, first and mainly. The two codebases share no headers, so
+//  agreement is evidence about the physics and disagreement is a bug in one of
+//  them; that is the whole reason both exist. The parent's numbers, unseeded at
+//  N = 129:
+//
+//      T        250    500   1000   1500   3000   5000  10000
+//      Ne      1.000  1.595  1.696  1.751  1.979  2.597  3.381
+//
+//  and, below onset, Ne = 1 to four figures with the fluid at rest -- which is
+//  the sharpest check available here, because numerator and denominator are
+//  then literally the same computation.
+//
+//  Against the reference itself the parent sits 9-13 % low wherever the grid is
+//  trustworthy, and that deficit is MEASURED AND NOT EXPLAINED. Resolution,
+//  Mach number, the seed and the wall columns are all excluded. Do not read
+//  agreement between these two codebases as agreement with the paper.
+//
+//    usage: ehd_cavity [-n N] [-t T] [-u0 U] [-c C] [-m M] [-sc SC]
+//                      [-alpha A] [-beta B] [-tf N] [-tavg N] [-amp A]
+//                      [-tfh N] [-watch]
+//==============================================================================
+#include "lbm/backend.cuh"
+#include "lbm/ehd.cuh"
+
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <vector>
+
+using namespace lbm;
+
+struct RestInit {
+  LBM_HD Macro operator()(int, int, int) const {
+    return Macro{Real(1), Real(0), Real(0), Real(0), Real(1)};
+  }
+};
+
+struct Opts {
+  int n = 129, nz = 1;
+  double T = 1000, u0 = 5e-3, C = 10, M = 10, Sc = 1e3, alpha = -1, beta = 0.3;
+  double tf = 30, tavg = 15, tfh = 12, amp = 0;
+  bool watch = false, profile = false;
+};
+
+//------------------------------------------------------------------------------
+// The D = 0 hydrostatic current, by bisection: a CHECK on the measured I0.
+//------------------------------------------------------------------------------
+static double analytic_current(double K, double eps, double q0, double dphi, double H) {
+  auto integral = [&](double j) {
+    const double E0 = j / (K * q0), a = 2.0 * j / (K * eps);
+    return (2.0 / (3.0 * a)) * (std::pow(E0 * E0 + a * H, 1.5) - E0 * E0 * E0);
+  };
+  double lo = 1e-300, hi = 1.0;
+  for (int i = 0; i < 200 && integral(hi) < dphi; ++i) hi *= 2.0;
+  for (int i = 0; i < 300; ++i) {
+    const double mid = 0.5 * (lo + hi);
+    if (integral(mid) < dphi) lo = mid; else hi = mid;
+  }
+  return 0.5 * (lo + hi);
+}
+
+struct Out { double Ie = 0, Ne = 0, Ne_rms = 0, umax = 0, qlo = 0, qhi = 0; int nacc = 0; };
+
+//------------------------------------------------------------------------------
+static Out solve(const Opts& o, bool hydro, double I0, bool verbose) {
+  const int nx = o.n, ny = o.n, nz = o.nz, H = o.n - 1;
+  const long N = long(nx) * ny * nz;
+  const std::size_t NN = static_cast<std::size_t>(N);
+
+  const double dphi = 1.0;
+  const double K    = o.u0 * double(H) / dphi;
+  const double eps  = o.M * o.M * K * K;
+  const double nu   = eps * dphi / (K * o.T);
+  const double q0   = eps * o.C * dphi / (double(H) * double(H));
+  const double alph = o.alpha > 0 ? o.alpha : o.M * o.M / (o.T * o.Sc);
+  const double Dq   = alph * K * dphi;
+  const double t0   = double(H) / o.u0;
+
+  if (verbose)
+    std::printf("  %s  T = %g   %d x %d (H = %d)   K = %.4g  eps = %.4g  nu = %.5g"
+                " (tau %.4f)\n            q0 = %.4g  alpha = %.4g  D = %.4g\n",
+                hydro ? "reference (F = 0)" : "cavity          ", o.T, nx, ny, H,
+                K, eps, nu, 3.0 * nu + 0.5, q0, alph, Dq);
+
+  //---- geometry ---------------------------------------------------------------
+  const std::uint8_t kFluid = Fluid;
+  std::vector<std::uint8_t> geo(NN, kFluid);
+  std::vector<RegWallSpec> spec(NN);
+  std::vector<std::uint8_t> qf(NN, std::uint8_t(ScalarBulk)), pf(NN, std::uint8_t(ScalarBulk));
+  std::vector<std::uint8_t> nrm(NN, std::uint8_t(NrmNone));
+  std::vector<Real> qw(NN, Real(0)), pw(NN, Real(0));
+  for (int z = 0; z < nz; ++z)
+   for (int y = 0; y < ny; ++y)
+    for (int x = 0; x < nx; ++x) {
+      const std::size_t id = std::size_t(node_id(x, y, z, nx, ny));
+      const bool xl = (x == 0), xr = (x == nx - 1), yb = (y == 0), yt = (y == ny - 1);
+      if ((xl || xr) && (yb || yt)) spec[id] = RegWallSpec{NrmCorner, 0, 0, 0};
+      else if (yb) spec[id] = RegWallSpec{NrmYm, 0, 0, 0};
+      else if (yt) spec[id] = RegWallSpec{NrmYp, 0, 0, 0};
+      else if (xl) spec[id] = RegWallSpec{NrmXm, 0, 0, 0};
+      else if (xr) spec[id] = RegWallSpec{NrmXp, 0, 0, 0};
+      // charge: injector on the node, zero gradient at the collector, mirrors
+      // on the sides. The plates win at the corners.
+      if (yb)      { qf[id] = ScalarMoment;  qw[id] = Real(q0); }
+      else if (yt) { qf[id] = ScalarOutflow; }
+      else if (xl || xr) { qf[id] = ScalarSpecular; nrm[id] = xl ? NrmXm : NrmXp; }
+      // potential: phi = dphi at the injector, 0 at the collector, mirrors.
+      if (yb || yt) { pf[id] = ScalarMoment; pw[id] = yb ? Real(dphi) : Real(0); }
+      else if (xl || xr) pf[id] = ScalarSpecular;
+    }
+
+  //---- solvers ----------------------------------------------------------------
+  backend::Fluid fl(nx, ny, nz, Op::CentralMoments, Real(nu));
+  fl.set_geometry(geo);
+  fl.set_regularized_walls(spec);
+
+  backend::Charge chg(nx, ny, nz, Real(Dq), Real(0), ScalarOp::ChargeCM);
+  chg.set_periodicity(false, false, true);
+  chg.set_geometry(qf, qw);
+  chg.set_specular_walls(nrm);
+
+  backend::Scalar pot(nx, ny, nz, Real(o.beta), Real(0), ScalarOp::BGK);
+  pot.set_periodicity(false, false, true);
+  pot.set_geometry(pf, pw);
+  pot.set_specular_walls(nrm);
+
+  //---- coupling fields --------------------------------------------------------
+  Field kx(N), ky(N), kz(N), Fx(N), Fy(N), Fz(N), src(N), qprev(N);
+  BodyForce b; b.Fx = Fx.data(); b.Fy = Fy.data(); b.Fz = Fz.data();
+  fl.set_force(b, ForceField);
+  chg.advect_with(kx.data(), ky.data(), kz.data());
+
+  fl.initialise_with(RestInit{});
+  // phi starts at its CHARGE-FREE solution, not at zero. Eq. (19) says zero,
+  // but Poisson is elliptic: that is where a relaxation starts, not a state of
+  // the system. Against phi = dphi on the plate, zero puts the whole potential
+  // difference across one cell and the drift K E goes supersonic.
+  const int Hc = H;
+  pot.initialise_with([Hc](int, int y, int) {
+    const double yy = y < 0 ? 0.0 : (y > Hc ? double(Hc) : double(y));
+    return Real(1.0 - yy / double(Hc));
+  });
+  const double ampq = (hydro ? 0.0 : o.amp) * q0, dec = double(H) / 8.0;
+  chg.initialise_with([Hc, ampq, dec](int x, int y, int) {
+    if (y <= 0 || y >= Hc) return Real(0);
+    double lat = 0.0;
+    const double ph[4] = {0.0, 1.1, 2.3, 0.7};
+    for (int m = 0; m < 4; ++m)
+      lat += 0.25 * 0.5 * (1.0 + std::cos(M_PI * double(m + 1) * (x + 0.5) / 64.0 + ph[m]));
+    return Real(ampq * lat * std::exp(-double(y) / dec));
+  });
+
+  EhdParams ep;
+  ep.phi = pot.field_device(); ep.q = chg.field_device();
+  ep.kx = kx.data(); ep.ky = ky.data(); ep.kz = kz.data();
+  ep.Fx = Fx.data(); ep.Fy = Fy.data(); ep.Fz = Fz.data();
+  ep.src = src.data(); ep.qprev = qprev.data();
+  ep.nx = nx; ep.ny = ny; ep.nz = nz; ep.H = H;
+  ep.K = Real(K); ep.eps = Real(eps); ep.beta = Real(o.beta);
+  ep.sidewalls = true;
+
+  //---- march ------------------------------------------------------------------
+  const std::size_t steps = std::size_t((hydro ? o.tfh : o.tf) * t0);
+  const std::size_t probe = std::size_t(t0 / 20) ? std::size_t(t0 / 20) : 1;
+  Out r;
+  double sNe = 0, sNe2 = 0, ring[20] = {0};
+  int nprobe = 0;
+  std::vector<Real> hq, hrho, hux, huy, huz, hky;
+  const double tavg0 = o.tf - o.tavg;
+
+  for (std::size_t t = 0; t < steps; ++t) {
+    ep.ux = hydro ? nullptr : fl.ux_device();
+    ep.uy = hydro ? nullptr : fl.uy_device();
+    ehd_pass(ep);
+    pot.add_source(src.data());
+    pot.step();
+    chg.step();
+    if (!hydro) fl.step();
+    pot.compute_field();
+    chg.compute_field();
+
+    if ((t + 1) % probe == 0 || t + 1 == steps) {
+      chg.field_to_host(hq);
+      ky.to_host(hky);              // the VERTICAL drift, u_y + K E_y
+      if (!hydro) fl.macroscopic_to_host(hrho, hux, huy, huz);
+      double peak = 0, qlo = 1e300, qhi = -1e300, sflux = 0;
+      long ncell = 0;
+      for (int z = 0; z < nz; ++z)
+       for (int y = 0; y <= H; ++y)
+        for (int x = 0; x < nx; ++x) {
+          const std::size_t n = std::size_t(node_id(x, y, z, nx, ny));
+          const double q = double(hq[n]);
+          if (!hydro) {
+            const double a = double(hux[n]), c = double(huy[n]);
+            peak = std::fmax(peak, std::sqrt(a * a + c * c));
+          }
+          qlo = std::fmin(qlo, q); qhi = std::fmax(qhi, q);
+          double dqdy;
+          const std::size_t up = std::size_t(node_id(x, y + 1 <= H ? y + 1 : H, z, nx, ny));
+          const std::size_t dn = std::size_t(node_id(x, y - 1 >= 0 ? y - 1 : 0, z, nx, ny));
+          if (y == 0)
+            dqdy = -1.5 * q + 2.0 * double(hq[up])
+                   - 0.5 * double(hq[std::size_t(node_id(x, 2, z, nx, ny))]);
+          else if (y == H)
+            dqdy = 1.5 * q - 2.0 * double(hq[dn])
+                   + 0.5 * double(hq[std::size_t(node_id(x, H - 2, z, nx, ny))]);
+          else
+            dqdy = 0.5 * (double(hq[up]) - double(hq[dn]));
+          sflux += q * double(hky[n]) - Dq * dqdy;
+          ++ncell;
+        }
+      r.Ie = sflux / double(ncell);
+      r.umax = peak / o.u0; r.qlo = qlo / q0; r.qhi = qhi / q0;
+      const double tt = double(t + 1) / t0;
+      const double ne = I0 > 0 ? r.Ie / I0 : 0.0;
+      if (!hydro && tt >= tavg0) { sNe += ne; sNe2 += ne * ne; ++r.nacc; }
+      if (o.watch)
+        std::printf("      t/t0 %7.2f   u_max/u0 = %8.3f   Ie = %.6e   Ne = %7.4f"
+                    "   q/q0 [%7.4f, %7.4f]\n", tt, r.umax, r.Ie, ne, r.qlo, r.qhi);
+      const double ago = ring[nprobe % 20];
+      ring[nprobe % 20] = r.Ie;
+      ++nprobe;
+      if (hydro && nprobe > 20 && std::fabs(r.Ie - ago) < 1e-6 * std::fabs(r.Ie)) break;
+      std::fflush(stdout);
+    }
+  }
+  if (o.profile) {
+    std::vector<Real> hp;
+    pot.field_to_host(hp);
+    chg.field_to_host(hq);
+    ky.to_host(hky);
+    // Sampled at MID-X, not averaged over x: the two specular columns are 18 %
+    // of an average at nx = 11, so an x-average hides where an error lives.
+    std::printf("      y     q/q0        phi        K.Ey+u      phi(x=0)\n");
+    for (int y = 0; y <= H; y += (H / 10 > 0 ? H / 10 : 1)) {
+      const std::size_t m = std::size_t(node_id(nx / 2, y, 0, nx, ny));
+      const std::size_t e = std::size_t(node_id(0, y, 0, nx, ny));
+      std::printf("   %4d  %9.5f  %9.5f  %11.6f  %11.6f\n", y,
+                  double(hq[m]) / q0, double(hp[m]), double(hky[m]), double(hp[e]));
+    }
+  }
+  if (!hydro && r.nacc) {
+    r.Ne = sNe / r.nacc;
+    const double v = sNe2 / r.nacc - r.Ne * r.Ne;
+    r.Ne_rms = v > 0 ? std::sqrt(v) : 0.0;
+  }
+  return r;
+}
+
+int main(int argc, char** argv) {
+  Opts o;
+  for (int i = 1; i < argc; ++i) {
+    const std::string a = argv[i];
+    if      (a == "-n"     && i + 1 < argc) o.n     = std::atoi(argv[++i]);
+    else if (a == "-nz"    && i + 1 < argc) o.nz    = std::atoi(argv[++i]);
+    else if (a == "-t"     && i + 1 < argc) o.T     = std::atof(argv[++i]);
+    else if (a == "-u0"    && i + 1 < argc) o.u0    = std::atof(argv[++i]);
+    else if (a == "-c"     && i + 1 < argc) o.C     = std::atof(argv[++i]);
+    else if (a == "-m"     && i + 1 < argc) o.M     = std::atof(argv[++i]);
+    else if (a == "-sc"    && i + 1 < argc) o.Sc    = std::atof(argv[++i]);
+    else if (a == "-alpha" && i + 1 < argc) o.alpha = std::atof(argv[++i]);
+    else if (a == "-beta"  && i + 1 < argc) o.beta  = std::atof(argv[++i]);
+    else if (a == "-tf"    && i + 1 < argc) o.tf    = std::atof(argv[++i]);
+    else if (a == "-tavg"  && i + 1 < argc) o.tavg  = std::atof(argv[++i]);
+    else if (a == "-tfh"   && i + 1 < argc) o.tfh   = std::atof(argv[++i]);
+    else if (a == "-amp"   && i + 1 < argc) o.amp   = std::atof(argv[++i]);
+    else if (a == "-watch")                 o.watch = true;
+    else if (a == "-profile")               o.profile = true;
+  }
+
+  std::printf("Closed square EHD cavity   %s   D3Q27 fluid + charge / D3Q7 potential"
+              "   %s\n  C = %g  M = %g  Sc = %g   Sec. 3.2.3 of Patnaik et al. (2025)\n\n",
+              backend::on_device ? "CUDA native" : "HOST reference",
+              sizeof(Real) == 4 ? "FP32" : "FP64", o.C, o.M, o.Sc);
+
+  const Out h = solve(o, true, 0.0, true);
+  const int H = o.n - 1;
+  const double K = o.u0 * double(H), eps = o.M * o.M * K * K;
+  const double q0 = eps * o.C / (double(H) * double(H));
+  const double ja = analytic_current(K, eps, q0, 1.0, double(H));
+  std::printf("    I0 = %.6e   (D = 0 analytic %.6e, %+.2f %%)\n\n", h.Ie, ja,
+              100.0 * (h.Ie - ja) / ja);
+
+  const Out f = solve(o, false, h.Ie, true);
+  std::printf("    u_max/u0 = %.3f   Ne = %.4f +/- %.4f  (%d samples)\n",
+              f.umax, f.Ne, f.Ne_rms, f.nacc);
+  std::printf("    q/q0 in [%.4f, %.4f]\n", f.qlo, f.qhi);
+  return 0;
+}

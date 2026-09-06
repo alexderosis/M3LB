@@ -151,6 +151,13 @@ enum ScalarCell : std::uint8_t {
   ScalarDirichlet = 2,
   ScalarExcluded  = 3,
   ScalarOutflow   = 4,
+  // Both ON-NODE, and added together because the cavity of the parent tree's
+  // validation/ehd_cavity.cpp needs both at once: E = -grad phi differentiates
+  // the field that carries the boundary value, so a halfway plate is FIRST
+  // ORDER there (measured 11.19 % -> 1.49 % at H = 80), and a zero-flux wall
+  // half a cell from an on-node Dirichlet one mixes two wall families.
+  ScalarMoment    = 5,   // fixed value AT the node -- Dellar's moment condition
+  ScalarSpecular  = 6,   // zero flux AT the node -- see specular.cuh
 };
 
 //------------------------------------------------------------------------------

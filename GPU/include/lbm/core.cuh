@@ -484,7 +484,105 @@ LBM_HD LBM_INLINE void collide_scalar_regularised(Real h[7], Real dT, Real T_ref
 
 // Which of the two the scalar runs. BGK is the default so that every existing
 // driver keeps the operator it was validated with.
-enum class ScalarOp { BGK, Regularised };
+enum class ScalarOp { BGK, Regularised, ChargeCM };
+
+//------------------------------------------------------------------------------
+//  CENTRAL-MOMENT COLLISION FOR A CHARGE CARRIER, on a PRODUCT lattice.
+//
+//  Patnaik, Skillen & De Rosis (2025), the charge half of the EHD scheme:
+//
+//      d_t q + div[ q (u + K E) ] = D grad^2 q
+//
+//  Two things separate it from collide_scalar. The advecting velocity is the
+//  DRIFT, u + K E, and the central moments are taken ABOUT that velocity -- so
+//  the equilibrium's first moment is identically zero and the flux moment IS
+//  the non-equilibrium part. And the equilibrium is full order rather than
+//  first: on D3Q7 a second-order term would add anisotropy rather than accuracy,
+//  because every velocity has a single nonzero component, but on a PRODUCT
+//  lattice the sum is the discrete Maxwellian exactly.
+//
+//  In that basis the whole collision is: keep q, decay the three fluxes by
+//  (1 - omega), and send everything else to zero.
+//
+//  ===================== WHY THERE IS NO MOMENT TRANSFORM ====================
+//  The parent tree does this with a 27-element moment array and a pair of
+//  basis transforms. That is right on a CPU and is the WRONG shape for a
+//  device: CLAUDE.md's first silent invariant is that a moment array indexed at
+//  run time leaves the register file for per-thread local memory, and this tree
+//  has measured that mechanism at 47x in the colour gradient.
+//
+//  It is unnecessary here. On a product lattice the target is separable, so it
+//  can be written in closed form. Each axis needs two 1-D distributions over
+//  c in {-1, 0, +1}, defined by their central moments about v:
+//
+//      E:  m0 = 1, m1 = 0, m2 = cs2    E(+-1) = (cs2 + v^2 +- v)/2, E(0) = 1 - cs2 - v^2
+//      G:  m0 = 0, m1 = 1, m2 = 0      G(+-1) = v +- 1/2,           G(0) = -2v
+//
+//  and then
+//
+//      h_i = q Ex Ey Ez + Jx Gx Ey Ez + Jy Ex Gy Ez + Jz Ex Ey Gz,
+//
+//  with J = (1 - omega) j. This is EXACT, not an approximation to the
+//  transform: E carries no first moment and G no zeroth or second, so the
+//  product reproduces k_000 = q, k_100 = Jx, the equilibrium second moments,
+//  and -- the part a naive product form gets wrong -- k_110 = 0 identically.
+//
+//  Selected by BRANCH rather than by indexing a 3-element array, for the same
+//  register-file reason: no array here is ever subscripted with a value the
+//  compiler cannot fold.
+//------------------------------------------------------------------------------
+LBM_HD LBM_INLINE Real cm_pick(int c, Real m, Real z, Real p) {
+  return c < 0 ? m : (c == 0 ? z : p);
+}
+
+template <class L>
+LBM_HD LBM_INLINE void collide_charge_cm(Real* h, Real vx, Real vy, Real vz,
+                                         Real omega) {
+  const Real cs2 = L::cs2();
+  Real q = Real(0), jx = Real(0), jy = Real(0), jz = Real(0);
+  for (int i = 0; i < L::Q; ++i) {
+    const Real hi = h[i];
+    q  += hi;
+    jx += hi * (Real(L::cx(i)) - vx);
+    jy += hi * (Real(L::cy(i)) - vy);
+    jz += hi * (Real(L::cz(i)) - vz);
+  }
+  const Real d = Real(1) - omega;
+  jx *= d; jy *= d; jz *= d;
+
+  const Real Exm = Real(0.5) * (cs2 + vx * vx - vx), Ex0 = Real(1) - cs2 - vx * vx,
+             Exp = Real(0.5) * (cs2 + vx * vx + vx);
+  const Real Eym = Real(0.5) * (cs2 + vy * vy - vy), Ey0 = Real(1) - cs2 - vy * vy,
+             Eyp = Real(0.5) * (cs2 + vy * vy + vy);
+  const Real Ezm = Real(0.5) * (cs2 + vz * vz - vz), Ez0 = Real(1) - cs2 - vz * vz,
+             Ezp = Real(0.5) * (cs2 + vz * vz + vz);
+  const Real Gxm = vx - Real(0.5), Gx0 = Real(-2) * vx, Gxp = vx + Real(0.5);
+  const Real Gym = vy - Real(0.5), Gy0 = Real(-2) * vy, Gyp = vy + Real(0.5);
+  const Real Gzm = vz - Real(0.5), Gz0 = Real(-2) * vz, Gzp = vz + Real(0.5);
+
+  for (int i = 0; i < L::Q; ++i) {
+    const int cx = L::cx(i), cy = L::cy(i), cz = L::cz(i);
+    const Real ex = cm_pick(cx, Exm, Ex0, Exp), gx = cm_pick(cx, Gxm, Gx0, Gxp);
+    const Real ey = cm_pick(cy, Eym, Ey0, Eyp), gy = cm_pick(cy, Gym, Gy0, Gyp);
+    const Real ez = cm_pick(cz, Ezm, Ez0, Ezp), gz = cm_pick(cz, Gzm, Gz0, Gzp);
+    h[i] = q * ex * ey * ez + jx * gx * ey * ez
+                            + jy * ex * gy * ez
+                            + jz * ex * ey * gz;
+  }
+}
+
+// The product-form equilibrium alone, for seeding.
+template <class L>
+LBM_HD LBM_INLINE Real charge_eq(int i, Real q, Real vx, Real vy, Real vz) {
+  const Real cs2 = L::cs2();
+  const Real ex = cm_pick(L::cx(i), Real(0.5) * (cs2 + vx * vx - vx),
+                          Real(1) - cs2 - vx * vx, Real(0.5) * (cs2 + vx * vx + vx));
+  const Real ey = cm_pick(L::cy(i), Real(0.5) * (cs2 + vy * vy - vy),
+                          Real(1) - cs2 - vy * vy, Real(0.5) * (cs2 + vy * vy + vy));
+  const Real ez = cm_pick(L::cz(i), Real(0.5) * (cs2 + vz * vz - vz),
+                          Real(1) - cs2 - vz * vz, Real(0.5) * (cs2 + vz * vz + vz));
+  return q * ex * ey * ez;
+}
 
 template <class L>
 LBM_HD LBM_INLINE Real omega_from_diffusivity(Real d) {

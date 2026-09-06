@@ -826,6 +826,59 @@ int main() {
     }
   }
 
+  //--------------------------------------------------------------------------
+  //  THE CHARGE COLLISION, CHECKED AS MOMENT IDENTITIES.
+  //
+  //  collide_charge_cm claims to reproduce the parent tree's 27-moment
+  //  transform in closed form. That is checkable directly: collide an
+  //  arbitrary non-equilibrium state and read the central moments back.
+  //
+  //  TWO OF THESE ASSERT SOMETHING OTHER THAN ZERO, and they are the two worth
+  //  reading. k210 is a MONOMIAL moment: the basis stores phi_2 = C^2 - cs2, so
+  //  a zero in the shifted (2,1,0) slot means cs2 * k010 in the monomial one --
+  //  the trap CLAUDE.md names first, which fired while this was being written.
+  //  And k300 is not a slot at all: three velocities per axis gives c^3 = c, so
+  //  the third central moment is DETERMINED by m0..m2 rather than free.
+  //--------------------------------------------------------------------------
+  {
+    std::printf("\n  -- the charge carrier's central-moment collision --\n");
+    const Real vx = Real(0.11), vy = Real(-0.07), vz = Real(0.03), w = Real(1.3);
+    Real h[27];
+    for (int i = 0; i < 27; ++i) h[i] = Real(0.01) * Real((i * 37) % 13 + 1);
+    auto cm = [&](const Real* g, int p, int q, int r) {
+      double s = 0;
+      for (int i = 0; i < 27; ++i) {
+        double t = double(g[i]);
+        for (int k = 0; k < p; ++k) t *= double(D3Q27::cx(i)) - double(vx);
+        for (int k = 0; k < q; ++k) t *= double(D3Q27::cy(i)) - double(vy);
+        for (int k = 0; k < r; ++k) t *= double(D3Q27::cz(i)) - double(vz);
+        s += t;
+      }
+      return s;
+    };
+    const double q0 = cm(h,0,0,0), jx0 = cm(h,1,0,0), jy0 = cm(h,0,1,0), jz0 = cm(h,0,0,1);
+    collide_charge_cm<D3Q27>(h, vx, vy, vz, w);
+    const double cs2 = double(D3Q27::cs2()), d = 1.0 - double(w), V = double(vx);
+    const double tol = (sizeof(Real) == 4) ? 3e-5 : 1e-11;
+    struct { const char* n; double got, want; } tt[] = {
+      {"charge: k000 conserved",                 cm(h,0,0,0), q0},
+      {"charge: k100 decays by (1-omega)",       cm(h,1,0,0), d * jx0},
+      {"charge: k010 decays by (1-omega)",       cm(h,0,1,0), d * jy0},
+      {"charge: k001 decays by (1-omega)",       cm(h,0,0,1), d * jz0},
+      {"charge: k200 = q cs2",                   cm(h,2,0,0), q0 * cs2},
+      {"charge: k110 = 0 (a naive product form would not)", cm(h,1,1,0), 0.0},
+      {"charge: k101 = 0",                       cm(h,1,0,1), 0.0},
+      {"charge: k011 = 0",                       cm(h,0,1,1), 0.0},
+      {"charge: k220 = q cs2^2",                 cm(h,2,2,0), q0 * cs2 * cs2},
+      {"charge: k222 = q cs2^3",                 cm(h,2,2,2), q0 * cs2 * cs2 * cs2},
+      {"charge: k210 = cs2 k010, shifted slot 0", cm(h,2,1,0), cs2 * d * jy0},
+      {"charge: k300 determined by m0..m2",      cm(h,3,0,0),
+         q0 * (-V * V * V) + d * jx0 * (1.0 - 3.0 * V * V)},
+    };
+    for (auto& e : tt)
+      check(std::fabs(e.got - e.want) < tol, e.n, std::fabs(e.got - e.want));
+  }
+
   std::printf("\n%s  (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED",
               failures, failures == 1 ? "" : "s");
   return failures ? 1 : 0;

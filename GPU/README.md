@@ -66,6 +66,54 @@ property of the case at W = 64, not of either implementation. `-vol` writes the
 volumes for the φ = 1/2 isosurface, which is the view the paper's Fig. 15 shows
 and which a mid-plane slice cannot give once the spike rolls up.
 
+## Electrohydrodynamics, and what the port found
+
+`src/ehd_cavity.cu` is Sec. 3.2.3 of Patnaik, Skillen & De Rosis (2025) — a
+closed square cavity driven by unipolar charge injection, reported through an
+electric Nusselt number. The fluid side needed nothing that was not already
+here. The scalar side needed four things:
+
+| added | why |
+|---|---|
+| `ScalarMoment` — Dellar's on-node Dirichlet | `E = -grad phi` differentiates the field carrying the boundary value, so a halfway plate is first order here |
+| `ScalarSpecular` — on-node zero flux (`include/lbm/specular.cuh`) | the closed square cannot avoid a lateral scalar wall; bounce-back goes non-finite and the open boundary gets worse under refinement |
+| a per-node source | the Poisson relaxation, and it must reach specular nodes |
+| `ScalarOp::ChargeCM` | the charge collision, in **closed form** rather than through a 27-moment transform — a runtime-indexed moment array is the local-memory trap, and on a product lattice the target is separable and the product is exact |
+
+The solvers are templated on their lattice now, so the charge is
+`ScalarSolverT<D3Q27>` rather than a second implementation.
+
+### The cross-check found two bugs, and neither was in the new code
+
+Run against the Kokkos twin at matched lattices, N = 21, T = 150:
+
+| | CUDA (host build) | Kokkos twin |
+|---|---|---|
+| I₀ | 1.3256e-05 | 1.3340e-05 |
+| against the D=0 analytic | −4.24 % | −3.63 % |
+| charge at the collector | 0.0722 q₀ | 0.0722 q₀ |
+| Nₑ below onset | 1.0001 | 1.0000 |
+
+Getting there meant fixing two things that had been latent:
+
+**`gather` and `scatter` are a streaming pair.** `scatter` writes `in[i]` into
+the slot `gather` took `out[i+1]` from — that crossing *is* the stream. A pass
+that gathers, modifies and scatters back therefore advances the field by a step
+instead of updating it in place. The Poisson source did that, and the potential
+came out with a first-cell gradient 40 % short of the interior one. Two tests of
+it passed anyway: a uniform field is invariant under streaming, and a one-shot
+before/after check only sees the sum, which the crossing merely swaps. The test
+that has teeth is differential — the same run with and without a 1e-30 source,
+0.224 with the bug and exactly 0 without.
+
+**A prescribed node must not have its field recomputed.** The scalar field
+kernel summed an outflow node's populations like any other node's. But the pass
+that set them wrote post-collision values and the field kernel runs at the next
+parity, so what it sums is the post-*streaming* state — everything that arrived,
+including whatever the periodic wrap delivered from the opposite face. Harmless
+in an open channel; in a closed box the collector read 0.33 q₀ against a
+neighbour at 0.075, because the wrap handed it the injector.
+
 ## Regularised walls, and Hartmann
 
 The wall is **on the node**, not half a cell away. That is the whole difference

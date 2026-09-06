@@ -253,14 +253,15 @@ class Fluid {
 //==============================================================================
 //  Passive scalar.
 //==============================================================================
-class Scalar {
+template <class L>
+class ScalarT {
  public:
-  Scalar(int nx, int ny, int nz, Real diffusivity, Real T_ref = Real(0),
+  ScalarT(int nx, int ny, int nz, Real diffusivity, Real T_ref = Real(0),
          ScalarOp op = ScalarOp::BGK)
       : nx_(nx), ny_(ny), nz_(nz), T_ref_(T_ref), op_(op) {
-    omega_ = omega_from_diffusivity<ScalarLattice>(diffusivity);
+    omega_ = omega_from_diffusivity<L>(diffusivity);
     N_ = long(nx) * ny * nz;
-    h_.assign(std::size_t(ScalarLattice::Q * N_), Real(0));
+    h_.assign(std::size_t(L::Q * N_), Real(0));
     flags_.assign(std::size_t(N_), std::uint8_t(ScalarBulk));
     wall_.assign(std::size_t(N_), Real(0));
     T_.assign(std::size_t(N_), Real(0));
@@ -270,6 +271,17 @@ class Scalar {
     flags_ = fl; wall_ = wall; has_geometry_ = true;
     long degenerate = 0;
     has_outflow_ = build_scalar_donors(flags_, nx_, ny_, nz_, donor_, degenerate) > 0;
+    build_scalar_unknowns<L>(flags_, nx_, ny_, nz_, periodic_, unk_);
+  }
+  void set_periodicity(bool px, bool py, bool pz) {
+    periodic_[0] = px; periodic_[1] = py; periodic_[2] = pz;
+  }
+  void set_specular_walls(const std::vector<std::uint8_t>& nrm) { spec_ = nrm; }
+  void add_source(const Real* S) {
+    src_ = S;
+    const ScalarParams p = params();
+    if (t_ % 2 == 0) for (long n = 0; n < N_; ++n) scalar_source_node<0, L>(p, N_, n);
+    else             for (long n = 0; n < N_; ++n) scalar_source_node<1, L>(p, N_, n);
   }
   void advect_with(const Real* ux, const Real* uy, const Real* uz) {
     ux_ = ux; uy_ = uy; uz_ = uz;
@@ -280,12 +292,13 @@ class Scalar {
     for (long n = 0; n < N_; ++n) {
       int x, y, z;
       coords(n, nx_, ny_, x, y, z);
-      const Real T = (flags_[std::size_t(n)] == ScalarDirichlet) ? wall_[std::size_t(n)]
-                                                                 : init(x, y, z);
-      Real g[ScalarLattice::Q];
-      for (int i = 0; i < ScalarLattice::Q; ++i)
-        g[i] = scalar_eq<ScalarLattice>(i, T - T_ref_, T_ref_, Real(0), Real(0), Real(0));
-      init_scatter<0, ScalarLattice>(h_.data(), N_, x, y, z, nx_, ny_, nz_, g);
+      const std::uint8_t fl0 = flags_[std::size_t(n)];
+      const Real T = (fl0 == ScalarDirichlet || fl0 == ScalarMoment)
+                     ? wall_[std::size_t(n)] : init(x, y, z);
+      Real g[L::Q];
+      for (int i = 0; i < L::Q; ++i)
+        g[i] = scalar_eq<L>(i, T - T_ref_, T_ref_, Real(0), Real(0), Real(0));
+      init_scatter<0, L>(h_.data(), N_, x, y, z, nx_, ny_, nz_, g);
     }
     t_ = 0;
     compute_field();
@@ -302,11 +315,11 @@ class Scalar {
   void compute_field() {
     const ScalarParams p = params();
     if (t_ % 2 == 0) {
-      if (has_geometry_) for (long n = 0; n < N_; ++n) scalar_field_node<0, true>(p, N_, n);
-      else               for (long n = 0; n < N_; ++n) scalar_field_node<0, false>(p, N_, n);
+      if (has_geometry_) for (long n = 0; n < N_; ++n) scalar_field_node<0, true, L>(p, N_, n);
+      else               for (long n = 0; n < N_; ++n) scalar_field_node<0, false, L>(p, N_, n);
     } else {
-      if (has_geometry_) for (long n = 0; n < N_; ++n) scalar_field_node<1, true>(p, N_, n);
-      else               for (long n = 0; n < N_; ++n) scalar_field_node<1, false>(p, N_, n);
+      if (has_geometry_) for (long n = 0; n < N_; ++n) scalar_field_node<1, true, L>(p, N_, n);
+      else               for (long n = 0; n < N_; ++n) scalar_field_node<1, false, L>(p, N_, n);
     }
   }
 
@@ -324,27 +337,27 @@ class Scalar {
   }
 
   Real omega() const { return omega_; }
-  Real diffusivity() const { return diffusivity_from_omega<ScalarLattice>(omega_); }
+  Real diffusivity() const { return diffusivity_from_omega<L>(omega_); }
   std::size_t timestep() const { return t_; }
 
  private:
   template <int P> void run_step() {
     const ScalarParams p = params();
     if (ux_) {
-      if (has_outflow_)       for (long n = 0; n < N_; ++n) scalar_node_update<P, true, true, true>(p, N_, n);
-      else if (has_geometry_) for (long n = 0; n < N_; ++n) scalar_node_update<P, true, true, false>(p, N_, n);
-      else                    for (long n = 0; n < N_; ++n) scalar_node_update<P, true, false, false>(p, N_, n);
+      if (has_outflow_)       for (long n = 0; n < N_; ++n) scalar_node_update<P, true, true, true, L>(p, N_, n);
+      else if (has_geometry_) for (long n = 0; n < N_; ++n) scalar_node_update<P, true, true, false, L>(p, N_, n);
+      else                    for (long n = 0; n < N_; ++n) scalar_node_update<P, true, false, false, L>(p, N_, n);
     } else {
-      if (has_outflow_)       for (long n = 0; n < N_; ++n) scalar_node_update<P, false, true, true>(p, N_, n);
-      else if (has_geometry_) for (long n = 0; n < N_; ++n) scalar_node_update<P, false, true, false>(p, N_, n);
-      else                    for (long n = 0; n < N_; ++n) scalar_node_update<P, false, false, false>(p, N_, n);
+      if (has_outflow_)       for (long n = 0; n < N_; ++n) scalar_node_update<P, false, true, true, L>(p, N_, n);
+      else if (has_geometry_) for (long n = 0; n < N_; ++n) scalar_node_update<P, false, true, false, L>(p, N_, n);
+      else                    for (long n = 0; n < N_; ++n) scalar_node_update<P, false, false, false, L>(p, N_, n);
     }
   }
 
   template <int P> void run_outflow() {
     const ScalarParams p = params();
-    if (ux_) for (long n = 0; n < N_; ++n) scalar_outflow_node<P, true>(p, N_, n);
-    else     for (long n = 0; n < N_; ++n) scalar_outflow_node<P, false>(p, N_, n);
+    if (ux_) for (long n = 0; n < N_; ++n) scalar_outflow_node<P, true, L>(p, N_, n);
+    else     for (long n = 0; n < N_; ++n) scalar_outflow_node<P, false, L>(p, N_, n);
   }
 
   ScalarParams params() {
@@ -353,13 +366,20 @@ class Scalar {
     p.ux = ux_; p.uy = uy_; p.uz = uz_;
     p.T_out = T_.data();
     p.donor = donor_.empty() ? nullptr : donor_.data();
+    p.unk = unk_.empty() ? nullptr : unk_.data();
+    p.spec = spec_.empty() ? nullptr : spec_.data();
+    p.src = src_;
     p.nx = nx_; p.ny = ny_; p.nz = nz_;
     p.omega = omega_; p.T_ref = T_ref_;
-    p.regularised = (op_ == ScalarOp::Regularised);
+    p.op = op_;
     return p;
   }
 
   int nx_, ny_, nz_;
+  std::vector<std::uint32_t> unk_;
+  std::vector<std::uint8_t> spec_;
+  const Real* src_ = nullptr;
+  bool periodic_[3] = {true, true, true};
   long N_;
   Real T_ref_, omega_;
   ScalarOp op_ = ScalarOp::BGK;
@@ -371,6 +391,9 @@ class Scalar {
   bool has_outflow_ = false;
   std::size_t t_ = 0;
 };
+using Scalar = ScalarT<ScalarLattice>;
+using Charge = ScalarT<D3Q27>;
+
 
 //==============================================================================
 //  Magnetic induction.

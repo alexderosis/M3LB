@@ -36,6 +36,7 @@
   namespace lbm { namespace backend {
     using Fluid    = lbm::Solver;
     using Scalar   = lbm::ScalarSolver;
+    using Charge   = lbm::ChargeSolver;
     using Magnetic = lbm::MagneticSolver;
     using Colour   = lbm::ColourSolver;
     // The phase lattice is a template parameter. `PhaseField` keeps D3Q7,
@@ -95,6 +96,7 @@
   namespace lbm { namespace backend {
     using Fluid    = lbm::host::Fluid;
     using Scalar   = lbm::host::Scalar;
+    using Charge   = lbm::host::Charge;
     using Magnetic = lbm::host::Magnetic;
     using Colour   = lbm::host::Colour;
     template <class PL = lbm::DefaultPhaseLattice>
