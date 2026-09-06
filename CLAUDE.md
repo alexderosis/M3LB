@@ -303,17 +303,27 @@ These produce plausible, converged, wrong answers rather than crashes.
   seed-independence of the state. And where a case is known to be subcritical —
   this one's own Sec. 3.2.1 plots a hysteresis loop — `-amp 0` is the protocol
   that reproduces the reference, not a degenerate case to be avoided.
-- **REFINING TOWARD A PUBLISHED NUMBER IS NOT AGREEING WITH IT, AND A COARSE GRID
-  CAN PASS THROUGH THE RIGHT ANSWER.** Same case, T = 5000: Ne = 2.8558 at
-  N = 81, 2.8017 at N = 129, 2.4903 at N = 201, against a digitised 2.80. The
-  N = 129 run was within **0.1 %** of the reference and it meant nothing — the
-  sequence is monotonically falling and that grid was on its way past. The
-  converged deficit is about 11 %, which is also what every WELL-RESOLVED point
-  in the T sweep showed while the two under-resolved ones "agreed". The tell was
-  available before the ladder was run: the runs that matched were the only ones
-  breaking the tree's own Mach and cell-Reynolds rules (Ma 0.136 and 0.183
-  against a 0.087 guideline). When the badly-behaved runs agree and the
-  well-behaved ones do not, believe the well-behaved ones.
+- **A COARSE LADDER CANNOT BE EXTRAPOLATED INTO A REGIME IT NEVER REACHED, AND
+  THIS TREE DID IT ANYWAY.** `ehd_cavity` at T = 5000 gave Ne = 2.8558, 2.8017,
+  2.4903 at N = 81, 129, 201 against a digitised 2.80. The N = 129 run was
+  within **0.1 %** of the reference and that meant nothing — the sequence was
+  falling and that grid was on its way past. So far so good; the conclusion
+  drawn from it was that refinement moves AWAY from the reference and the
+  *converged* deficit is about 11 % low. **That was wrong.** All three points
+  are under-resolved — Re_cell 8.5, 6.1, 3.6 — and when `GPU/` finally ran the
+  reference's own 500² grid on a T4 (Re_cell = **1.5**, where the paper wants
+  about 1.6) it gave **3.10**, i.e. 10.8 % HIGH. The sequence is not monotonic
+  through to the resolved grid, and three under-resolved points do not
+  extrapolate into a regime none of them is in.
+  What is claimable at the resolved grid is `Ne = 3.10 ± 0.41` with the paper's
+  2.80 inside it — consistent with, not converged to, because the r.m.s. is
+  13 % of the mean over only three t0. The lattice family is not the variable:
+  D3Q27/D3Q7 at N = 201 gives 2.4735 against D2Q9/D2Q5's 2.4903.
+  Two rules. When the runs that agree with a reference are the only ones
+  breaking your own Mach and cell-Reynolds rules, distrust the agreement — that
+  part was right. And do not name a number "converged" until a run has actually
+  reached the resolution its own diagnostic says it needs; say "under-resolved,
+  trend unknown" instead, which is what the ladder really showed.
 - **GRID INDEPENDENCE WITHIN ONE FAMILY IS NOT GRID INDEPENDENCE.** The doubled
   box's mirror planes sit on nodes at every resolution, so refining it cannot
   see an error that depends on the half-cell alignment. `ehd_electroconvection`

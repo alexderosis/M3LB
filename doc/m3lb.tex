@@ -6592,14 +6592,25 @@ is trustworthy.
 \paragraph{Read the last two rows against the last two columns first.} $T=5000$ and
 $T=10^4$ are the only entries that look like agreement, and they are the only two that
 break this solver's own rules --- Ma against a $0.087$ guideline, and a cell Reynolds
-number where the reference's $H=499$ gives $1.6$ and $4.2$. Refining settles it. At
-$T=5000$, $N_e$ is $2.8558$ at $N=81$, $2.8017$ at $N=129$ and $2.4903$ at $N=201$
-($\mathrm{Re}_{\rm cell}=8.5$, $6.1$, $3.6$); unseeded at $N=201$ it is $2.4366$. The
-sequence falls monotonically, so the coarse grid was \emph{passing through} the published
-value rather than reproducing it, and the converged deficit is the same $\sim\!13\,\%$ the
-well-resolved mid-range shows. Halving $u_0$ at $N=129$ moves $2.8017$ to $2.7104$, so
-compressibility is a $3\,\%$ term and not the explanation. When the badly-behaved runs
-agree and the well-behaved ones do not, the agreement is what to distrust.
+number where the reference's $H=499$ gives $1.6$ and $4.2$. At $T=5000$, $N_e$ is
+$2.8558$ at $N=81$, $2.8017$ at $N=129$ and $2.4903$ at $N=201$
+($\mathrm{Re}_{\rm cell}=8.5$, $6.1$, $3.6$); unseeded at $N=201$ it is $2.4366$. So the
+coarse grid was \emph{passing through} the published value rather than reproducing it,
+which is why the apparent agreement there means nothing. Halving $u_0$ at $N=129$ moves
+$2.8017$ to $2.7104$, so compressibility is a $3\,\%$ term and not the explanation.
+
+\paragraph{But that ladder must not be extrapolated, and this document did.} An earlier
+version concluded from those three grids that refinement moves \emph{away} from the
+reference and that the converged deficit is $\sim\!13\,\%$ low. All three are
+under-resolved. \S\ref{sec:cudaehd} has since run the reference's own $500^2$ on a T4 at
+$\mathrm{Re}_{\rm cell}=1.5$ --- the first properly resolved point in either
+implementation --- and it gives $N_e = 3.1010 \pm 0.4139$, i.e.\ $10.8\,\%$ \emph{high}.
+The sequence is not monotonic through to the resolved grid, and three points that never
+reach a regime cannot be extrapolated into it. At that grid the reference's $2.80$ lies
+\emph{inside} the run's own r.m.s., which makes it consistent with the reference rather
+than converged to it: the r.m.s.\ is $13\,\%$ of the mean over three drift times.
+What survives is the narrower statement --- when the runs that agree are the only ones
+breaking your own Mach and cell-Reynolds rules, distrust the agreement.
 
 \paragraph{The seed chooses a branch, and the usual check cannot see it.} This solver's
 standing defence of a seed is that it sets the transient and not the answer, tested by
@@ -8650,6 +8661,60 @@ field has no recolouring, so the mechanism maintaining the interface differs by
 construction. That is a difference between the models, not a parameter left
 unmatched.
 
+\subsection{Electrohydrodynamics, and the grid the reference actually used}
+\label{sec:cudaehd}
+
+\code{GPU/src/ehd\_cavity.cu} is \S\ref{sec:ehdcavity} ported. The fluid side needed
+nothing that was not already here --- D3Q27 central moments, a per-node force field and
+on-node regularised walls with corners. The scalar side needed four things:
+Dellar's on-node Dirichlet, the on-node zero-flux wall of \S\ref{sec:scalarspec}, a
+per-node source, and the charge collision. The solvers are templated on their lattice, so
+the charge is the same machinery on D3Q27 rather than a second implementation.
+
+\paragraph{The charge collision is written in closed form.} The parent does it with a
+27-element moment array and two basis transforms, which is right on a CPU and is the wrong
+shape for a device: a moment array indexed at run time leaves the register file for
+per-thread local memory, and this implementation has measured that mechanism at $47\times$
+elsewhere. On a product lattice the target separates, so each axis needs only two 1-D
+distributions defined by their central moments about $v$,
+\begin{equation}
+  E(\pm1)=\tfrac12(c\_s^2+v^2\pm v),\quad E(0)=1-c\_s^2-v^2; \qquad
+  G(\pm1)=v\pm\tfrac12,\quad G(0)=-2v,
+\end{equation}
+and $h\_i = q\,E\_xE\_yE\_z + J\_x\,G\_xE\_yE\_z + J\_y\,E\_xG\_yE\_z + J\_z\,E\_xE\_yG\_z$ with
+$\bm J=(1-\omega)\bm j$. That is \emph{exact}, not an approximation to the transform: $E$
+carries no first moment and $G$ no zeroth or second, so the product reproduces
+$k\_{110}=0$, which a naive product form does not. \code{test/host\_check.cpp} pins twelve
+moment identities against it.
+
+\paragraph{What the two implementations agree on.} At $N=21$, $T=150$, on matched
+lattices, $I\_0$ is $1.333878\times10^{-5}$ on the device, $1.333898\times10^{-5}$ from the
+same source built for the host, and $1.334004\times10^{-5}$ in the Kokkos code --- three
+numbers inside $0.01\,\%$, two of which share no headers. Below onset all three give
+$N\_e=1.000$.
+
+\paragraph{And the grid that settles the extrapolation.} On a T4 in FP32:
+
+\begin{center}
+\begin{tabular}{rrlrrr}
+\hline
+$N$ & $T$ & $N\_e$ & $u\_{\max}/u\_0$ & $\mathrm{Re}\_{\rm cell}$ & wall clock \\
+\hline
+ 21 &  150 & $1.0060\pm0.0116$ &  0.073 & 0.0 & seconds \\
+201 & 5000 & $2.4735\pm0.2945$ & 11.926 & 3.0 & 3\,m\,28 \\
+501 & 5000 & $3.1010\pm0.4139$ & 15.159 & \textbf{1.5} & 30\,m\,09 \\
+\hline
+\end{tabular}
+\end{center}
+
+$N=501$ is the reference's own grid and the first properly resolved point in either
+implementation. It gives $10.8\,\%$ \emph{above} Fig.~8's digitised $2.80$, where the
+under-resolved ladder of \S\ref{sec:ehdcavity} had been read as converging to $13\,\%$
+below it. The lattice family is not the variable: at $N=201$ the device gives $2.4735$ on
+D3Q27/D3Q7 against the Kokkos code's $2.4903$ on D2Q9/D2Q5. What is claimable is that at
+the reference's grid the reference's value lies inside this run's own r.m.s.; what is not
+is convergence, since that r.m.s.\ is $13\,\%$ of the mean over three drift times.
+
 \subsection{What this implementation does not do}
 
 Absent, not merely untested:
@@ -8799,18 +8864,19 @@ they take minutes and are excluded from \code{ctest}.
 Stated plainly, because each has been measured.
 
 \begin{enumerate}[leftmargin=1.4em,itemsep=4pt]
-\item \textbf{The closed cavity's electric Nusselt number is $9$--$13\,\%$ below
-  the reference, and that is measured rather than explained}
+\item \textbf{The closed cavity's electric Nusselt number is $9$--$16\,\%$ below
+  the reference in the mid-range, and that is measured rather than explained}
   (\S\ref{sec:ehdcavity}). The \emph{shape} of Fig.~8 is reproduced --- $N_e=1$
   below onset, a steep rise, a plateau, renewed growth at $\kappa=+0.35$ --- but
-  the level is low wherever the grid is trustworthy. Four candidates are
-  excluded: refinement moves the answer \emph{away} from the reference rather
-  than toward it ($2.8558\to2.8017\to2.4903$ at $N=81,129,201$), halving $u_0$
-  moves it $3\,\%$, the seed is excluded by the unseeded sweep, and the wall
-  columns contribute under $1\,\%$. No fifth candidate has been tested. The
-  reference's $500^2$ grid is what the cell Reynolds number says $T\ge5000$
-  needs and costs about five hours per $T$ on one machine, so the comparison at
-  matched resolution has not been made.
+  at $T=500$--$3000$, where the $N=129$ grid \emph{is} resolved
+  ($\mathrm{Re}_{\rm cell}\le2.3$), the level sits low. Mach number is excluded
+  ($3\,\%$), the seed is excluded by the unseeded sweep, and the wall columns
+  contribute under $1\,\%$. Resolution is \emph{not} excluded there and cannot be
+  from this implementation, since the reference's $500^2$ costs about five hours
+  per $T$ on one machine. At the top of the range it has now been run on a
+  device (\S\ref{sec:cudaehd}) and the deficit does not survive: $N_e=3.10\pm0.41$
+  against $2.80$. A matched-resolution comparison across the whole sweep has
+  still not been made.
 
 \item \textbf{The two specular walls sit on different planes.} The fluid's
   (\S\ref{sec:specular}) is a ghost cell, so its mirror is half a cell outside

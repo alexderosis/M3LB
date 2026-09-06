@@ -197,12 +197,23 @@
 //  WELL-RESOLVED point sits 9-14 % low. When the badly-behaved runs agree and
 //  the well-behaved ones do not, the agreement is the thing to distrust.
 //
-//  THE RESOLUTION LADDER SETTLED IT. At T = 5000: 2.8558 at N = 81, 2.8017 at
-//  N = 129, 2.4903 at N = 201 (2.4366 unseeded), with Re_cell 8.5, 6.1, 3.6.
-//  Monotonically falling, so N = 129 was a coarse grid PASSING THROUGH the
-//  published value on its way down; the converged deficit is about 13 %, which
-//  is what the well-resolved mid-range already showed. Halving u0 at N = 129
-//  moves 2.8017 to 2.7104, so compressibility is a 3 % term and not the cause.
+//  THE RESOLUTION LADDER SAID ONE TRUE THING AND ONE FALSE ONE. At T = 5000:
+//  2.8558 at N = 81, 2.8017 at N = 129, 2.4903 at N = 201 (2.4366 unseeded),
+//  with Re_cell 8.5, 6.1, 3.6. Falling, so N = 129 was a coarse grid PASSING
+//  THROUGH the published value on its way down -- that part holds, and it is
+//  why the apparent agreement there meant nothing. Halving u0 at N = 129 moves
+//  2.8017 to 2.7104, so compressibility is a 3 % term and not the cause.
+//
+//  WHAT DOES NOT HOLD is the conclusion this file used to draw next: that the
+//  CONVERGED deficit is about 13 % low. All three of those grids are
+//  under-resolved, and GPU/src/ehd_cavity.cu has since run the reference's own
+//  500^2 on a T4 at Re_cell = 1.5 -- the first properly resolved point in
+//  either tree -- and got Ne = 3.1010 +/- 0.4139, i.e. 10.8 % HIGH. The
+//  sequence is not monotonic through to the resolved grid, and three
+//  under-resolved points cannot be extrapolated into a regime none of them
+//  reaches. At that grid the reference's 2.80 sits INSIDE the run's own r.m.s.,
+//  which is consistent with it rather than converged to it: 13 % of the mean
+//  over three t0. CLAUDE.md carries the rule this cost.
 //
 //  THE SEED CHOOSES A BRANCH. This is a subcritical bifurcation and the usual
 //  seed check does not see it:
@@ -220,11 +231,14 @@
 //  was not merely triggering the instability there, it was selecting a
 //  different and worse attractor. CLAUDE.md carries both rules.
 //
-//  SO THE DEFICIT IS MEASURED AND NOT EXPLAINED. Resolution and Mach number are
-//  both excluded as the whole cause, the seed is excluded, and the wall columns
-//  contribute under 1 % (every run prints the interior-only Ne beside the full
-//  one). No third candidate has been tested. The reference's 500^2 grid is what
-//  Re_cell says T >= 5000 actually needs and is about five hours per T here.
+//  SO THE MID-RANGE DEFICIT IS MEASURED AND NOT EXPLAINED, and it is now the
+//  only part still open. At T = 500-3000, where this grid IS resolved
+//  (Re_cell <= 2.3), Ne sits 9-16 % below Fig. 8. Mach number is excluded
+//  (3 %), the seed is excluded, and the wall columns contribute under 1 %
+//  (every run prints the interior-only Ne beside the full one). Resolution is
+//  NOT excluded there and cannot be from this tree: the reference's 500^2 is
+//  about five hours per T here, which is why the device port exists and why the
+//  resolved point above comes from GPU/ rather than from this file.
 //
 //  ===================== WHAT THIS IS CHECKED AGAINST =========================
 //  Fig. 8 is a PLOT, not a table, so this case cannot be scored to a digit. It

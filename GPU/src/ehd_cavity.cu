@@ -47,6 +47,42 @@
 //  Mach number, the seed and the wall columns are all excluded. Do not read
 //  agreement between these two codebases as agreement with the paper.
 //
+//  ===================== WHAT IT MEASURED ON A DEVICE (2026-09-06) ============
+//  Tesla T4, FP32, cc 7.5, against the Kokkos twin at matched lattices.
+//
+//      N     T      Ne                 u_max/u0  Re_cell  wall clock
+//      21    150    1.0060 +/- 0.0116     0.073     0.0   seconds
+//     201   5000    2.4735 +/- 0.2945    11.926     3.0   3m28
+//     501   5000    3.1010 +/- 0.4139    15.159     1.5   30m09
+//
+//  and I0 = 1.333878e-05 at N = 21 against the twin's 1.334004e-05 and the host
+//  build's 1.333898e-05 -- three implementations inside 0.01 %, two of which
+//  share no headers.
+//
+//  N = 501 IS THE REFERENCE'S OWN GRID and the first properly resolved point in
+//  either tree: Re_cell = 1.5, where the paper's H = 499 wants about 1.6. It
+//  gives Ne = 3.10 against Fig. 8's digitised 2.80, i.e. +10.8 %.
+//
+//  THAT CONTRADICTS WHAT THE COARSE LADDER SAID, and the coarse ladder was
+//  wrong. The parent tree measured 2.8558, 2.8017, 2.4903 at N = 81, 129, 201
+//  and concluded that refinement moves AWAY from the reference and that the
+//  converged deficit was about 11 % low. Every one of those three points is
+//  under-resolved -- Re_cell 8.5, 6.1, 3.6 -- and the first resolved one lands
+//  10.8 % HIGH instead. The sequence is not monotonic, so "the converged
+//  deficit is about 11 %" was an extrapolation from three points that had not
+//  reached the regime they were being extrapolated into.
+//
+//  WHAT IS ACTUALLY CLAIMABLE, and no more: at the reference's grid and
+//  Re_cell = 1.5, Ne = 3.10 +/- 0.41, and the paper's 2.80 sits inside that.
+//  The r.m.s. is 13 % of the mean over only THREE t0 of averaging, so this is
+//  consistent with the reference rather than converged to it. A 20-30 t0 window
+//  is what would turn it into a measurement, and that is another two hours of
+//  T4 time.
+//
+//  The lattice family is not the variable: CUDA at N = 201 on D3Q27/D3Q7 gives
+//  2.4735 and the Kokkos twin at N = 201 on D2Q9/D2Q5 gives 2.4903, 0.7 %
+//  apart. What changed between 201 and 501 is the resolution.
+//
 //    usage: ehd_cavity [-n N] [-t T] [-u0 U] [-c C] [-m M] [-sc SC]
 //                      [-alpha A] [-beta B] [-tf N] [-tavg N] [-amp A]
 //                      [-tfh N] [-watch]
@@ -151,7 +187,20 @@ static double analytic_current(double K, double eps, double q0, double dphi, dou
   return 0.5 * (lo + hi);
 }
 
-struct Out { double Ie = 0, Ne = 0, Ne_rms = 0, umax = 0, qlo = 0, qhi = 0; int nacc = 0; };
+struct Out {
+  double Ie = 0, Ne = 0, Ne_rms = 0, umax = 0, qlo = 0, qhi = 0;
+  // THE WORST EXCURSION OVER THE WHOLE RUN, not the last probe's bounds. The
+  // charge obeys a maximum principle -- div(u + K E) = K q/eps > 0, so the
+  // non-conservative form carries -K q^2/eps, which vanishes at q = 0 and
+  // leaves [0, q0] invariant -- so negative charge is the scheme failing and
+  // nothing else. Reporting only the final probe hides a violation that
+  // recovered: this run reported [0.0088, 1.0000] at t/t0 = 8 while its own
+  // dumped frame at t/t0 = 7 held -0.0343. A run that FINISHED is not thereby
+  // a run that stayed in bounds, which is the discipline rb_high_ra already
+  // applies to temperature.
+  double worst = 0, t_worst = 0;
+  int nacc = 0;
+};
 
 //------------------------------------------------------------------------------
 static Out solve(const Opts& o, bool hydro, double I0, bool verbose) {
@@ -305,6 +354,8 @@ static Out solve(const Opts& o, bool hydro, double I0, bool verbose) {
       r.Ie = sflux / double(ncell);
       r.umax = peak / o.u0; r.qlo = qlo / q0; r.qhi = qhi / q0;
       const double tt = double(t + 1) / t0;
+      const double exc = (r.qlo < 0.0) ? -r.qlo : (r.qhi > 1.0 ? r.qhi - 1.0 : 0.0);
+      if (exc > r.worst) { r.worst = exc; r.t_worst = tt; }
       const double ne = I0 > 0 ? r.Ie / I0 : 0.0;
       if (!hydro && tt >= tavg0) { sNe += ne; sNe2 += ne * ne; ++r.nacc; }
       if (o.watch) {
@@ -424,6 +475,17 @@ int main(int argc, char** argv) {
   const Out f = solve(o, false, h.Ie, true);
   std::printf("    u_max/u0 = %.3f   Ne = %.4f +/- %.4f  (%d samples)\n",
               f.umax, f.Ne, f.Ne_rms, f.nacc);
-  std::printf("    q/q0 in [%.4f, %.4f]\n", f.qlo, f.qhi);
+  const double eps_q = (sizeof(Real) == 4) ? 1e-5 : 1e-9;
+  std::printf("    q/q0 in [%.4f, %.4f] at the end", f.qlo, f.qhi);
+  if (f.worst > 0.0)
+    std::printf("   worst excursion %.4f q0 at t/t0 = %.2f%s\n", f.worst, f.t_worst,
+                // The tolerance has to be the PRECISION's, not a fixed 1e-9:
+                // the injector holds q0 exactly, so q/q0 sits at 1 + a few ulp
+                // in FP32 and a 1e-9 window calls every healthy run "STILL
+                // OUT". A verdict line that cries wolf is one nobody reads.
+                (f.qlo >= -eps_q && f.qhi <= 1.0 + eps_q) ? "  (recovered)"
+                                                         : "  (STILL OUT)");
+  else
+    std::printf("   stayed inside [0, q0] throughout\n");
   return 0;
 }

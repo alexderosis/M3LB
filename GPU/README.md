@@ -83,6 +83,36 @@ here. The scalar side needed four things:
 The solvers are templated on their lattice now, so the charge is
 `ScalarSolverT<D3Q27>` rather than a second implementation.
 
+### On a device: the grid the reference actually used
+
+Tesla T4, FP32, cc 7.5.
+
+| N | T | Nₑ | u_max/u₀ | Re_cell | wall clock |
+|---|---|---|---|---|---|
+| 21 | 150 | 1.0060 ± 0.0116 | 0.073 | 0.0 | seconds |
+| 201 | 5000 | 2.4735 ± 0.2945 | 11.926 | 3.0 | 3m28 |
+| 501 | 5000 | **3.1010 ± 0.4139** | 15.159 | **1.5** | 30m09 |
+
+**N = 501 is the reference's own grid**, and the first properly resolved point in either
+codebase — Re_cell = 1.5, where the paper's H = 499 wants about 1.6. It lands 10.8 %
+*above* Fig. 8's digitised 2.80.
+
+That contradicts the coarse ladder, and the coarse ladder was wrong. The parent measured
+2.8558, 2.8017, 2.4903 at N = 81, 129, 201 and concluded refinement moves *away* from the
+reference, with a converged deficit of ~13 % low. All three of those are under-resolved
+(Re_cell 8.5, 6.1, 3.6). Three points that never reach a regime cannot be extrapolated
+into it.
+
+What is claimable at N = 501 is that the reference's 2.80 lies inside this run's own
+r.m.s.; what is not is convergence, since that r.m.s. is 13 % of the mean over only three
+drift times. A 20–30 t₀ window is another two hours of T4 time.
+
+The lattice family is not the variable: at N = 201 the device gives 2.4735 on D3Q27/D3Q7
+against the Kokkos code's 2.4903 on D2Q9/D2Q5, 0.7 % apart.
+
+`-dump PREFIX -dumpn K` writes q/q₀, |u|/u₀ and φ as planes in this tree's format;
+`doc/fig/bin2vtk.py --names Charge Speed` turns them into ParaView time series.
+
 ### The cross-check found two bugs, and neither was in the new code
 
 Run against the Kokkos twin at matched lattices, N = 21, T = 150:
