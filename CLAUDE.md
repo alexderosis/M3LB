@@ -338,6 +338,26 @@ These produce plausible, converged, wrong answers rather than crashes.
   it — the same case with and without a 1e-30 source, which gives 0.224 with the
   bug and exactly 0 without (`GPU/test/host_physics.cpp`). When a test for an
   in-place update passes, check that it would fail if the update streamed.
+- **AN OPT-IN BUFFER PLUS A DEFENSIVE NULL-CHECK IS A SILENT WRONG ANSWER.**
+  `GPU/`'s fluid does not allocate the velocity field coupled solvers advect
+  with unless `enable_velocity_output()` is called — deliberately, since it is
+  11 % more traffic an uncoupled run should not pay — and `ux_device()` returns
+  **null** until then. `ehd_cavity.cu` read it through a
+  `p.ux ? p.ux[n] : Real(0)`, which was written so that the hydrostatic
+  reference could pass a null on purpose. The two met: the Coulomb force still
+  drove the fluid, the fluid still moved, and the charge was simply never
+  advected by it, so the electroconvective feedback loop was open. It did not
+  look broken — the seed still grew, by drift alone, and saturated at
+  `u_max/u0 = 0.578` against the Kokkos twin's `11.583` at identical
+  parameters. FP64 gave the same 0.578, so it was not precision.
+  What found it was deleting the coupling on purpose: setting `ep.ux = nullptr`
+  unconditionally changed the answer by NOTHING, which proves the term was
+  never contributing. **When a coupling term is suspected, delete it and see
+  whether the answer moves** — that is one run and it is unambiguous, where
+  reading the code had already failed twice. And a sentinel that legitimately
+  means one thing ("no fluid, by design") must not be reachable by an accident
+  that means another ("you forgot to allocate it"); the driver now aborts if a
+  non-hydrostatic run sees a null velocity.
 - **A NODE WHOSE POPULATIONS ARE PRESCRIBED MUST NOT HAVE ITS FIELD RECOMPUTED.**
   `GPU/`'s scalar field kernel summed an outflow node's populations like any
   other node's, arguing that an outflow cell holds a real concentration. It

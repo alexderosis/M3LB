@@ -184,6 +184,15 @@ static Out solve(const Opts& o, bool hydro, double I0, bool verbose) {
   backend::Fluid fl(nx, ny, nz, Op::CentralMoments, Real(nu));
   fl.set_geometry(geo);
   fl.set_regularized_walls(spec);
+  // WITHOUT THIS THE CHARGE NEVER SEES THE FLOW. The velocity field a coupled
+  // solver advects with is opt-in here -- 12 bytes per node against 108 for the
+  // populations, which an uncoupled run should not pay -- and ux_device()
+  // returns NULL until it is asked for. That null then meets the defensive
+  // `p.ux ? p.ux[n] : 0` in ehd_node and becomes a silent zero: the Coulomb
+  // force still drives the fluid, the fluid still moves, and the charge is
+  // simply never advected by it. The instability then grows on drift alone and
+  // saturates at u_max/u0 = 0.578 where the Kokkos twin gives 11.583.
+  fl.enable_velocity_output();
 
   backend::Charge chg(nx, ny, nz, Real(Dq), Real(0), ScalarOp::ChargeCM);
   chg.set_periodicity(false, false, true);
@@ -225,8 +234,15 @@ static Out solve(const Opts& o, bool hydro, double I0, bool verbose) {
   const double tavg0 = o.tf - o.tavg;
 
   for (std::size_t t = 0; t < steps; ++t) {
+    // A null velocity here means "hydrostatic reference", and it must mean ONLY
+    // that -- see enable_velocity_output above for what it meant once.
     ep.ux = hydro ? nullptr : fl.ux_device();
     ep.uy = hydro ? nullptr : fl.uy_device();
+    if (!hydro && (!ep.ux || !ep.uy)) {
+      std::printf("  the fluid is not publishing a velocity field; the charge "
+                  "would advect on drift alone\n");
+      std::abort();
+    }
     ehd_pass(ep);
     pot.add_source(src.data());
     pot.step();
@@ -270,9 +286,23 @@ static Out solve(const Opts& o, bool hydro, double I0, bool verbose) {
       const double tt = double(t + 1) / t0;
       const double ne = I0 > 0 ? r.Ie / I0 : 0.0;
       if (!hydro && tt >= tavg0) { sNe += ne; sNe2 += ne * ne; ++r.nacc; }
-      if (o.watch)
+      if (o.watch) {
+        // THE LATERAL SPREAD OF q AT MID-HEIGHT is what has to grow: the base
+        // state is x-uniform and its Coulomb force is balanced hydrostatically,
+        // so a peak velocity alone cannot say whether the instability is
+        // running or the seed is merely sitting there.
+        double qmin = 1e300, qmax = -1e300, fmax = 0;
+        std::vector<Real> hfy; Fy.to_host(hfy);
+        for (int x = 0; x < nx; ++x) {
+          const std::size_t m = std::size_t(node_id(x, H / 2, 0, nx, ny));
+          qmin = std::fmin(qmin, double(hq[m])); qmax = std::fmax(qmax, double(hq[m]));
+        }
+        for (std::size_t m = 0; m < hfy.size(); ++m)
+          fmax = std::fmax(fmax, std::fabs(double(hfy[m])));
         std::printf("      t/t0 %7.2f   u_max/u0 = %8.3f   Ie = %.6e   Ne = %7.4f"
-                    "   q/q0 [%7.4f, %7.4f]\n", tt, r.umax, r.Ie, ne, r.qlo, r.qhi);
+                    "   q/q0 [%7.4f, %7.4f]   dq_x = %.3e   max|Fy| = %.3e\n",
+                    tt, r.umax, r.Ie, ne, r.qlo, r.qhi, (qmax - qmin) / q0, fmax);
+      }
       const double ago = ring[nprobe % 20];
       ring[nprobe % 20] = r.Ie;
       ++nprobe;
