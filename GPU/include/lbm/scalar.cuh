@@ -359,7 +359,7 @@ LBM_HD LBM_INLINE void scalar_source_node(const ScalarParams& p, long N, long n)
 // with how many of them are inert.
 //------------------------------------------------------------------------------
 inline long build_scalar_donors(const std::vector<std::uint8_t>& flags,
-                                int nx, int ny, int nz,
+                                int nx, int ny, int nz, const bool periodic[3],
                                 std::vector<long>& donor, long& degenerate) {
   const long N = long(nx) * ny * nz;
   donor.resize(std::size_t(N));
@@ -380,11 +380,27 @@ inline long build_scalar_donors(const std::vector<std::uint8_t>& flags,
         const long n = node_id(x, y, z, nx, ny);
         if (flags[std::size_t(n)] != ScalarOutflow) continue;
         ++nout;
+        // OUTWARD MEANS "there is nothing usable that way", and there are TWO
+        // ways for that to be true. The neighbour may be marked out of the
+        // transport -- which is how a channel with bounce-back walls says it --
+        // or it may simply be off a non-periodic edge, which is how a box with
+        // ON-NODE walls says it, because such a box excludes nothing at all.
+        // Only the first was tested, so the collector corners of
+        // GPU/src/ehd_cavity.cu found no outward axis, fell through to the
+        // axial fallback, and came out inert: their four axial neighbours are
+        // two more outflow nodes, a specular wall column, and -- through the
+        // wrap -- the injector.
+        const int dim[3] = {nx, ny, nz};
         int ix = 0, iy = 0, iz = 0;
-        for (int k = 0; k < 6; ++k)
-          if (flag_at(x + dirs[k][0], y + dirs[k][1], z + dirs[k][2]) == ScalarExcluded) {
-            ix -= dirs[k][0];  iy -= dirs[k][1];  iz -= dirs[k][2];
-          }
+        for (int k = 0; k < 6; ++k) {
+          const int sx = x + dirs[k][0], sy = y + dirs[k][1], sz = z + dirs[k][2];
+          const int c[3] = {sx, sy, sz};
+          bool out = false;
+          for (int a = 0; a < 3; ++a)
+            if (!periodic[a] && (c[a] < 0 || c[a] >= dim[a])) out = true;
+          if (!out && flag_at(sx, sy, sz) != ScalarExcluded) continue;
+          ix -= dirs[k][0];  iy -= dirs[k][1];  iz -= dirs[k][2];
+        }
         long best = n;
         if ((ix || iy || iz) && flag_at(x + ix, y + iy, z + iz) == ScalarBulk)
           best = node_id(wrap(x + ix, nx), wrap(y + iy, ny), wrap(z + iz, nz), nx, ny);
@@ -534,7 +550,8 @@ class ScalarSolverT {
 
     std::vector<long> donor;
     long degenerate = 0;
-    const long nout = build_scalar_donors(flags, nx_, ny_, nz_, donor, degenerate);
+    const long nout = build_scalar_donors(flags, nx_, ny_, nz_, periodic_, donor,
+                                         degenerate);
     has_outflow_ = nout > 0;
     if (has_outflow_) {
       if (!donor_) LBM_CUDA_CHECK(cudaMalloc(&donor_, sizeof(long) * N_));

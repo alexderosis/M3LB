@@ -338,6 +338,22 @@ These produce plausible, converged, wrong answers rather than crashes.
   it — the same case with and without a 1e-30 source, which gives 0.224 with the
   bug and exactly 0 without (`GPU/test/host_physics.cpp`). When a test for an
   in-place update passes, check that it would fail if the update streamed.
+- **"OUTSIDE THE FIELD" HAS TWO SPELLINGS, AND A GEOMETRY THAT USES THE OTHER
+  ONE FALLS THROUGH.** `GPU/`'s outflow donor rule is "one step inward along
+  every outward axis at once", so a face node takes its axis neighbour and a
+  corner the diagonal. Outward was detected only by a neighbour marked
+  `ScalarExcluded` — right for a channel with bounce-back walls, which is what
+  it was written against, and blind to a box with ON-NODE walls, which excludes
+  nothing at all. The collector corners of `ehd_cavity` then found no outward
+  axis, fell through to the axial fallback, and came out **inert**: their four
+  axial neighbours are two more outflow nodes, a specular column, and — through
+  the periodic wrap — the injector. Two nodes out of 441, and they cost 0.6 % on
+  the volume-averaged charge flux: I0 went from 1.325615e-05 to 1.333898e-05
+  against the Kokkos twin's 1.334004e-05, i.e. the gap between the two
+  codebases fell from 0.63 % to **0.008 %**. The fix is the same one the
+  unknown-mask needed — outward also means "off a non-periodic edge" — and an
+  all-periodic box is unchanged by it, which `host_physics.cpp` asserts
+  alongside the corners themselves.
 - **AN OPT-IN BUFFER PLUS A DEFENSIVE NULL-CHECK IS A SILENT WRONG ANSWER.**
   `GPU/`'s fluid does not allocate the velocity field coupled solvers advect
   with unless `enable_velocity_output()` is called — deliberately, since it is

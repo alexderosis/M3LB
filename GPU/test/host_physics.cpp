@@ -968,6 +968,57 @@ static void scalar_source_reaches_wall() {
         "uniform source: the SPECULAR column climbs at the same rate", worst_wall, 0.0);
 }
 
+//------------------------------------------------------------------------------
+// 4e  EVERY OUTFLOW NODE MUST FIND A DONOR, INCLUDING THE CORNERS.
+//
+// The donor rule is "one step inward along every outward axis at once", so a
+// face node takes its axis neighbour and a corner the diagonal. Outward was
+// detected ONLY by a neighbour marked out of the transport, which is how a
+// channel with bounce-back walls says it -- and a box with ON-NODE walls
+// excludes nothing at all, so its corners found no outward axis, fell through
+// to the axial fallback, and came out inert.
+//
+// This is the closed cavity's exact scalar geometry: injector on the bottom
+// row, zero-gradient collector on the top, mirrors down the sides. The two top
+// corners are the ones that used to fail; their four axial neighbours are two
+// more outflow nodes, a specular column, and -- through the periodic wrap --
+// the injector, so none is bulk and only the diagonal will do.
+//------------------------------------------------------------------------------
+static void outflow_corners() {
+  const int nx = 9, ny = 9, nz = 1;
+  const std::size_t N = std::size_t(nx) * ny * nz;
+  std::vector<std::uint8_t> flags(N, std::uint8_t(ScalarBulk));
+  for (int y = 0; y < ny; ++y)
+    for (int x = 0; x < nx; ++x) {
+      const std::size_t id = std::size_t(node_id(x, y, 0, nx, ny));
+      if (y == 0)               flags[id] = ScalarMoment;
+      else if (y == ny - 1)     flags[id] = ScalarOutflow;
+      else if (x == 0 || x == nx - 1) flags[id] = ScalarSpecular;
+    }
+  const bool per[3] = {false, false, true};
+  std::vector<long> donor;
+  long degenerate = 0;
+  const long nout = build_scalar_donors(flags, nx, ny, nz, per, donor, degenerate);
+  check(nout == nx, "outflow: the whole collector row is found", double(nout), double(nx));
+  check(degenerate == 0, "outflow: no node is left inert, corners included",
+        double(degenerate), 0.0);
+  // and the corner takes the DIAGONAL, which is the only bulk cell it touches
+  const long c0 = donor[std::size_t(node_id(0, ny - 1, 0, nx, ny))];
+  const long c1 = donor[std::size_t(node_id(nx - 1, ny - 1, 0, nx, ny))];
+  check(c0 == node_id(1, ny - 2, 0, nx, ny) && c1 == node_id(nx - 2, ny - 2, 0, nx, ny),
+        "outflow: each corner's donor is its inward diagonal", double(c0),
+        double(node_id(1, ny - 2, 0, nx, ny)));
+  // A FULLY PERIODIC BOX MUST BE UNCHANGED by all of that: with nothing
+  // excluded and every axis wrapping, no direction is outward and the axial
+  // fallback is what runs, exactly as before.
+  const bool allper[3] = {true, true, true};
+  std::vector<long> d2;
+  long deg2 = 0;
+  build_scalar_donors(flags, nx, ny, nz, allper, d2, deg2);
+  check(deg2 == 2, "outflow: an all-periodic box still reports the two corners",
+        double(deg2), 2.0);
+}
+
 static void conduction() {
   const int H = 16, nx = 4, nz = 4, ny = H + 2;
   host::Scalar sc(nx, ny, nz, Real(0.125), Real(0.5));
@@ -1522,6 +1573,7 @@ int main() {
   // collision wipes every non-equilibrium population and ANY consistent fill of
   // the unknown directions gives the right answer. A single test there cannot
   // see a boundary whose effective plane moves with tau, so it is not one test.
+  outflow_corners();
   on_node_dirichlet(Real(0.125), "omega = 1");
   on_node_dirichlet(Real(0.05),  "omega > 1");
   on_node_dirichlet(Real(0.30),  "omega < 1");

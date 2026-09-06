@@ -270,7 +270,8 @@ class ScalarT {
   void set_geometry(const std::vector<std::uint8_t>& fl, const std::vector<Real>& wall) {
     flags_ = fl; wall_ = wall; has_geometry_ = true;
     long degenerate = 0;
-    has_outflow_ = build_scalar_donors(flags_, nx_, ny_, nz_, donor_, degenerate) > 0;
+    has_outflow_ = build_scalar_donors(flags_, nx_, ny_, nz_, periodic_, donor_,
+                                      degenerate) > 0;
     build_scalar_unknowns<L>(flags_, nx_, ny_, nz_, periodic_, unk_);
   }
   void set_periodicity(bool px, bool py, bool pz) {
