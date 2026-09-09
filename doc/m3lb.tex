@@ -1500,13 +1500,16 @@ constrained by neither; the test asserts that it survives, which is what
 distinguishes the mirror from bounce-back --- bounce-back would kill every
 component and would still pass both flux tests on a symmetric setup.
 
-\paragraph{What has not been measured.} \S\ref{sec:ehdconv}'s free-slip variant
-still runs the halfway fluid mirror against an on-node scalar wall, so the gap
-recorded there has not been re-measured with both families on one plane. Writing
-the wall does not by itself close that gap. \code{GPU/} carries the same
-condition (\code{specular.cuh}), asserted the same way in
-\code{test/host\_physics.cpp}, at $1.6\times10^{-15}$ and $1.4\times10^{-15}$ in
-FP64 and $8\times10^{-7}$ in FP32.
+\paragraph{What it buys, measured.} \S\ref{sec:ehdconv}'s \code{-fsnode} runs
+the pairing with every plane on a node. Against the boundary-free doubled box at
+$T=190$ it reduces the lateral gap from $+1.55\,\%$ to $-0.56\,\%$ at the finest
+grid, i.e.\ by a factor $2.8$ --- and does \emph{not} close it. The full ladder,
+the coarse-grid branch trap, and the separate finding that the on-node
+\emph{scalar} wall is meanwhile twice as large as the halfway one, are in
+\S\ref{sec:ehdconv}. \code{GPU/} carries the same fluid condition
+(\code{specular.cuh}), asserted the same way in \code{test/host\_physics.cpp},
+at $1.6\times10^{-15}$ and $1.4\times10^{-15}$ in FP64 and $8\times10^{-7}$ in
+FP32.
 
 \subsection{Outflow: constant back-pressure}
 \label{sec:outflow}
@@ -6355,13 +6358,118 @@ rather than second. Substituting \code{ScalarOutflow} does not fix it and is kep
 only to record that: it is an \emph{open} boundary, not a mirror, and it bleeds
 charge --- $q/q_0$ reaches $-0.1652$ against $-0.0211$, an eightfold worse
 violation of the maximum principle. What this case wants is an on-node zero-flux
-scalar wall, which does not exist here (\S\ref{sec:known}).
+scalar wall, and a fluid mirror on the same plane to pair it with.
 
 So \code{-freeslip} is kept as an \emph{independent lateral discretisation}: the
 gap between the two geometries measures the lateral boundary error the way the
 D2Q9/D3Q27 gap below measures the interior, and neither geometry alone can show
 it. The doubled box remains the default because removing a boundary beats
 discretising it badly.
+
+\subsubsection{\texttt{-fsnode}: the same wall, on-node}
+\label{sec:fsnode}
+
+Both halves of what the paragraph above asks for now exist ---
+\code{ScalarSpecular} (\S\ref{sec:scalarspec}) and \code{SpecNode}
+(\S\ref{sec:specnode}) --- and \code{-fsnode} is the pairing, with every plane on
+a node so that the lateral family matches the on-node plates instead of sitting
+half a cell from them. It reduces the gap by about three times and does not close
+it:
+
+\begin{center}\small
+\begin{tabular}{lccccc}
+\toprule
+$n_y$ & doubled & \code{-freeslip} & gap & \code{-fsnode} & gap \\
+\midrule
+$41$  & $3.5995$ & $3.7419$ & $+3.96\%$ & \multicolumn{2}{l}{$m=2$; see below} \\
+$81$  & $3.7472$ & $3.8658$ & $+3.17\%$ & $3.7270$ & $-0.54\%$ \\
+$163$ & $3.7727$ & $3.8311$ & $+1.55\%$ & $3.7517$ & $-0.56\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent All six runs above are one matched set, taken together at
+$t_f=40\,t_0$; the halfway column therefore differs by up to $0.3\%$ from the
+older table, whose runs were stopped by a different clock. Both are explicitly
+still creeping at those two resolutions, so that is the size of the disagreement
+two unconverged runs of the same case are entitled to. Verified against the
+pre-\code{-fsnode} binary: $3.8658$ either way at $n_y=81$, to four figures.
+
+Read $n_y=163$: there the on-node and doubled runs both \emph{converged}
+($t/t_0=37.4$ and $36.3$) while the halfway run was still creeping. The halfway
+gap falls at roughly first order; the on-node one is flat at about $-0.55\%$ over
+the single refinement available, and two points are not an order. What is
+claimable is the factor $2.8$ at the finest grid.
+
+\paragraph{At $n_y=41$ it lands on the wrong branch, and that is not the seed.}
+The on-node box converges to $m=2$ --- two cells per half-box --- at
+$u_{\max}/u_0=1.34$, where both other geometries give $m=1$ at $3.6$ to $3.7$,
+and it does so for seeds of $10^{-2}$, $10^{-3}$ and $10^{-4}$ alike. So it is
+not the seed kick described above; it is a coarse-grid trap that $n_y=81$
+escapes. A lateral boundary can select the wrong branch of a subcritical
+bifurcation without failing, without diverging, and while converging cleanly.
+
+\paragraph{\texttt{-frozen}, and why the better answer is not a better scalar
+wall.} \code{-frozen} drops the fluid and the seed, leaving the charge and the
+potential alone. Their solution is then exactly one-dimensional, so any
+$x$-dependence \emph{is} the lateral wall --- the doubled box is laterally flat
+to $0.00\%$ there. Measured at $T=140$, $C=10$, as the lateral deviation of $q$
+at mid-depth and sampled at matched distance from each geometry's own mirror
+plane (the halfway grid's first fluid node sits at $0.5$, the on-node grid's at
+$0$):
+
+\begin{center}\small
+\begin{tabular}{lcc}
+\toprule
+$n_y$ & halfway, peak / rms & on-node, peak / rms \\
+\midrule
+$41$  & $14.41\%$ / $4.260\%$ & $16.68\%$ / $5.542\%$ \\
+$81$  & $4.49\%$ / $1.003\%$  & $7.06\%$ / $1.802\%$ \\
+$163$ & $1.14\%$ / $0.224\%$  & $2.23\%$ / $0.493\%$ \\
+\midrule
+order & $1.97$ / $2.16$ & $1.66$ / $1.87$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The on-node \emph{scalar} wall is about twice as large at every
+resolution. So the better coupled answer above is not coming from it: what
+\code{-fsnode} changes that helps is the \emph{fluid} mirror, which finally sits
+on the plates' plane. Two effects of opposite sign, and only the frozen run can
+tell them apart.
+
+\paragraph{What \code{ScalarSpecular} did fix is the ringing, which is not the
+same thing.} The halfway profile saw-tooths into the wall ---
+$0.1200, 0.1034, 0.1012, 0.1027$ --- and the on-node one is monotone ---
+$0.1220, 0.1155, 0.1057, 0.1024$. The odd--even mode is gone; a larger
+\emph{smooth} wall layer took its place, and that layer is itself an
+$\omega\to2$ effect. At weak injection, where the field is nearly uniform and a
+correct zero-flux wall would be nearly exact, sweeping $\alpha$ at $C=0.5$:
+
+\begin{center}\small
+\begin{tabular}{lcccc}
+\toprule
+$\omega_q$ & $1.99952$ & $1.99521$ & $1.95312$ & $1.61290$ \\
+\midrule
+halfway & $0.87\%$ & $0.21\%$ & $0.10\%$ & $0.01\%$ \\
+on-node & $9.76\%$ & $6.60\%$ & $1.97\%$ & $0.04\%$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Ten times worse, and collapsing as $\omega_q$ leaves $2$. It is the
+charge's own wall and not the potential's: at $C=0.05$ the charge bends $\varphi$
+by $0.006\%$ and its wall error is still $12.60\%$. \textbf{The mechanism is not
+diagnosed.} Two pairings are untested and are the obvious suspects:
+\code{validation/scalar\_specular.cpp} exercises the wall with \code{ScalarBGK}
+only, with a \emph{solenoidal} velocity and no source, at $\omega=1.99$, whereas
+the charge here runs \code{ChargeCentralMoments} with a drift whose divergence is
+$Kq/\varepsilon>0$ and the potential carries a source.
+\S\ref{sec:ehdcavity}'s specular-vs-periodic check is consistent with all of this
+and could not have seen it: it is a \emph{volume integral}, measured at $0.42\%$
+($0.05\%$ interior-only) at $N=41$, $T=100$, which is what a $10\%$ excess in two
+columns of forty-one contributes to a volume average. A wall layer hides inside
+an integral diagnostic.
 
 What the doubled box \emph{admits} that free-slip does not is laterally
 antisymmetric modes and a continuous family of translations of the symmetric one.
@@ -8965,19 +9073,32 @@ Stated plainly, because each has been measured.
   against $2.80$. A matched-resolution comparison across the whole sweep has
   still not been made.
 
-\item \textbf{There are now two specular fluid walls, on different planes, and
-  the free-slip electroconvection gap has not been re-measured with the new
-  one.} \S\ref{sec:specular}'s is a ghost cell, half a cell outside the last
-  fluid node; \S\ref{sec:specnode}'s is on-node, and pairs with the on-node
-  scalar wall of \S\ref{sec:scalarspec}. Each is exact against the box it
-  mirrors --- $5.5\times10^{-14}$, $1.9\times10^{-15}$ and $5.3\times10^{-15}$
-  respectively --- but exact about different planes, and the same box closed by
-  the wrong one is out by $16\,\%$ of the field. \S\ref{sec:ehdconv}'s free-slip
-  variant still runs the halfway fluid mirror against an on-node scalar wall, so
-  that geometry's gap must still not be read as a measurement of the scalar wall
-  alone. The wall now exists; the measurement that would close the question does
-  not. Axis-aligned faces only in both, and the ghost version additionally
-  refuses edges.
+\item \textbf{The on-node zero-flux scalar wall is about twice the halfway
+  one's error, and the mechanism is not diagnosed.} With the fluid frozen, where
+  the charge/potential solution is exactly one-dimensional and any lateral
+  structure is the wall, \code{ScalarSpecular} gives peak lateral deviations of
+  $16.68/7.06/2.23\,\%$ at $ny=41/81/163$ against the halfway wall's
+  $14.41/4.49/1.14\,\%$, both near second order (\S\ref{sec:ehdconv}). What it
+  did remove is the saw-tooth; a larger smooth wall layer took its place, and
+  that layer is itself an $\omega\to2$ effect --- ten times the halfway wall's
+  at weak injection, collapsing as $\omega_q$ leaves 2. It is the charge's own
+  wall, not the potential's. \code{validation/scalar\_specular.cpp} cannot see
+  it: that identity uses \code{ScalarBGK}, a solenoidal velocity and no source,
+  at $\omega=1.99$. Two untested pairings --- the central-moment charge
+  operator, and a drift with $\nabla\!\cdot\!\bm{v}\neq0$ --- are the obvious
+  suspects and neither has been checked.
+
+\item \textbf{Two specular fluid walls, on different planes, and picking the
+  wrong one is silent.} \S\ref{sec:specular}'s is a ghost cell, half a cell
+  outside the last fluid node; \S\ref{sec:specnode}'s is on-node and pairs with
+  the on-node scalar family. Each is exact against the box it mirrors ---
+  $5.5\times10^{-14}$, $1.9\times10^{-15}$ and $5.3\times10^{-15}$ --- but exact
+  about different planes, and the same box closed by the wrong one is out by
+  $16\,\%$ of the field. Axis-aligned faces only in both, and the ghost version
+  additionally refuses edges. The on-node pairing reduces
+  \S\ref{sec:ehdconv}'s lateral gap by $2.8\times$ at the finest grid but does
+  not close it, and at $ny=41$ it lands on the wrong branch of the subcritical
+  bifurcation for every seed tried.
 
 \item \textbf{The central-moment operators are unusable on a GPU in this code.}
   Two \code{MomentCollision} configurations did not finish in seventeen minutes at

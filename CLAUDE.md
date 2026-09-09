@@ -268,6 +268,34 @@ These produce plausible, converged, wrong answers rather than crashes.
   the real value, where `ScalarAdiabatic` reports a structural **zero**. That
   matters whenever the field is differentiated or integrated across the wall
   column, which is exactly what `E = −∇φ` and Eq. (81)'s volume integral do.
+  **"CLOSED" MEANT THE RINGING, NOT THE WALL ERROR, AND THE DIFFERENCE WAS
+  MEASURED ON 2026-09-06.** `ehd_electroconvection -frozen` (new) drops the
+  fluid and the seed, so the charge/potential solution is exactly
+  ONE-DIMENSIONAL and any lateral structure IS the wall; the doubled box is
+  laterally flat to 0.00 % there. Measured at T = 140, C = 10, at matched
+  distance from each geometry's own mirror plane, `ScalarSpecular` is about
+  TWICE the halfway bounce-back wall's error at every resolution -- peak
+  16.68 / 7.06 / 2.23 % against 14.41 / 4.49 / 1.14 % at ny = 41 / 81 / 163,
+  both converging near second order. What it did remove is the SAW-TOOTH: the
+  halfway profile alternates into the wall (0.1200, 0.1034, 0.1012, 0.1027) and
+  the on-node one is monotone (0.1220, 0.1155, 0.1057, 0.1024). The odd-even
+  mode is gone and a larger SMOOTH wall layer took its place.
+  **AND THAT LAYER IS ITSELF AN ω → 2 EFFECT.** At weak injection, where a
+  correct zero-flux wall would be nearly exact, sweeping α at C = 0.5 gives
+  9.76 / 6.60 / 1.97 / 0.04 % as ω_q goes 1.99952 / 1.99521 / 1.95312 / 1.61290,
+  against 0.87 / 0.21 / 0.10 / 0.01 % for the halfway wall -- ten times worse,
+  and collapsing as ω_q leaves 2. It is the CHARGE's own wall, not the
+  potential's: at C = 0.05 the charge bends φ by 0.006 % and its wall error is
+  still 12.60 %. **The mechanism is NOT diagnosed.** Two pairings are untested
+  and are the obvious suspects: `validation/scalar_specular.cpp` exercises
+  `ScalarSpecular` with `ScalarBGK` only, a SOLENOIDAL velocity, no source and
+  ω = 1.99, while the charge here runs `ChargeCentralMoments` with a drift whose
+  divergence is `Kq/ε > 0`. `ehd_cavity`'s specular-vs-periodic check is
+  consistent and could not have seen it — it is a VOLUME INTEGRAL, measured at
+  0.42 % (0.05 % interior-only), which is what a 10 % excess in two columns of
+  forty-one contributes to a volume average. **A wall layer hides inside an
+  integral diagnostic; use a pointwise one, on a problem whose exact solution
+  you know is 1-D.**
 - **A BOUNDARY FLAG THAT DOES NOT TAKE THE SOURCE LEAVES ITS PDE UNSOLVED, AND
   NOTHING CRASHES.** `ScalarSolver::source_kernel` skipped every cell that was
   not `ScalarBulk`, which is right for Dirichlet, Moment, Outflow and Adiabatic
@@ -497,11 +525,20 @@ Do not spend time on these without saying so first; several are deliberate.
   of one axis is rejected at setup rather than resolved. `GPU/` has the same
   wall (`specular.cuh`, `set_specular_nodes`), asserted the same way in
   `test/host_physics.cpp`.
-  **WHAT IS NOT YET MEASURED.** `ehd_electroconvection -freeslip` still runs the
-  HALFWAY fluid mirror against an on-node scalar wall, so the free-slip/doubled
-  gap recorded in that file has NOT been re-measured with both families on one
-  plane. Writing the wall does not by itself close that gap; do not quote it as
-  closed until a run says so.
+  **MEASURED 2026-09-06, and it reduces the gap by about 3x without closing
+  it.** `ehd_electroconvection -fsnode` is the pairing with every plane on a
+  node. Against the boundary-free doubled box at T = 190: the halfway pairing
+  is +3.96 / +3.17 / +1.55 % at ny = 41 / 81 / 163, the on-node one is
+  (branch-trapped) / -0.54 / -0.56 %. Read ny = 163, where the on-node and
+  doubled runs both converged and the halfway one was still creeping: 2.8x
+  closer. The halfway gap falls at roughly first order; the on-node one is flat
+  over the single refinement available, and two points are not an order.
+  **AT ny = 41 THE ON-NODE BOX LANDS ON THE WRONG BRANCH** -- m = 2 at
+  `u_max/u0 = 1.34` where the other two give m = 1 at 3.6-3.7, for seeds of
+  1e-2, 1e-3 and 1e-4 alike. So it is NOT the seed kick recorded elsewhere in
+  this file; it is a coarse-grid trap that ny = 81 escapes. A lateral boundary
+  can select the wrong branch of a subcritical bifurcation without failing,
+  without diverging, and while converging cleanly.
 - **The free surface has no surface tension** (uniform gas pressure, no curvature
   term) and **no gas dynamics** — an enclosed bubble does not compress.
 - **The free surface's moving obstacle is not reliable.** The cause is in

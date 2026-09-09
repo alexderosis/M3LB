@@ -112,6 +112,90 @@
 //  interior, and neither geometry alone can show it. The doubled box is the
 //  default because removing a boundary beats discretising it badly.
 //
+//  ===================== `-fsnode`: THE SAME WALL, ON-NODE ===================
+//  The paragraph above says this case wants an on-node zero-flux scalar wall
+//  and that the tree does not have one. It has had one since 2026-09-05
+//  (ScalarSpecular) and, since 2026-09-06, an on-node specular FLUID wall to
+//  pair it with (SpecNode, boundary/Specular.hpp). `-fsnode` is that pairing:
+//  every plane on a node, so the lateral family finally matches the on-node
+//  plates instead of sitting half a cell away from them.
+//
+//  IT REDUCES THE GAP BY ABOUT THREE TIMES, AND DOES NOT CLOSE IT. Against the
+//  doubled box, T = 190, D2Q9:
+//
+//      ny    doubled   halfway  gap      on-node  gap
+//      41     3.5995    3.7419  +3.96 %   --      m = 2, see below
+//      81     3.7472    3.8658  +3.17 %   3.7270  -0.54 %
+//     163     3.7727    3.8311  +1.55 %   3.7517  -0.56 %
+//
+//  All six runs are ONE MATCHED SET at tf = 40 t0, so the halfway column differs
+//  by up to 0.3 % from the older table above, whose runs were stopped by a
+//  different clock and are explicitly still creeping. Checked against the
+//  pre-`-fsnode` binary: 3.8658 either way at ny = 81, to four figures.
+//
+//  ny = 163 is the one to read: there the on-node and doubled runs both
+//  CONVERGED (t/t0 = 37.4 and 36.3) while the halfway run was still creeping.
+//  The halfway gap falls roughly at first order, 3.96 -> 3.17 -> 1.55; the
+//  on-node one is flat at about -0.55 % over the single refinement available,
+//  and TWO POINTS ARE NOT AN ORDER -- what is claimable is that at the finest
+//  grid the on-node pairing sits 2.8x closer to the boundary-free box.
+//
+//  AT ny = 41 IT LANDS ON THE WRONG BRANCH, and that is not the seed. The
+//  on-node box converges to m = 2 (two cells per half-box) at u_max/u0 = 1.34
+//  where both other geometries give m = 1 at 3.6-3.7, and it does so for seeds
+//  of 1e-2, 1e-3 and 1e-4 alike -- so it is not the seed kick this file's own
+//  banner describes further up, it is a coarse-grid trap that ny = 81 escapes.
+//  A lateral boundary can select the wrong BRANCH of a subcritical bifurcation
+//  without failing, converging, or looking wrong.
+//
+//  ===================== `-frozen`, AND WHAT IT SHOWS =======================
+//  `-frozen` drops the fluid and the seed, leaving the charge/potential pair
+//  alone. Their solution is then exactly ONE-DIMENSIONAL, so any x-dependence
+//  IS the lateral wall and nothing else -- the doubled box reproduces that to
+//  the printed digits, laterally flat to 0.00 %. Measured at T = 140, C = 10,
+//  as the lateral deviation of q at mid-depth, sampled at MATCHED distance from
+//  each geometry's own mirror plane (the halfway grid's first fluid node sits
+//  at 0.5, the on-node grid's at 0):
+//
+//      ny     halfway peak / rms     on-node peak / rms
+//      41       14.41 % / 4.260 %      16.68 % / 5.542 %
+//      81        4.49 % / 1.003 %       7.06 % / 1.802 %
+//     163        1.14 % / 0.224 %       2.23 % / 0.493 %
+//      order      1.97  /  2.16          1.66  /  1.87
+//
+//  SO THE BETTER COUPLED ANSWER IS NOT COMING FROM A BETTER SCALAR WALL. The
+//  on-node lateral SCALAR wall is about twice as large pointwise at every
+//  resolution; what `-fsnode` changes that helps is the FLUID mirror, which
+//  finally sits on the plates' plane. Two effects of opposite sign, and only
+//  the frozen run can tell them apart.
+//
+//  WHAT ScalarSpecular DID FIX IS THE RINGING, WHICH IS NOT THE SAME THING.
+//  The halfway profile saw-tooths into the wall -- 0.1200, 0.1034, 0.1012,
+//  0.1027 -- and the on-node one is monotone: 0.1220, 0.1155, 0.1057, 0.1024.
+//  The odd-even mode is gone, replaced by a larger SMOOTH wall layer.
+//
+//  AND THAT LAYER IS ITSELF AN omega -> 2 EFFECT, WHICH IS NOT WHAT THE WALL
+//  WAS WRITTEN FOR. At weak injection, where the field is nearly uniform and a
+//  correct zero-flux wall would be nearly exact, sweeping alpha at C = 0.5:
+//
+//      omega_q    1.99952   1.99521   1.95312   1.61290
+//      halfway      0.87 %    0.21 %    0.10 %    0.01 %
+//      on-node      9.76 %    6.60 %    1.97 %    0.04 %
+//
+//  Ten times worse, and it collapses as omega_q leaves 2. It is the CHARGE's
+//  own wall and not the potential's: at C = 0.05 the charge bends phi by
+//  0.006 % and the charge wall error is still 12.60 %. The mechanism is NOT
+//  diagnosed. Two pairings are untested and are the obvious suspects --
+//  validation/scalar_specular.cpp exercises ScalarSpecular with ScalarBGK
+//  only, with a SOLENOIDAL velocity and no source, at omega = 1.99, whereas the
+//  charge here runs ChargeCentralMoments with a drift whose divergence is
+//  K q / eps > 0 and the potential carries a source.
+//
+//  ehd_cavity's own check is consistent with all of this and could not have
+//  seen it: its specular-vs-periodic comparison is a VOLUME INTEGRAL, measured
+//  here at 0.42 % (0.05 % interior-only) at N = 41, T = 100, which is what a
+//  10 % excess in two columns of forty-one contributes to a volume average.
+//
 //  WHAT THE DOUBLED BOX ADMITS that free-slip does not: laterally antisymmetric
 //  modes, and a continuous family of translations of the symmetric one. So the
 //  wavelength is MEASURED rather than assumed -- every run reports the dominant
@@ -221,7 +305,7 @@
 //    usage: ehd_electroconvection [-ny NY] [-t T] [-a A] [-u0 U] [-c C] [-m M]
 //                                 [-alpha A] [-tf N] [-amp A] [-tol E]
 //                                 [-dump PREFIX] [-lat 2d|3d] [-freeslip]
-//                                 [-half] [-watch]
+//                                 [-fsnode] [-frozen] [-half] [-watch]
 //                                 [--kokkos-num-threads=4]
 //==============================================================================
 #include "collision/ChargeCentralMoments.hpp"
@@ -283,6 +367,8 @@ struct Opts {
   double tol = 2e-4;          // |d u_max| / u_max over one t0
   bool   doubled = true;      // periodic box of 2 Lx -- see the banner
   bool   freeslip = false;    // -freeslip: the real wall, on one half-box
+  bool   fsnode = false;      // -fsnode: the same wall, ON-NODE -- see the banner
+  bool   frozen = false;      // -frozen: no fluid, no seed -- see the banner
   double sphase = 0.0;        // lateral seed phase, in CELLS -- see the banner
   bool   latout = false;      // -latout: ScalarOutflow (on-node) lateral walls
   bool   watch = false;
@@ -321,15 +407,28 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   // THREE LATERAL GEOMETRIES, and only two of them solve the paper's problem.
   //   freeslip : nxh fluid columns between two SPECULAR ghost columns. This is
   //              Eqs. (14)-(16) directly, once boundary/Specular.hpp existed.
+  //   fsnode   : the same wall with every plane ON A NODE -- SpecNode for the
+  //              fluid, ScalarSpecular for the charge and the potential, so the
+  //              lateral family matches the on-node plates. See the banner.
   //   doubled  : a periodic box of width 2 nxh, the mirror-symmetric double of
   //              the above. Equivalent for the symmetric state; it was the only
   //              option before the specular wall was written.
   //   half     : a periodic box of width nxh. A DIFFERENT problem -- it admits
   //              only wavelengths <= Lx and so forbids the fundamental. Kept to
   //              show that, not as an option.
-  const bool fs = o.freeslip;
-  const Index nx = fs ? nxh + 2 : (o.doubled ? 2 * nxh : nxh);
-  const Index x0 = fs ? 1 : 0, x1 = fs ? nxh : nx - 1;   // first/last fluid column
+  const bool fn = o.fsnode;              // on-node lateral walls
+  const bool fs = o.freeslip || fn;      // "there is a lateral wall at all"
+  // THE THREE LATERAL WIDTHS ARE THE SAME PHYSICAL WIDTH, and they are counted
+  // differently because the planes sit in different places. Ghost columns put
+  // the planes at 0.5 and nxh+0.5, so nxh FLUID columns lie between them and the
+  // array is nxh+2 wide. On-node walls put the planes ON nodes 0 and nxh, so the
+  // array is nxh+1 wide and there are still nxh intervals between the planes.
+  // The doubled box is 2 nxh with planes on nodes 0 and nxh. All three carry
+  // lateral extent nxh; only the sampling differs.
+  const Index nx = fn ? nxh + 1
+                      : (o.freeslip ? nxh + 2 : (o.doubled ? 2 * nxh : nxh));
+  const Index x0 = (fs && !fn) ? 1 : 0;                  // first/last fluid column
+  const Index x1 = (fs && !fn) ? nxh : nx - 1;
   const Index nz = 1;
 
   const double dphi = 1.0, rho0 = 1.0;
@@ -346,7 +445,9 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
     std::printf("  T = %6.1f   %lld x %lld  (H = %lld, A = %.3f%s)   u0 = %.4g\n",
                 Tel, (long long)nx, (long long)ny, (long long)H,
                 double(nxh) / double(ny),
-                fs ? ", free-slip" : (o.doubled ? ", doubled" : ", HALF BOX"),
+                fn ? ", free-slip on-node"
+                   : (o.freeslip ? ", free-slip halfway"
+                                 : (o.doubled ? ", doubled" : ", HALF BOX")),
                 u0);
     std::printf("    K = %.4g  eps = %.4g  nu = %.4g (tau = %.4f)  q0 = %.4g"
                 "  D = %.3g (omega_q = %.6f)\n", Kmob, eps, nu, 3.0 * nu + 0.5,
@@ -375,20 +476,41 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   fcoll.forcing.Ex = Fx;  fcoll.forcing.Ey = Fy;  fcoll.forcing.Ez = Fz;
   FluidSol fl(d, fcoll);
   fl.set_geometry([&](Index x, Index, Index) -> CellType {
-    return (fs && (x == 0 || x == nx - 1)) ? Solid : Fluid;
+    return (fs && !fn && (x == 0 || x == nx - 1)) ? Solid : Fluid;
   });
   using WS = typename FluidSol::WallSpec;
-  fl.set_regularized_walls([&](Index, Index y, Index) -> WS {
+  fl.set_regularized_walls([&](Index x, Index y, Index) -> WS {
+    // WITH ON-NODE LATERAL WALLS THE FOUR CORNERS ARE NrmCorner, and that is
+    // not a formality. A corner node is where the no-slip plate meets the
+    // symmetry plane; the two conditions AGREE there (u = 0 satisfies both), so
+    // nothing is over-specified -- but the straight-wall density closure cannot
+    // be evaluated, because the populations it treats as "streamed from the
+    // interior" include directions that arrived from outside the mirror. So rho
+    // is extrapolated along the wall instead, exactly as in ehd_cavity's closed
+    // box. With GHOST lateral columns the question does not arise: the corner
+    // sits in the ghost column and the specular setter overwrites it.
+    if (fn && (x == 0 || x == nx - 1) && (y == 0 || y == ny - 1))
+      return WS{NrmCorner, Real(0), Real(0), Real(0)};
     if (y == 0)      return WS{NrmYm, Real(0), Real(0), Real(0)};
     if (y == ny - 1) return WS{NrmYp, Real(0), Real(0), Real(0)};
     return WS{};
   });
+  // The plates own the corners, so the mirror covers the interior rows only.
+  // Marking a corner SpecNode instead would leave its plate-normal unknowns
+  // unfilled -- the mirror only closes the directions that cross ITS plane.
+  if (fn)
+    fl.set_specular_nodes([&](Index x, Index y, Index) -> std::uint8_t {
+      if (y == 0 || y == ny - 1) return SpecNone;
+      if (x == 0)      return SpecXm;
+      if (x == nx - 1) return SpecXp;
+      return SpecNone;
+    });
   // AFTER the regularised walls, deliberately: the two setters overlap on the
   // four corner cells and the last one wins. Specular winning is correct there
   // -- a corner cell is in the GHOST COLUMN, outside the fluid in x, and what
   // the fluid needs from it is the x-mirror of the plate node beside it, which
   // is exactly what specular reflection produces.
-  if (fs)
+  if (fs && !fn)
     fl.set_specular_walls([&](Index x, Index, Index) -> std::uint8_t {
       if (x == 0)      return NrmXm;
       if (x == nx - 1) return NrmXp;
@@ -406,9 +528,21 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
     if (y == 0)      return ScalarMoment;      // injector q = q0, Eq. (12)
     if (y == ny - 1) return ScalarOutflow;      // collector d_y q = 0, Eq. (13)
     if (fs && (x == 0 || x == nx - 1))
-      return o.latout ? ScalarOutflow : ScalarAdiabatic;         // d_n q = 0, Eq. (15)
+      // ON-NODE: the mirror of boundary/Specular.hpp, whose plane is the node
+      // itself, so it pairs with the on-node plates above. GHOST: bounce-back,
+      // whose plane is half a cell outside -- which is the mismatch the
+      // -freeslip/-fsnode comparison exists to measure.
+      return fn ? ScalarSpecular
+                : (o.latout ? ScalarOutflow : ScalarAdiabatic);  // d_n q = 0, Eq. (15)
     return ScalarBulk;
   });
+  if (fn)
+    chg.set_specular_walls([&](Index x, Index y, Index) -> std::uint8_t {
+      if (y == 0 || y == ny - 1) return NrmNone;   // the plates own the corners
+      if (x == 0)      return NrmXm;
+      if (x == nx - 1) return NrmXp;
+      return NrmNone;
+    });
   chg.set_wall_values([&](Index, Index, Index) -> Real { return Real(q0); });
 
   // ---- the potential ------------------------------------------------------
@@ -420,20 +554,32 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   pot.set_geometry([&](Index x, Index y, Index) -> ScalarCell {
     if (y == 0 || y == ny - 1) return ScalarMoment;
     if (fs && (x == 0 || x == nx - 1))
-      return o.latout ? ScalarOutflow : ScalarAdiabatic;         // d_n phi = 0, Eq. (14)
+      return fn ? ScalarSpecular
+                : (o.latout ? ScalarOutflow : ScalarAdiabatic);  // d_n phi = 0, Eq. (14)
     return ScalarBulk;
   });
+  if (fn)
+    pot.set_specular_walls([&](Index x, Index y, Index) -> std::uint8_t {
+      if (y == 0 || y == ny - 1) return NrmNone;
+      if (x == 0)      return NrmXm;
+      if (x == nx - 1) return NrmXp;
+      return NrmNone;
+    });
   pot.set_wall_values([&](Index, Index y, Index) -> Real {
     return (y == 0) ? Real(dphi) : Real(0);
   });
 
   // ---- initial state, Eqs. (17)-(20) plus the seed ------------------------
   const Index Hc = H, nxc = nx;
-  const bool  fsc = fs;
+  const bool  fsc = fs, fnc = fn;
   const double sph = o.sphase;
   const Index x0c = x0, x1c = x1, nxhc = nxh;
 
-  const Real ampq = Real(o.amp * q0);
+  // -frozen DROPS THE SEED TOO. The point of freezing the fluid is to leave
+  // nothing in play but the charge/potential pair, whose solution is then
+  // ONE-DIMENSIONAL exactly -- so any x-dependence that appears is the lateral
+  // boundary and nothing else. A seed would put x-dependence in by hand.
+  const Real ampq = Real((o.frozen ? 0.0 : o.amp) * q0);
   const double dec = double(H) / 8.0;         // seed depth, a fixed FRACTION of H
   // THE POTENTIAL STARTS AT ITS CHARGE-FREE SOLUTION, phi = dphi (1 - y/H), and
   // NOT at zero. Eq. (19) says zero, but Eq. (1) is ELLIPTIC: phi has no time
@@ -464,7 +610,12 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
     // The fundamental of the box in use. In the doubled box that is one full
     // wave across 2 Lx; in the free-slip box it is the half wave across Lx with
     // its extrema ON the two mirror planes -- the same physical mode.
-    const double ph = fsc ? (M_PI * (double(x - x0c) + 0.5) / double(nxhc))
+    // The extrema sit ON the mirror planes in both wall geometries. With a
+    // ghost column the plane is half a cell outside node x0, hence the +0.5;
+    // with an on-node wall the plane IS node x0, so there is no offset. Getting
+    // this wrong seeds an antisymmetric component the wall then has to kill.
+    const double ph = fnc ? (M_PI * double(x - x0c) / double(nxhc))
+                   : fsc  ? (M_PI * (double(x - x0c) + 0.5) / double(nxhc))
                           : (2.0 * M_PI * (double(x) + sph) / double(nxc));
     const double lat = 0.5 * (1.0 + Kokkos::cos(ph));
     return Real(double(ampq) * lat * Kokkos::exp(-double(y) / dec));
@@ -494,6 +645,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   double ring[NR] = {0};
   int nprobe = 0, frame = 0;
 
+  const bool froz = o.frozen;
   for (std::size_t t = 0; t < steps; ++t) {
     // u(t): computed BEFORE the step, so the drift and the force see the same
     // instant the charge and potential do. Reading fl.step(true)'s stored
@@ -519,8 +671,18 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       // twice over -- it is outside the mirror, and ScalarAdiabatic reports
       // ZERO at its own node (CLAUDE.md lists that trap), so the difference
       // would be taken against nothing.
-      const Index xm = fsc ? (x == x0c ? x0c : x - 1) : (x - 1 + nxc) % nxc;
-      const Index xp = fsc ? (x == x1c ? x1c : x + 1) : (x + 1) % nxc;
+      // AND THE FOLD DEPENDS ON WHERE THE PLANE IS. Ghost column: the plane is
+      // at x0-0.5, phi(x0-1) = phi(x0), and the central difference collapses to
+      // a half-cell one-sided form. ON-NODE: the plane is x0 itself, phi is even
+      // about it, so phi(x0-1) = phi(x0+1) and the central difference is
+      // IDENTICALLY ZERO. Using the ghost rule at an on-node wall would leave a
+      // spurious E_x of half the first-cell gradient on the whole wall column.
+      const Index xm = fnc ? (x == x0c ? x0c + 1 : x - 1)
+                    : fsc  ? (x == x0c ? x0c     : x - 1)
+                           : (x - 1 + nxc) % nxc;
+      const Index xp = fnc ? (x == x1c ? x1c - 1 : x + 1)
+                    : fsc  ? (x == x1c ? x1c     : x + 1)
+                           : (x + 1) % nxc;
       double Ey;
       // The plates ARE nodes, so the one-sided stencils start from the imposed
       // potential. That is the whole point of the on-node family here.
@@ -539,8 +701,11 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       Fy(n) = Real(qn * Ey);
       // THE DRIFT NOW CARRIES THE FLUID VELOCITY. This one addition is the
       // whole of the charge half of the coupling.
-      kx(n) = Real(Km * Ex + double(ux(n)));
-      ky(n) = Real(Km * Ey + double(uy(n)));
+      // With the fluid frozen the drift is the electric one alone, and the
+      // Coulomb force above is still computed but never applied, because
+      // fl.step() is skipped.
+      kx(n) = Real(Km * Ex + (froz ? 0.0 : double(ux(n))));
+      ky(n) = Real(Km * Ey + (froz ? 0.0 : double(uy(n))));
     });
     Kokkos::fence();
 
@@ -553,7 +718,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
 
     pot.step();
     chg.step();
-    fl.step();
+    if (!froz) fl.step();
     pot.compute_field();
     chg.compute_field();
 
@@ -562,6 +727,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       auto hux = Kokkos::create_mirror_view_and_copy(HostSpace{}, ux);
       auto huy = Kokkos::create_mirror_view_and_copy(HostSpace{}, uy);
       auto hq  = Kokkos::create_mirror_view_and_copy(HostSpace{}, qf);
+      auto hphi = Kokkos::create_mirror_view_and_copy(HostSpace{}, phi);
       auto hkx = Kokkos::create_mirror_view_and_copy(HostSpace{}, kx);
       auto hky = Kokkos::create_mirror_view_and_copy(HostSpace{}, ky);
       double peak = 0.0, qlo = 1e300, qhi = -1e300;
@@ -613,7 +779,12 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       std::vector<double> sig(static_cast<std::size_t>(nsig), 0.0);
       for (Index k = 0; k < nsig; ++k) {
         Index xs;
+        // The reflection index differs for the same reason the stencil does.
+        // Ghost planes lie BETWEEN samples, so the mirror of k is 2nxh-1-k; an
+        // on-node plane lies ON a sample, which is therefore not duplicated,
+        // and the mirror of k is 2nxh-k.
         if (!fs)                 xs = k;
+        else if (fn)             xs = x0 + (k <= nxh ? k : 2 * nxh - k);
         else if (k < nxh)        xs = x0 + k;
         else                     xs = x0 + (2 * nxh - 1 - k);
         sig[std::size_t(k)] = double(huy(d.id(xs, H / 2, 0)));
@@ -655,6 +826,10 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
         figdump::scalar_slice(o.dump + "_q" + tag, x1 - x0 + 1, ny,
                               [&](Index xi, Index y) {
           return double(hq(d.id(x0 + xi, y, 0))) / q0;
+        });
+        figdump::scalar_slice(o.dump + "_p" + tag, x1 - x0 + 1, ny,
+                              [&](Index xi, Index y) {
+          return double(hphi(d.id(x0 + xi, y, 0)));
         });
         figdump::scalar_slice(o.dump + "_u" + tag, x1 - x0 + 1, ny,
                               [&](Index xi, Index y) {
@@ -738,8 +913,26 @@ int main(int argc, char** argv) {
     else if (a == "-sphase" && i + 1 < argc) o.sphase = std::atof(argv[++i]);
     else if (a == "-latout")                o.latout = true;
     else if (a == "-freeslip")              o.freeslip = true;
+    else if (a == "-fsnode")                o.fsnode   = true;
+    else if (a == "-frozen")                o.frozen   = true;
     else if (a == "-half")                  o.doubled = false;
     else if (a == "-watch")                 o.watch   = true;
+  }
+
+  // Two lateral geometries at once is a setup error, and so is asking for the
+  // ScalarOutflow lateral variant of a geometry that does not have one: the
+  // on-node walls are ScalarSpecular by construction. Silently ignoring either
+  // would produce a run that answers a different question than the command line
+  // asked for.
+  if (o.freeslip && o.fsnode) {
+    std::fprintf(stderr, "-freeslip and -fsnode are two different lateral"
+                 " geometries; pick one.\n");
+    return 2;
+  }
+  if (o.fsnode && o.latout) {
+    std::fprintf(stderr, "-latout replaces the GHOST lateral scalar wall;"
+                 " -fsnode has no ghost column.\n");
+    return 2;
   }
 
   Kokkos::initialize(argc, argv);
