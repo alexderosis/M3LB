@@ -71,11 +71,18 @@ struct Result {
   // [-1,1], which inflates the integral of |grad phi| through the interface and
   // therefore sigma itself. The two are indistinguishable from sigma alone.
   double r_eff = 0, rho_min = 0, phi_max = 0;
+  // The EQUILIBRIUM interface width, fitted the same way as in
+  // validation/colour_flat.cpp so the two are comparable: phi along a radial
+  // ray is tanh(2 (r - R)/W), so atanh(phi) is linear in r and the fit is a
+  // straight line with no starting guess. Here it also answers a question the
+  // flat case cannot -- whether CURVATURE changes the width that beta sets.
+  double W_fit = 0;
+  int    W_pts = 0;
   bool ok = false;
 };
 
 static Result run(int N, double R, double gamma, double A, double tau,
-                  double W, std::size_t steps, bool verbose) {
+                  double W, std::size_t steps, bool verbose, double beta = 0.7) {
   const double ab = 8.0 / 27.0;
   const double ar = 1.0 - (1.0 - ab) / gamma;
   const double rho_b0 = 1.0, rho_r0 = gamma;
@@ -92,7 +99,7 @@ static Result run(int N, double R, double gamma, double A, double tau,
   cg.alpha_r = Real(ar);   cg.alpha_b = Real(ab);
   cg.nu_r    = Real(nu_r); cg.nu_b    = Real(nu_b);
   cg.A       = Real(A);
-  cg.beta    = Real(0.7);
+  cg.beta    = Real(beta);
   cg.omega_bulk = Real(1);
   cg.rho_r0  = Real(rho_r0);  cg.rho_b0 = Real(rho_b0);
   Slv s(d, cg);
@@ -180,13 +187,33 @@ static Result run(int N, double R, double gamma, double A, double tau,
   out.sigma = 0.5 * (out.p_in - out.p_out) * R;      // 3D: dp = 2 sigma / R
   out.err   = std::fabs(out.sigma / out.sigma_th - 1.0);
   out.umax  = umax;
+  // ---- the radial width, along +x from the droplet centre -----------------
+  {
+    const Index c = Index(0.5 * double(N));
+    double sx = 0, sy = 0, sxx = 0, sxy = 0; int m = 0;
+    for (Index x = c; x < Index(N); ++x) {
+      const double p = double(hp(d.id(x, c, c)));
+      if (!std::isfinite(p) || std::fabs(p) > 0.9) continue;
+      const double t = std::atanh(p), rr = double(x) - 0.5 * double(N);
+      sx += rr; sy += t; sxx += rr * rr; sxy += rr * t; ++m;
+    }
+    out.W_pts = m;
+    if (m >= 3) {
+      const double den = double(m) * sxx - sx * sx;
+      const double slope = (double(m) * sxy - sx * sy) / den;
+      // phi runs from +1 (red core) to -1 outside, so the slope is negative
+      // and the width is its magnitude.
+      out.W_fit = std::fabs(2.0 / slope);
+    }
+  }
+
   const double m_r1 = double(s.total_red()), m_b1 = double(s.total_blue());
   out.drift = std::max(std::fabs(m_r1 / m_r0 - 1.0), std::fabs(m_b1 / m_b0 - 1.0));
   out.ok = !bad && std::isfinite(out.sigma);
   if (verbose)
-    std::printf("%-8.0f %-13.5e %-13.5e %-9.2f %-11.3e %-8.2f %-11.3e %-9.5f %-10.2e\n",
+    std::printf("%-8.0f %-13.5e %-13.5e %-9.2f %-11.3e %-8.2f %-11.3e %-9.5f %-10.2e %-8.3f\n",
                 gamma, out.sigma_th, out.sigma, 100.0 * out.err, out.umax,
-                out.r_eff, out.rho_min, out.phi_max, out.drift);
+                out.r_eff, out.rho_min, out.phi_max, out.drift, out.W_fit);
   return out;
 }
 
@@ -195,7 +222,8 @@ int main(int argc, char** argv) {
   int status = 0;
   {
     int N = 64; double R = 16, W = 4, A = 8e-4, tau = 1.0;
-    std::size_t steps = 8000; double only = 0;
+    std::size_t steps = 8000; double only = 0, beta = 0.7;
+    std::vector<double> betas;
     for (int i = 1; i < argc; ++i) {
       auto num = [&](double& v) { if (i + 1 < argc) v = std::atof(argv[++i]); };
       if      (!std::strcmp(argv[i], "-n"))     { if (i+1<argc) N = std::atoi(argv[++i]); }
@@ -205,6 +233,46 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(argv[i], "-tau"))   num(tau);
       else if (!std::strcmp(argv[i], "-gamma")) num(only);   // one ratio only
       else if (!std::strcmp(argv[i], "-steps")) { if (i+1<argc) steps = std::size_t(std::atol(argv[++i])); }
+      else if (!std::strcmp(argv[i], "-beta"))  num(beta);
+      else if (!std::strcmp(argv[i], "-betas") && i + 1 < argc) {
+        betas.clear();
+        std::string v = argv[++i], tok;
+        for (char ch : v + ",") {
+          if (ch == ',') { if (!tok.empty()) betas.push_back(std::atof(tok.c_str())); tok.clear(); }
+          else tok += ch;
+        }
+      }
+    }
+
+    // BETA SWEEP MODE. Same question as validation/colour_flat.cpp, asked where
+    // the interface is CURVED and the Laplace tension is available as a second
+    // diagnostic: the flat case can only report a width and a spurious current,
+    // and at matched density its current sits at round-off for every beta, so
+    // it cannot see the cost the operator's banner claims for large beta.
+    if (!betas.empty()) {
+      std::printf("Static droplet, BETA SWEEP   D3Q27 colour gradient, central moments\n");
+      std::printf("%dx%dx%d   R = %.0f   seeded W = %.0f   A = %.2e   tau = %.2f   %zu steps\n",
+                  N, N, N, R, W, A, tau, steps);
+      std::printf("sigma_th = 4 A tau / 9 = %.6e\n\n", 4.0 * A * tau / 9.0);
+      const double gsweep = only > 0 ? only : 1.0;
+      std::printf("gamma = %.0f\n", gsweep);
+      std::printf("%-7s %-13s %-9s %-11s %-8s %-9s %-10s %-8s %s\n",
+                  "beta", "sigma_Lap", "err (%)", "max |u|", "R_eff",
+                  "max |phi|", "drift", "W_fit", "");
+      std::printf("%s\n", std::string(96, '-').c_str());
+      for (double b : betas) {
+        const Result o = run(N, R, gsweep, A, tau, W, steps, false, b);
+        std::printf("%-7.2f %-13.5e %-9.2f %-11.3e %-8.2f %-9.5f %-10.2e %-8.3f %s\n",
+                    b, o.sigma, 100.0 * o.err, o.umax, o.r_eff, o.phi_max,
+                    o.drift, o.W_fit, o.ok ? "" : "FAILED");
+        std::fflush(stdout);   // a sweep with no visible progress is unusable
+                               // when a single case can take half an hour
+      }
+      std::printf("\n  max |phi| > 1 means a colour has gone NEGATIVE -- the recolouring\n"
+                  "  overshooting. Mass drift cannot see it: Eqs. (33)-(34) sum to f_i\n"
+                  "  identically, so it stays clean at every beta.\n");
+      Kokkos::finalize();
+      return 0;
     }
 
     std::printf("Static droplet   D3Q27 colour gradient, nonorthogonal central moments\n");
