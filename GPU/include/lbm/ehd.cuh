@@ -116,6 +116,7 @@ struct EhdParams {
   const Real* q = nullptr;
   const Real* ux = nullptr;            // null in the hydrostatic reference
   const Real* uy = nullptr;
+  const Real* uz = nullptr;
   Real* kx = nullptr;                  // drift velocity u + K E, out
   Real* ky = nullptr;
   Real* kz = nullptr;
@@ -127,6 +128,10 @@ struct EhdParams {
   int nx = 0, ny = 0, nz = 0, H = 0;
   Real K = Real(1), eps = Real(1), beta = Real(0.3);
   bool sidewalls = true;               // x = 0, nx-1 are walls: E_x = 0 there
+  // z = 0, nz-1 are walls too, i.e. the box is CLOSED. Default false, which is
+  // the periodic z this driver has always used; the fold below is written now
+  // so that a closed-box variant does not have to touch the stencil later.
+  bool zwalls = false;
 };
 
 //------------------------------------------------------------------------------
@@ -137,34 +142,52 @@ LBM_HD LBM_INLINE void ehd_node(const EhdParams& p, long n) {
   coords(n, p.nx, p.ny, x, y, z);
   const int H = p.H;
 
-  auto at = [&](int xx, int yy) {
-    return p.phi[node_id(wrap(xx, p.nx), wrap(yy, p.ny), z, p.nx, p.ny)];
+  // THE z ARGUMENT IS THE POINT. Until 2026-09-10 this lambda captured the
+  // node's own z and never varied it, so phi was differenced in x and y only:
+  // E_z, F_z and the z drift were hard zeros. With -nz > 1 that is a SILENT
+  // half-3-D -- the D3Q27 fluid and charge still couple in z hydrodynamically,
+  // so the flow develops spanwise structure and the run looks right, while the
+  // electrostatics driving it are two-dimensional.
+  auto at = [&](int xx, int yy, int zz) {
+    return p.phi[node_id(wrap(xx, p.nx), wrap(yy, p.ny), wrap(zz, p.nz),
+                         p.nx, p.ny)];
   };
 
   Real Ey;
   if (y == 0)
-    Ey = -(Real(-1.5) * at(x, 0) + Real(2) * at(x, 1) - Real(0.5) * at(x, 2));
+    Ey = -(Real(-1.5) * at(x, 0, z) + Real(2) * at(x, 1, z) - Real(0.5) * at(x, 2, z));
   else if (y == H)
-    Ey = -(Real(1.5) * at(x, H) - Real(2) * at(x, H - 1) + Real(0.5) * at(x, H - 2));
+    Ey = -(Real(1.5) * at(x, H, z) - Real(2) * at(x, H - 1, z)
+           + Real(0.5) * at(x, H - 2, z));
   else
-    Ey = Real(-0.5) * (at(x, y + 1) - at(x, y - 1));
+    Ey = Real(-0.5) * (at(x, y + 1, z) - at(x, y - 1, z));
 
   // d_x phi = 0 IS the side-wall condition, so E_x there is exactly zero.
   const bool xwall = p.sidewalls && (x == 0 || x == p.nx - 1);
   const Real Ex = xwall ? Real(0)
-                        : Real(-0.5) * (at(x + 1, y) - at(x - 1, y));
+                        : Real(-0.5) * (at(x + 1, y, z) - at(x - 1, y, z));
+
+  // z is PERIODIC unless the box is closed, and then d_z phi = 0 makes E_z
+  // exactly zero on the plane -- the same fold as x, for the same reason: the
+  // wall plane IS the node, so phi is even about it. At nz = 1 the periodic
+  // wrap puts both neighbours on the node itself and E_z vanishes anyway,
+  // which is what keeps every existing 2-D run bit-identical.
+  const bool zwall = p.zwalls && (z == 0 || z == p.nz - 1);
+  const Real Ez = zwall ? Real(0)
+                        : Real(-0.5) * (at(x, y, z + 1) - at(x, y, z - 1));
 
   const Real qn = p.q[n];
-  const bool wall = xwall || y == 0 || y == H;
+  const bool wall = xwall || zwall || y == 0 || y == H;
   const Real u = p.ux ? p.ux[n] : Real(0);
   const Real v = p.uy ? p.uy[n] : Real(0);
+  const Real w = p.uz ? p.uz[n] : Real(0);
 
   p.Fx[n] = wall ? Real(0) : qn * Ex;
   p.Fy[n] = wall ? Real(0) : qn * Ey;
-  p.Fz[n] = Real(0);
+  p.Fz[n] = wall ? Real(0) : qn * Ez;
   p.kx[n] = p.K * Ex + u;
   p.ky[n] = p.K * Ey + v;
-  p.kz[n] = Real(0);
+  p.kz[n] = p.K * Ez + w;
 
   // Eq. (26), with the Adams-Bashforth extrapolation of the charge.
   p.src[n] = (p.beta / p.eps) * (Real(1.5) * qn - Real(0.5) * p.qprev[n]);

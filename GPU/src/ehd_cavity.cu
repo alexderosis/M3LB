@@ -150,14 +150,27 @@ struct ChargeInit {
   int H;
   Real amp;                          // in lattice units, already scaled by q0
   Real dec;                          // seed depth
-  LBM_HD Real operator()(int x, int y, int) const {
+  int nz = 1;                        // depth; > 1 switches the z modulation on
+  // THE SEED MUST BREAK z-SYMMETRY OR THE DEPTH BUYS NOTHING. The equations
+  // preserve z-independence EXACTLY, so a z-uniform initial condition leaves
+  // u_z at round-off for all time and an nz-plane grid returns the same answer
+  // as one plane, at nz times the cost. Two z modes rather than one, so the
+  // flow picks its own rather than being handed one; the amplitudes sum to
+  // 0.95 < 1 so the modulation stays POSITIVE and the seeded charge cannot
+  // start outside [0, q0]. At nz = 1 it is switched off rather than evaluated
+  // at z = 0, which keeps every existing run bit-identical.
+  LBM_HD Real operator()(int x, int y, int z) const {
     if (y <= 0 || y >= H) return Real(0);
     double lat = 0.0;
     const double ph[4] = {0.0, 1.1, 2.3, 0.7};
     for (int m = 0; m < 4; ++m)
       lat += 0.25 * 0.5 * (1.0 + cos(M_PI * double(m + 1) * (double(x) + 0.5) / 64.0
                                      + ph[m]));
-    return Real(double(amp) * lat * exp(-double(y) / double(dec)));
+    const double zmod = (nz > 1)
+        ? 1.0 + 0.60 * cos(2.0 * M_PI * double(z) / double(nz))
+              + 0.35 * cos(6.0 * M_PI * double(z) / double(nz) + 0.7)
+        : 1.0;
+    return Real(double(amp) * lat * zmod * exp(-double(y) / double(dec)));
   }
 };
 
@@ -283,7 +296,7 @@ static Out solve(const Opts& o, bool hydro, double I0, bool verbose) {
   fl.initialise_with(RestInit{});
   pot.initialise_with(PotentialInit{H});
   chg.initialise_with(ChargeInit{H, Real((hydro ? 0.0 : o.amp) * q0),
-                                 Real(double(H) / 8.0)});
+                                 Real(double(H) / 8.0), nz});
 
   EhdParams ep;
   ep.phi = pot.field_device(); ep.q = chg.field_device();
@@ -308,7 +321,8 @@ static Out solve(const Opts& o, bool hydro, double I0, bool verbose) {
     // that -- see enable_velocity_output above for what it meant once.
     ep.ux = hydro ? nullptr : fl.ux_device();
     ep.uy = hydro ? nullptr : fl.uy_device();
-    if (!hydro && (!ep.ux || !ep.uy)) {
+    ep.uz = hydro ? nullptr : fl.uz_device();
+    if (!hydro && (!ep.ux || !ep.uy || !ep.uz)) {
       std::printf("  the fluid is not publishing a velocity field; the charge "
                   "would advect on drift alone\n");
       std::abort();
