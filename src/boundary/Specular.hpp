@@ -227,6 +227,21 @@ constexpr int face_sign(std::uint8_t faces, int a) {
   return (faces & pos) ? 1 : ((faces & neg) ? -1 : 0);
 }
 
+// A NormalCode as a mask, for the scalar walls, whose callers name one outward
+// axis. Every single-axis mask is exactly the old single-axis mirror, so this
+// converts the old API rather than replacing it.
+KOKKOS_INLINE_FUNCTION
+constexpr std::uint8_t faces_of_normal(std::uint8_t code) {
+  int n[3];
+  normal_of(code, n);
+  std::uint8_t m = SpecNone;
+  for (int a = 0; a < 3; ++a) {
+    if (n[a] > 0) m = std::uint8_t(m | (1u << (2 * a)));
+    else if (n[a] < 0) m = std::uint8_t(m | (1u << (2 * a + 1)));
+  }
+  return m;
+}
+
 template <class L, class R>
 KOKKOS_INLINE_FUNCTION void mirror_unknowns_faces(R* f, std::uint8_t faces) {
   R h[L::Q];

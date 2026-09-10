@@ -305,7 +305,9 @@
 //    usage: ehd_electroconvection [-ny NY] [-t T] [-a A] [-u0 U] [-c C] [-m M]
 //                                 [-alpha A] [-tf N] [-amp A] [-tol E]
 //                                 [-dump PREFIX] [-lat 2d|3d] [-freeslip]
-//                                 [-fsnode] [-frozen] [-half] [-watch]
+//                                 [-fsnode] [-noslip] [-frozen] [-nz NZ] [-half]
+//                                 [-watch]
+//                                 [-vtk DIR] [-vtkevery K]
 //                                 [--kokkos-num-threads=4]
 //==============================================================================
 #include "collision/ChargeCentralMoments.hpp"
@@ -324,6 +326,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -357,6 +361,68 @@ template <class FL, class SL> struct Stack {
   using PotSol    = ScalarSolver<SL, EsotericPull<SL>, PotOp>;
 };
 
+//------------------------------------------------------------------------------
+//  Legacy VTK, STRUCTURED_POINTS, BINARY big-endian -- the same format
+//  demonstrator/urban.cpp writes, for the same reason: at 60 x 61 x 60 the ASCII
+//  .vti of src/io/VtiWriter.hpp is ~13 MB a frame and a time series of it is
+//  unusable. Binary is 20 bytes a node -- q, phi and the three velocity
+//  components -- so 4.4 MB, and ParaView opens the series directly.
+//
+//  Only the FLUID extent is written, x0..x1 by 0..H by 0..nz-1, so a ghost
+//  column never appears as a plane of nothing. Every field is written
+//  NORMALISED -- q/q0, phi/dphi, u/u0 -- because those are the numbers the rest
+//  of this file quotes, and a renderer that reads raw lattice units invites a
+//  comparison against the wrong scale.
+//------------------------------------------------------------------------------
+static void write_ehd_vtk(const std::string& path, const Domain& d, Index x0, Index x1,
+                          Index H, Index nz, int step,
+                          const Kokkos::View<Real*, HostSpace>& q,
+                          const Kokkos::View<Real*, HostSpace>& phi,
+                          const Kokkos::View<Real*, HostSpace>& ux,
+                          const Kokkos::View<Real*, HostSpace>& uy,
+                          const Kokkos::View<Real*, HostSpace>& uz,
+                          double q0, double dphi, double u0) {
+  const Index mx = x1 - x0 + 1, my = H + 1;
+  const std::size_t n = std::size_t(mx) * std::size_t(my) * std::size_t(nz);
+  std::FILE* f = std::fopen(path.c_str(), "wb");
+  if (!f) { std::fprintf(stderr, "cannot write %s\n", path.c_str()); return; }
+  std::fprintf(f, "# vtk DataFile Version 3.0\nehd3d step %d\nBINARY\n"
+                  "DATASET STRUCTURED_POINTS\nDIMENSIONS %d %d %d\n"
+                  "ORIGIN 0 0 0\nSPACING 1 1 1\nPOINT_DATA %zu\n",
+               step, int(mx), int(my), int(nz), n);
+
+  std::vector<unsigned char> buf;
+  auto be = [&](float v) {                       // legacy VTK is big-endian
+    std::uint32_t w; std::memcpy(&w, &v, 4);
+    w = __builtin_bswap32(w);
+    unsigned char b[4]; std::memcpy(b, &w, 4);
+    buf.insert(buf.end(), b, b + 4);
+  };
+  auto scalar = [&](const char* name, const Kokkos::View<Real*, HostSpace>& v, double sc) {
+    std::fprintf(f, "SCALARS %s float 1\nLOOKUP_TABLE default\n", name);
+    buf.clear();  buf.reserve(n * 4);
+    for (Index z = 0; z < nz; ++z)
+      for (Index y = 0; y <= H; ++y)
+        for (Index x = x0; x <= x1; ++x) be(float(double(v(d.id(x, y, z))) / sc));
+    std::fwrite(buf.data(), 1, buf.size(), f);
+  };
+  scalar("q", q, q0);
+  scalar("phi", phi, dphi);
+
+  std::fprintf(f, "VECTORS u float\n");
+  buf.clear();  buf.reserve(n * 12);
+  for (Index z = 0; z < nz; ++z)
+    for (Index y = 0; y <= H; ++y)
+      for (Index x = x0; x <= x1; ++x) {
+        const Index m = d.id(x, y, z);
+        be(float(double(ux(m)) / u0));
+        be(float(double(uy(m)) / u0));
+        be(float(double(uz(m)) / u0));
+      }
+  std::fwrite(buf.data(), 1, buf.size(), f);
+  std::fclose(f);
+}
+
 struct Opts {
   Index ny = 81;              // the paper's coarsest grid; H = ny - 1
   double aspect = 0.614;      // Lx / Ly, the least unstable half-wavelength
@@ -368,7 +434,11 @@ struct Opts {
   bool   doubled = true;      // periodic box of 2 Lx -- see the banner
   bool   freeslip = false;    // -freeslip: the real wall, on one half-box
   bool   fsnode = false;      // -fsnode: the same wall, ON-NODE -- see the banner
+  bool   noslip = false;      // -noslip: u = 0 on the laterals too, Fig. 7
   bool   frozen = false;      // -frozen: no fluid, no seed -- see the banner
+  Index  nz = 1;              // -nz: DEPTH. 1 is the 2-D slab; see the banner
+  std::string vtkdir;         // -vtk DIR: binary legacy VTK, one file per frame
+  int    vtkevery = 2;        // -vtkevery K: every K-th probe (a probe is t0/20)
   double sphase = 0.0;        // lateral seed phase, in CELLS -- see the banner
   bool   latout = false;      // -latout: ScalarOutflow (on-node) lateral walls
   bool   watch = false;
@@ -383,6 +453,7 @@ struct Out {
   double qlo = 0, qhi = 0;    // charge bounds at the END, in units of q0
   double worst = 0, t_worst = 0;   // worst excursion outside [0, 1] q0, and when
   double drift = 0;           // peak |u + K E|, in lattice units
+  double uzf = 0;             // rms(u_z) / rms(|u|) -- how 3-D the state is
   double creep = 0;           // d(u_max/u0)/d(t/t0) at the end of the run
   double tconv = 0;           // t/t0 at which it stopped
   bool   ok = false;
@@ -416,8 +487,20 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   //   half     : a periodic box of width nxh. A DIFFERENT problem -- it admits
   //              only wavelengths <= Lx and so forbids the fundamental. Kept to
   //              show that, not as an option.
-  const bool fn = o.fsnode;              // on-node lateral walls
-  const bool fs = o.freeslip || fn;      // "there is a lateral wall at all"
+  const bool fn = o.fsnode;              // on-node lateral walls, FREE slip
+  const bool ns = o.noslip;              // on-node lateral walls, NO slip
+  // Both on-node variants share one GEOMETRY -- the array is nxh + 1 wide and
+  // the wall planes are nodes 0 and nxh -- and differ only in what the fluid
+  // does there. The charge and the potential do not care which it is: an
+  // impermeable insulating wall is d_n q = d_n phi = 0 either way, so both run
+  // ScalarSpecular and both fold E_x to exactly zero on the plane.
+  const bool on = fn || ns;
+  const bool fs = o.freeslip || on;      // "there is a lateral wall at all"
+  // -noslip CLOSES THE BOX. In 3-D that means the z faces are walls too, so
+  // every one of the six faces carries u = 0 and the run has no symmetry plane
+  // and no periodic direction at all. At nz = 1 there is no z face to close and
+  // z stays periodic, which is what keeps the 2-D path untouched.
+  const bool zw = ns && o.nz > 1;
   // THE THREE LATERAL WIDTHS ARE THE SAME PHYSICAL WIDTH, and they are counted
   // differently because the planes sit in different places. Ghost columns put
   // the planes at 0.5 and nxh+0.5, so nxh FLUID columns lie between them and the
@@ -425,11 +508,18 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   // array is nxh+1 wide and there are still nxh intervals between the planes.
   // The doubled box is 2 nxh with planes on nodes 0 and nxh. All three carry
   // lateral extent nxh; only the sampling differs.
-  const Index nx = fn ? nxh + 1
+  const Index nx = on ? nxh + 1
                       : (o.freeslip ? nxh + 2 : (o.doubled ? 2 * nxh : nxh));
-  const Index x0 = (fs && !fn) ? 1 : 0;                  // first/last fluid column
-  const Index x1 = (fs && !fn) ? nxh : nx - 1;
-  const Index nz = 1;
+  const Index x0 = (fs && !on) ? 1 : 0;                  // first/last fluid column
+  const Index x1 = (fs && !on) ? nxh : nx - 1;
+  // DEPTH. nz = 1 is the slab this case has always been: the problem is
+  // two-dimensional and D3Q27 merely carries it. nz > 1 makes it genuinely
+  // three-dimensional, periodic in z, which is the ONLY new geometry -- the
+  // plates and the lateral walls are unchanged, so a 3-D run is the 2-D one
+  // extruded. Everything below reduces EXACTLY to the old path at nz = 1: the
+  // z-stencil folds onto the node itself (E_z = 0 identically), and the seed's
+  // z-modulation is switched off rather than evaluated at z = 0.
+  const Index nz = o.nz;
 
   const double dphi = 1.0, rho0 = 1.0;
   const double u0   = o.u0;
@@ -442,10 +532,11 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
 
   Out r;
   if (verbose) {
-    std::printf("  T = %6.1f   %lld x %lld  (H = %lld, A = %.3f%s)   u0 = %.4g\n",
-                Tel, (long long)nx, (long long)ny, (long long)H,
+    std::printf("  T = %6.1f   %lld x %lld x %lld  (H = %lld, A = %.3f%s)   u0 = %.4g\n",
+                Tel, (long long)nx, (long long)ny, (long long)nz, (long long)H,
                 double(nxh) / double(ny),
-                fn ? ", free-slip on-node"
+                ns ? ", NO-SLIP on-node"
+                   : fn ? ", free-slip on-node"
                    : (o.freeslip ? ", free-slip halfway"
                                  : (o.doubled ? ", doubled" : ", HALF BOX")),
                 u0);
@@ -464,7 +555,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   // different lattice from the other two. The driver reads qf(n) inside the
   // potential's source and phi(n) inside the charge's drift, and both are
   // therefore the same node.
-  Domain d(nx, ny, nz, /*periodic x*/ !fs, /*y*/ false, /*z*/ true);
+  Domain d(nx, ny, nz, /*periodic x*/ !fs, /*y*/ false, /*z*/ !zw);
 
   // ---- the fluid ----------------------------------------------------------
   // F = q E arrives as three Views; FieldGuo applies Guo's source with the
@@ -476,10 +567,10 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   fcoll.forcing.Ex = Fx;  fcoll.forcing.Ey = Fy;  fcoll.forcing.Ez = Fz;
   FluidSol fl(d, fcoll);
   fl.set_geometry([&](Index x, Index, Index) -> CellType {
-    return (fs && !fn && (x == 0 || x == nx - 1)) ? Solid : Fluid;
+    return (fs && !on && (x == 0 || x == nx - 1)) ? Solid : Fluid;
   });
   using WS = typename FluidSol::WallSpec;
-  fl.set_regularized_walls([&](Index x, Index y, Index) -> WS {
+  fl.set_regularized_walls([&](Index x, Index y, Index z) -> WS {
     // WITH ON-NODE LATERAL WALLS THE FOUR CORNERS ARE NrmCorner, and that is
     // not a formality. A corner node is where the no-slip plate meets the
     // symmetry plane; the two conditions AGREE there (u = 0 satisfies both), so
@@ -489,10 +580,29 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
     // is extrapolated along the wall instead, exactly as in ehd_cavity's closed
     // box. With GHOST lateral columns the question does not arise: the corner
     // sits in the ghost column and the specular setter overwrites it.
-    if (fn && (x == 0 || x == nx - 1) && (y == 0 || y == ny - 1))
+    // ANY NODE ON TWO OR MORE WALL FACES IS NrmCorner, edges included. The
+    // straight-wall density closure needs one normal and a half-space of
+    // populations that really did stream from the interior; on an edge neither
+    // holds, so rho is extrapolated along the wall instead. bc_ext searches all
+    // six axes when nz > 1, and an EDGE finds a straight neighbour. The eight
+    // true 3-way CORNERS do not -- every axis neighbour of a corner is itself
+    // an edge -- and FluidSolver sets those to rho = 1 with "no valid stencil".
+    // Eight nodes of 219,600, and it is in the open rather than discovered.
+    const bool xw = on && (x == 0 || x == nx - 1);
+    const bool yw = (y == 0 || y == ny - 1);
+    const bool zface = zw && (z == 0 || z == nz - 1);
+    if (int(xw) + int(yw) + int(zface) > 1)
       return WS{NrmCorner, Real(0), Real(0), Real(0)};
     if (y == 0)      return WS{NrmYm, Real(0), Real(0), Real(0)};
     if (y == ny - 1) return WS{NrmYp, Real(0), Real(0), Real(0)};
+    // -noslip: the laterals are ordinary regularised velocity walls at u = 0,
+    // on the SAME plane as the plates. This is Fig. 7's variant, and it is the
+    // one geometry here with no symmetry plane at all -- so it admits lateral
+    // modes free-slip forbids, and it damps the flow within a viscous length of
+    // each wall rather than letting it slide.
+    if (ns && x == 0)      return WS{NrmXm, Real(0), Real(0), Real(0)};
+    if (ns && x == nx - 1) return WS{NrmXp, Real(0), Real(0), Real(0)};
+    if (zface) return WS{z == 0 ? NrmZm : NrmZp, Real(0), Real(0), Real(0)};
     return WS{};
   });
   // The plates own the corners, so the mirror covers the interior rows only.
@@ -510,7 +620,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   // -- a corner cell is in the GHOST COLUMN, outside the fluid in x, and what
   // the fluid needs from it is the x-mirror of the plate node beside it, which
   // is exactly what specular reflection produces.
-  if (fs && !fn)
+  if (fs && !on)
     fl.set_specular_walls([&](Index x, Index, Index) -> std::uint8_t {
       if (x == 0)      return NrmXm;
       if (x == nx - 1) return NrmXp;
@@ -524,7 +634,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   ChargeSol chg(d, ccoll);
   // The plates take precedence at the corners, so a corner ghost carries the
   // plate's own value -- which is what its mirror partner carries too.
-  chg.set_geometry([&](Index x, Index y, Index) -> ScalarCell {
+  chg.set_geometry([&](Index x, Index y, Index z) -> ScalarCell {
     if (y == 0)      return ScalarMoment;      // injector q = q0, Eq. (12)
     if (y == ny - 1) return ScalarOutflow;      // collector d_y q = 0, Eq. (13)
     if (fs && (x == 0 || x == nx - 1))
@@ -532,16 +642,23 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       // itself, so it pairs with the on-node plates above. GHOST: bounce-back,
       // whose plane is half a cell outside -- which is the mismatch the
       // -freeslip/-fsnode comparison exists to measure.
-      return fn ? ScalarSpecular
+      return on ? ScalarSpecular
                 : (o.latout ? ScalarOutflow : ScalarAdiabatic);  // d_n q = 0, Eq. (15)
+    if (zw && (z == 0 || z == nz - 1)) return ScalarSpecular;    // d_n q = 0 on z
     return ScalarBulk;
   });
-  if (fn)
-    chg.set_specular_walls([&](Index x, Index y, Index) -> std::uint8_t {
-      if (y == 0 || y == ny - 1) return NrmNone;   // the plates own the corners
-      if (x == 0)      return NrmXm;
-      if (x == nx - 1) return NrmXp;
-      return NrmNone;
+  // A FACE MASK, not a normal: in the closed box the four x-z edge lines lie on
+  // TWO mirror planes at once and one axis cannot say so. A single-face mask is
+  // exactly the old single-axis mirror, so -freeslip and -fsnode are unchanged.
+  if (on || zw)
+    chg.set_specular_nodes([&](Index x, Index y, Index z) -> std::uint8_t {
+      if (y == 0 || y == ny - 1) return SpecNone;  // the plates own those nodes
+      std::uint8_t m = SpecNone;
+      if (on && x == 0)      m = std::uint8_t(m | SpecXm);
+      if (on && x == nx - 1) m = std::uint8_t(m | SpecXp);
+      if (zw && z == 0)      m = std::uint8_t(m | SpecZm);
+      if (zw && z == nz - 1) m = std::uint8_t(m | SpecZp);
+      return m;
     });
   chg.set_wall_values([&](Index, Index, Index) -> Real { return Real(q0); });
 
@@ -551,19 +668,23 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   pcoll.omega = PotOp::omega_from_diffusivity(Real(o.beta));
   pcoll.T_ref = Real(0);
   PotSol pot(d, pcoll);
-  pot.set_geometry([&](Index x, Index y, Index) -> ScalarCell {
+  pot.set_geometry([&](Index x, Index y, Index z) -> ScalarCell {
     if (y == 0 || y == ny - 1) return ScalarMoment;
     if (fs && (x == 0 || x == nx - 1))
-      return fn ? ScalarSpecular
+      return on ? ScalarSpecular
                 : (o.latout ? ScalarOutflow : ScalarAdiabatic);  // d_n phi = 0, Eq. (14)
+    if (zw && (z == 0 || z == nz - 1)) return ScalarSpecular;    // d_n phi = 0 on z
     return ScalarBulk;
   });
-  if (fn)
-    pot.set_specular_walls([&](Index x, Index y, Index) -> std::uint8_t {
-      if (y == 0 || y == ny - 1) return NrmNone;
-      if (x == 0)      return NrmXm;
-      if (x == nx - 1) return NrmXp;
-      return NrmNone;
+  if (on || zw)
+    pot.set_specular_nodes([&](Index x, Index y, Index z) -> std::uint8_t {
+      if (y == 0 || y == ny - 1) return SpecNone;
+      std::uint8_t m = SpecNone;
+      if (on && x == 0)      m = std::uint8_t(m | SpecXm);
+      if (on && x == nx - 1) m = std::uint8_t(m | SpecXp);
+      if (zw && z == 0)      m = std::uint8_t(m | SpecZm);
+      if (zw && z == nz - 1) m = std::uint8_t(m | SpecZp);
+      return m;
     });
   pot.set_wall_values([&](Index, Index y, Index) -> Real {
     return (y == 0) ? Real(dphi) : Real(0);
@@ -571,7 +692,9 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
 
   // ---- initial state, Eqs. (17)-(20) plus the seed ------------------------
   const Index Hc = H, nxc = nx;
-  const bool  fsc = fs, fnc = fn;
+  const bool  fsc = fs, fnc = on;
+  const Index nzc = nz;
+  const bool  zwc = zw;
   const double sph = o.sphase;
   const Index x0c = x0, x1c = x1, nxhc = nxh;
 
@@ -618,7 +741,19 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
                    : fsc  ? (M_PI * (double(x - x0c) + 0.5) / double(nxhc))
                           : (2.0 * M_PI * (double(x) + sph) / double(nxc));
     const double lat = 0.5 * (1.0 + Kokkos::cos(ph));
-    return Real(double(ampq) * lat * Kokkos::exp(-double(y) / dec));
+    // THE SEED MUST BREAK z-SYMMETRY OR THE RUN IS 2-D FOREVER, and that is not
+    // a soft statement: the equations preserve z-independence EXACTLY, so a
+    // z-uniform initial condition gives u_z at round-off for all time and a
+    // three-dimensional grid returns a two-dimensional answer at 60x the cost.
+    // Two z-modes rather than one, so the flow picks rather than being told;
+    // the amplitudes sum to 0.95 < 1 so the modulation stays POSITIVE and the
+    // seeded charge cannot start outside [0, q0].
+    const double zz = double(pz - d.hz);
+    const double zmod = (nzc > 1)
+        ? 1.0 + 0.60 * Kokkos::cos(2.0 * M_PI * zz / double(nzc))
+              + 0.35 * Kokkos::cos(6.0 * M_PI * zz / double(nzc) + 0.7)
+        : 1.0;
+    return Real(double(ampq) * lat * zmod * Kokkos::exp(-double(y) / dec));
   });
   pot.finalize_geometry();
   chg.finalize_geometry();
@@ -634,6 +769,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   auto qf  = chg.temperature();
   auto ux  = fl.ux();
   auto uy  = fl.uy();
+  auto uzv = fl.uz();
 
   // Probe twenty times per t0 and compare against the value ONE t0 ago, not
   // against the previous probe: a per-probe residual measures how fast the
@@ -643,7 +779,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
   const std::size_t probe = std::size_t(t0 / NR) ? std::size_t(t0 / NR) : 1;
   const std::size_t steps = std::size_t(o.tf * t0);
   double ring[NR] = {0};
-  int nprobe = 0, frame = 0;
+  int nprobe = 0, frame = 0, vframe = 0;
 
   const bool froz = o.frozen;
   for (std::size_t t = 0; t < steps; ++t) {
@@ -660,7 +796,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
     const double Km = Kmob;
     Kokkos::parallel_for("E_drift_force", Range(0, d.n_padded), KOKKOS_LAMBDA(Index n) {
       Index px, py, pz; d.coords(n, px, py, pz);
-      const Index y = py - d.hy, x = px - d.hx;
+      const Index y = py - d.hy, x = px - d.hx, z = pz - d.hz;
       kx(n) = ky(n) = kz(n) = Real(0);
       Fx(n) = Fy(n) = Fz(n) = Real(0);
       if (y < 0 || y > Hc) return;
@@ -683,22 +819,33 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       const Index xp = fnc ? (x == x1c ? x1c - 1 : x + 1)
                     : fsc  ? (x == x1c ? x1c     : x + 1)
                            : (x + 1) % nxc;
+      // z is PERIODIC, so its stencil needs no fold and no one-sided form. At
+      // nz = 1 both neighbours wrap onto the node itself and E_z is identically
+      // zero, which is what keeps the slab path bit-identical.
+      // Closed in z: the plane IS the node, phi is even about it, so the
+      // central difference collapses to zero there -- the same fold as x.
+      // Periodic in z: plain wrap, and at nz = 1 both land on the node itself.
+      const Index zm = zwc ? (z == 0 ? 1 : z - 1) : (z - 1 + nzc) % nzc;
+      const Index zp = zwc ? (z == nzc - 1 ? nzc - 2 : z + 1) : (z + 1) % nzc;
       double Ey;
       // The plates ARE nodes, so the one-sided stencils start from the imposed
       // potential. That is the whole point of the on-node family here.
       if (y == 0)
-        Ey = -(-1.5 * double(phi(n)) + 2.0 * double(phi(d.id(x, y + 1, 0)))
-               - 0.5 * double(phi(d.id(x, y + 2, 0))));
+        Ey = -(-1.5 * double(phi(n)) + 2.0 * double(phi(d.id(x, y + 1, z)))
+               - 0.5 * double(phi(d.id(x, y + 2, z))));
       else if (y == Hc)
-        Ey = -(1.5 * double(phi(n)) - 2.0 * double(phi(d.id(x, y - 1, 0)))
-               + 0.5 * double(phi(d.id(x, y - 2, 0))));
+        Ey = -(1.5 * double(phi(n)) - 2.0 * double(phi(d.id(x, y - 1, z)))
+               + 0.5 * double(phi(d.id(x, y - 2, z))));
       else
-        Ey = -0.5 * (double(phi(d.id(x, y + 1, 0))) - double(phi(d.id(x, y - 1, 0))));
-      const double Ex = -0.5 * (double(phi(d.id(xp, y, 0)))
-                                - double(phi(d.id(xm, y, 0))));
+        Ey = -0.5 * (double(phi(d.id(x, y + 1, z))) - double(phi(d.id(x, y - 1, z))));
+      const double Ex = -0.5 * (double(phi(d.id(xp, y, z)))
+                                - double(phi(d.id(xm, y, z))));
+      const double Ez = -0.5 * (double(phi(d.id(x, y, zp)))
+                                - double(phi(d.id(x, y, zm))));
       const double qn = double(qf(n));
       Fx(n) = Real(qn * Ex);                  // Coulomb, Eq. (6)
       Fy(n) = Real(qn * Ey);
+      Fz(n) = Real(qn * Ez);
       // THE DRIFT NOW CARRIES THE FLUID VELOCITY. This one addition is the
       // whole of the charge half of the coupling.
       // With the fluid frozen the drift is the electric one alone, and the
@@ -706,6 +853,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       // fl.step() is skipped.
       kx(n) = Real(Km * Ex + (froz ? 0.0 : double(ux(n))));
       ky(n) = Real(Km * Ey + (froz ? 0.0 : double(uy(n))));
+      kz(n) = Real(Km * Ez + (froz ? 0.0 : double(uzv(n))));
     });
     Kokkos::fence();
 
@@ -726,18 +874,29 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       fl.compute_macroscopic();
       auto hux = Kokkos::create_mirror_view_and_copy(HostSpace{}, ux);
       auto huy = Kokkos::create_mirror_view_and_copy(HostSpace{}, uy);
+      auto huz = Kokkos::create_mirror_view_and_copy(HostSpace{}, uzv);
       auto hq  = Kokkos::create_mirror_view_and_copy(HostSpace{}, qf);
       auto hphi = Kokkos::create_mirror_view_and_copy(HostSpace{}, phi);
       auto hkx = Kokkos::create_mirror_view_and_copy(HostSpace{}, kx);
       auto hky = Kokkos::create_mirror_view_and_copy(HostSpace{}, ky);
+      auto hkz = Kokkos::create_mirror_view_and_copy(HostSpace{}, kz);
       double peak = 0.0, qlo = 1e300, qhi = -1e300;
       long nbad = 0;
+      // THE THREE-DIMENSIONALITY, measured rather than assumed. u_z is
+      // identically zero for a z-uniform state, so its r.m.s. against the peak
+      // speed says whether the extra 59 planes bought anything. A run that ends
+      // with this at round-off computed a 2-D answer on a 3-D grid.
+      double sum_uz2 = 0.0, sum_u2 = 0.0;  long nsamp = 0;
+      for (Index z = 0; z < nz; ++z)
       for (Index y = 0; y <= H; ++y)
         for (Index x = x0; x <= x1; ++x) {
-          const Index n = d.id(x, y, 0);
-          const double a = double(hux(n)), b = double(huy(n)), q = double(hq(n));
-          if (!std::isfinite(a) || !std::isfinite(b) || !std::isfinite(q)) { ++nbad; continue; }
-          const double s = std::sqrt(a * a + b * b);
+          const Index n = d.id(x, y, z);
+          const double a = double(hux(n)), b = double(huy(n)), c = double(huz(n));
+          const double q = double(hq(n));
+          if (!std::isfinite(a) || !std::isfinite(b) || !std::isfinite(c) ||
+              !std::isfinite(q)) { ++nbad; continue; }
+          sum_uz2 += c * c;  sum_u2 += a * a + b * b + c * c;  ++nsamp;
+          const double s = std::sqrt(a * a + b * b + c * c);
           if (s > peak) peak = s;
           if (q < qlo) qlo = q;
           if (q > qhi) qhi = q;
@@ -747,7 +906,8 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
           // failing. This is here because a bad potential initialisation made
           // it 2.43 and the only symptom was a NaN.
           const double dr = std::sqrt(double(hkx(n)) * double(hkx(n)) +
-                                      double(hky(n)) * double(hky(n)));
+                                      double(hky(n)) * double(hky(n)) +
+                                      double(hkz(n)) * double(hkz(n)));
           if (dr > r.drift) r.drift = dr;
         }
       if (nbad) { r.umax = std::nan(""); std::printf("      NON-FINITE at t/t0 = %.2f\n",
@@ -784,10 +944,10 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
         // on-node plane lies ON a sample, which is therefore not duplicated,
         // and the mirror of k is 2nxh-k.
         if (!fs)                 xs = k;
-        else if (fn)             xs = x0 + (k <= nxh ? k : 2 * nxh - k);
+        else if (on)             xs = x0 + (k <= nxh ? k : 2 * nxh - k);
         else if (k < nxh)        xs = x0 + k;
         else                     xs = x0 + (2 * nxh - 1 - k);
-        sig[std::size_t(k)] = double(huy(d.id(xs, H / 2, 0)));
+        sig[std::size_t(k)] = double(huy(d.id(xs, H / 2, nz / 2)));
       }
       double e[8] = {0}, etot = 0.0;
       for (int m = 1; m < 8; ++m) {
@@ -802,6 +962,7 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       r.mdom = 0;  r.mfrac = 0.0;
       for (int m = 1; m < 8; ++m)
         if (etot > 0.0 && e[m] / etot > r.mfrac) { r.mfrac = e[m] / etot; r.mdom = m; }
+      r.uzf = (sum_u2 > 0.0 && nsamp > 0) ? std::sqrt(sum_uz2 / sum_u2) : 0.0;
       r.umax = peak / u0;  r.qlo = qlo / q0;  r.qhi = qhi / q0;
       r.tconv = double(t + 1) / t0;
 
@@ -820,31 +981,43 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
       const double exc = (r.qlo < 0.0) ? -r.qlo : (r.qhi > 1.0 ? r.qhi - 1.0 : 0.0);
       if (exc > r.worst) { r.worst = exc; r.t_worst = r.tconv; }
 
+      if (!o.vtkdir.empty() && (frame % (o.vtkevery > 0 ? o.vtkevery : 1)) == 0) {
+        char pv[512];
+        std::snprintf(pv, sizeof pv, "%s/ehd_%04d.vtk", o.vtkdir.c_str(),
+                      vframe);
+        write_ehd_vtk(pv, d, x0, x1, H, nz, int(t + 1), hq, hphi, hux, huy, huz,
+                      q0, dphi, u0);
+        ++vframe;
+      }
       if (!o.dump.empty()) {
         char tag[32];
-        std::snprintf(tag, sizeof tag, "_%04d.bin", frame++);
+        std::snprintf(tag, sizeof tag, "_%04d.bin", frame);
         figdump::scalar_slice(o.dump + "_q" + tag, x1 - x0 + 1, ny,
                               [&](Index xi, Index y) {
-          return double(hq(d.id(x0 + xi, y, 0))) / q0;
+          return double(hq(d.id(x0 + xi, y, nz / 2))) / q0;
         });
         figdump::scalar_slice(o.dump + "_p" + tag, x1 - x0 + 1, ny,
                               [&](Index xi, Index y) {
-          return double(hphi(d.id(x0 + xi, y, 0)));
+          return double(hphi(d.id(x0 + xi, y, nz / 2)));
         });
         figdump::scalar_slice(o.dump + "_u" + tag, x1 - x0 + 1, ny,
                               [&](Index xi, Index y) {
           const Index x = x0 + xi;
-          const Index m = d.id(x, y, 0);
+          const Index m = d.id(x, y, nz / 2);
           return std::sqrt(double(hux(m)) * double(hux(m)) +
-                           double(huy(m)) * double(huy(m))) / u0;
+                           double(huy(m)) * double(huy(m)) +
+                           double(huz(m)) * double(huz(m))) / u0;
         });
       }
 
       if (o.watch)
         std::printf("      t/t0 %7.2f   u_max/u0 = %8.4f   m%d = %5.3f"
-                    "   q/q0 [%7.4f, %7.4f]   drift %.4f%s\n", r.tconv, r.umax,
-                    r.mdom, r.mfrac, r.qlo, r.qhi, r.drift,
-                    qlo < -1e-9 ? "  q<0 !" : "");
+                    "   q/q0 [%7.4f, %7.4f]   drift %.4f   uz %.3e%s\n",
+                    r.tconv, r.umax, r.mdom, r.mfrac, r.qlo, r.qhi, r.drift,
+                    r.uzf, qlo < -1e-9 ? "  q<0 !" : "");
+
+      ++frame;   // one counter for both dump paths, advanced whether or not
+                 // either is enabled, so the VTK cadence is the probe cadence
 
       // Converged over ONE t0, and only once there is a flow to converge.
       // Without that floor a decaying seed reads as "converged" at u_max = 0,
@@ -865,6 +1038,13 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
                 r.umax, r.mdom, 100.0 * r.mfrac, r.mdom, r.mdom == 1 ? "" : "s");
     std::printf("    q/q0 in [%.4f, %.4f]   %s at t/t0 = %.2f\n", r.qlo, r.qhi,
                 r.ok ? "converged" : "STOPPED", r.tconv);
+    if (nz > 1)
+      std::printf("    rms(u_z)/rms(|u|) = %.4f   %s\n", r.uzf,
+                  r.uzf < 1e-8 ? "-- ROUND-OFF: the state is 2-D and the depth"
+                                 " bought nothing"
+                : r.uzf < 0.02 ? "-- essentially 2-D rolls with a weak spanwise"
+                                 " component"
+                               : "-- genuinely three-dimensional");
     // "STOPPED" is not "diverged" and it is not "converged" either -- the
     // approach here is asymptotic, so what matters is HOW FAST it is still
     // moving. Printing the rate is the difference between a number that is
@@ -884,6 +1064,11 @@ static Out solve(const Opts& o, double Tel, bool verbose) {
                                                           : "  (STILL OUT)");
     else
       std::printf("    charge stayed inside [0, q0] throughout\n");
+    if (!o.vtkdir.empty())
+      std::printf("    %d VTK frame(s) in %s/  (%lld x %lld x %lld, binary legacy"
+                  " STRUCTURED_POINTS; q/q0, phi/dphi, u/u0)\n",
+                  vframe, o.vtkdir.c_str(),
+                  (long long)(x1 - x0 + 1), (long long)ny, (long long)nz);
     if (!o.dump.empty())
       std::printf("    %d frame(s) as %s_q_*.bin and %s_u_*.bin  (%lld x %lld"
                   " float32, two int32 of header; q/q0 and |u|/u0)\n", frame,
@@ -914,7 +1099,11 @@ int main(int argc, char** argv) {
     else if (a == "-latout")                o.latout = true;
     else if (a == "-freeslip")              o.freeslip = true;
     else if (a == "-fsnode")                o.fsnode   = true;
+    else if (a == "-noslip")                o.noslip   = true;
     else if (a == "-frozen")                o.frozen   = true;
+    else if (a == "-nz"    && i + 1 < argc) o.nz     = Index(std::atol(argv[++i]));
+    else if (a == "-vtk"   && i + 1 < argc) o.vtkdir = argv[++i];
+    else if (a == "-vtkevery" && i + 1 < argc) o.vtkevery = std::atoi(argv[++i]);
     else if (a == "-half")                  o.doubled = false;
     else if (a == "-watch")                 o.watch   = true;
   }
@@ -924,15 +1113,35 @@ int main(int argc, char** argv) {
   // on-node walls are ScalarSpecular by construction. Silently ignoring either
   // would produce a run that answers a different question than the command line
   // asked for.
-  if (o.freeslip && o.fsnode) {
-    std::fprintf(stderr, "-freeslip and -fsnode are two different lateral"
-                 " geometries; pick one.\n");
+  if (int(o.freeslip) + int(o.fsnode) + int(o.noslip) > 1) {
+    std::fprintf(stderr, "-freeslip, -fsnode and -noslip are three different"
+                 " lateral geometries; pick one.\n");
     return 2;
   }
-  if (o.fsnode && o.latout) {
+  if ((o.fsnode || o.noslip) && o.latout) {
     std::fprintf(stderr, "-latout replaces the GHOST lateral scalar wall;"
-                 " -fsnode has no ghost column.\n");
+                 " the on-node geometries have no ghost column.\n");
     return 2;
+  }
+
+  // A 2-D LATTICE ON A 3-D GRID IS SIXTY UNCOUPLED SLABS, AND IT LOOKS LIKE A
+  // 3-D RUN. D2Q9 has no z velocity and D2Q5 no z flux, so with nz > 1 the
+  // planes never talk: the banner still prints 60 x 61 x 60, the run is five
+  // times faster than it should be, and rms(u_z) sits at zero for a reason that
+  // has nothing to do with the physics. Caught exactly that way while sizing
+  // this case. Refuse it rather than let the depth be silently decorative.
+  if (o.nz > 1 && !o.d3) {
+    std::fprintf(stderr, "-nz %lld needs -lat 3d: a D2Q9/D2Q5 stack has no z"
+                 " coupling, so the planes would be independent.\n",
+                 (long long)o.nz);
+    return 2;
+  }
+
+  if (!o.vtkdir.empty()) {
+    std::error_code ec;
+    std::filesystem::create_directories(o.vtkdir, ec);
+    if (ec) { std::fprintf(stderr, "cannot create %s: %s\n", o.vtkdir.c_str(),
+                           ec.message().c_str()); return 2; }
   }
 
   Kokkos::initialize(argc, argv);

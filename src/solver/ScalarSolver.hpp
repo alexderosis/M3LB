@@ -132,7 +132,39 @@ class ScalarSolver {
                         " axis.\n", (long long)x, (long long)y, (long long)z, int(c));
             std::abort();
           }
-          h(dom_.id(x, y, z)) = c;
+          h(dom_.id(x, y, z)) = faces_of_normal(c);
+        }
+    Kokkos::deep_copy(spec_nrm_, h);
+  }
+
+  //----------------------------------------------------------------------------
+  // Mirror nodes given as a FACE MASK (SpecXm | SpecZm | ...), for a wall that
+  // lies on more than one plane. SpecNone leaves the node alone. The node must
+  // already be ScalarSpecular in the geometry; this only supplies the planes.
+  //----------------------------------------------------------------------------
+  template <class Fn>
+  void set_specular_nodes(Fn fn) {
+    auto h = Kokkos::create_mirror_view(spec_nrm_);
+    Kokkos::deep_copy(h, spec_nrm_);
+    for (Index z = 0; z < dom_.nz; ++z)
+      for (Index y = 0; y < dom_.ny; ++y)
+        for (Index x = 0; x < dom_.nx; ++x) {
+          const std::uint8_t m = fn(x, y, z);
+          if (m == SpecNone) continue;
+          if (m > 0x3F) {
+            std::printf("ScalarSolver::set_specular_nodes: mask %u at"
+                        " (%lld,%lld,%lld) has bits outside SpecXp..SpecZm.\n",
+                        unsigned(m), (long long)x, (long long)y, (long long)z);
+            std::abort();
+          }
+          for (int a = 0; a < 3; ++a)
+            if ((m & (1u << (2 * a))) && (m & (1u << (2 * a + 1)))) {
+              std::printf("ScalarSolver::set_specular_nodes: mask %u at"
+                          " (%lld,%lld,%lld) carries BOTH faces of axis %d.\n",
+                          unsigned(m), (long long)x, (long long)y, (long long)z, a);
+              std::abort();
+            }
+          h(dom_.id(x, y, z)) = m;
         }
     Kokkos::deep_copy(spec_nrm_, h);
   }
@@ -384,7 +416,7 @@ class ScalarSolver {
         // On-node zero flux: rebuild only the directions that would have
         // arrived from outside, then fall through and collide like a bulk
         // node. See boundary/Specular.hpp for why this is not bounce-back.
-        if (flag == ScalarSpecular) mirror_unknowns<L>(g, spec(n));
+        if (flag == ScalarSpecular) mirror_unknowns_faces<L>(g, spec(n));
 
         const Real dT = Collision::deviation(g);
         const Real vx = have_u ? ux(n) : Real(0);
@@ -425,7 +457,7 @@ class ScalarSolver {
       // The unknown half of a specular node is whatever the halo held, so the
       // sum is only the field once the mirror has been reapplied -- the same
       // reconstruction the step uses, and it has to stay the same one.
-      if (flag == ScalarSpecular) mirror_unknowns<L>(g, spec(n));
+      if (flag == ScalarSpecular) mirror_unknowns_faces<L>(g, spec(n));
       field(n) = coll.temperature(g);
     });
     Kokkos::fence();
@@ -500,6 +532,11 @@ class ScalarSolver {
   View1D<Index> don_;
   bool has_outflow_ = false;
   HostView1D<std::uint8_t> h_flags_;
+  // A FACE MASK, not a NormalCode. A scalar mirror node in a closed 3-D box
+  // can sit on two planes at once -- the four x-z edge lines of an all-walls
+  // box are on both -- and one axis cannot say that. set_specular_walls still
+  // takes a NormalCode and converts, so every single-axis caller is unchanged:
+  // a one-face mask IS the old single-axis mirror. See boundary/Specular.hpp.
   View1D<std::uint8_t> spec_nrm_;
   View1D<Real> wall_, field_;
   HostView1D<Real> h_wall_;
