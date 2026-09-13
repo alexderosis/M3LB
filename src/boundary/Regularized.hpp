@@ -120,6 +120,25 @@ enum NormalCode : std::uint8_t {
   // so normal_of() cannot describe it and the unknown set is built
   // geometrically (it already is, for every code).
   NrmOutFree = 9,
+  // THE EQUILIBRIUM OUTLET, which is what Breuer et al. (2000) Sec. 3.2.3
+  // describes for their lattice-Boltzmann runs: "a fixed pressure is imposed in
+  // terms of the equilibrium distribution function on the outlet. For this
+  // task, the velocity components are extrapolated downstream."
+  //
+  // So: rho imposed, EVERY velocity component taken from the upstream
+  // neighbour, and the populations set to equilibrium -- f^(1) discarded
+  // entirely. That makes it first order in the non-equilibrium part and more
+  // dissipative than NrmOutXp's moment closure, which is a real accuracy cost
+  // on a steady flow and the entire reason it survives an unsteady one.
+  //
+  // Measured: with NrmOutXp the square-cylinder channel at Re = 300 went
+  // non-finite in a contiguous block spanning x = 1745..1999 over the FULL
+  // channel height -- 255 columns anchored on the outlet. The boundary failed
+  // and the failure walked upstream a cell a step; it was not a wake
+  // instability, though the blow-up coordinates read like one until the size of
+  // the bad region was checked. Prefer NrmOutXp for a steady outlet; reach for
+  // this one when vortices have to leave the domain.
+  NrmOutEq = 10,
 };
 
 // Direction pointing INTO the domain from an outflow face, i.e. toward the
@@ -127,7 +146,7 @@ enum NormalCode : std::uint8_t {
 KOKKOS_INLINE_FUNCTION
 constexpr void upstream_of(std::uint8_t code, int e[3]) {
   e[0] = e[1] = e[2] = 0;
-  if (code == NrmOutXp) e[0] = -1;
+  if (code == NrmOutXp || code == NrmOutEq) e[0] = -1;
 }
 
 KOKKOS_INLINE_FUNCTION

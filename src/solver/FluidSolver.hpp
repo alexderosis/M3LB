@@ -574,7 +574,7 @@ class FluidSolver {
       int nrm[3]; normal_of(code, nrm);
       const int tg = int(bc_tag(n));
       const Real uw[3] = {wall_u(tg, 0), wall_u(tg, 1), wall_u(tg, 2)};
-      bc_rho(n) = (code == NrmOutXp)   ? wall_u(tg, 3)
+      bc_rho(n) = (code == NrmOutXp || code == NrmOutEq) ? wall_u(tg, 3)
                 : (code == NrmOutFree) ? out_rho
                                        : BC::density(f, nrm, uw);
     });
@@ -754,6 +754,37 @@ class FluidSolver {
             const Real sc = out_rho / sm;
             for (int i = 0; i < Q; ++i) f[i] = g[i] * sc;
           }
+          if constexpr (Collision::Storage::shifted)
+            for (int i = 0; i < Q; ++i) f[i] -= weight<L, Real>(i);
+          for (int i = 1; i < Q; i += 2) acc.store_pair(nb, i, f[i], f[i + 1]);
+          acc.store_rest(nb, f[0]);
+          return;
+        } else if (code == NrmOutEq) {
+          // EQUILIBRIUM OUTLET -- see the NrmOutEq banner in Regularized.hpp.
+          // rho imposed, every velocity component zero-gradient from the
+          // upstream neighbour, populations set to equilibrium with no
+          // non-equilibrium part. Deliberately the most dissipative outlet
+          // here; that is what lets a vortex cross it instead of destroying it.
+          const Real rw2 = wall_u(tg, 3);
+          int e[3]; upstream_of(code, e);
+          Index px, py, pz; d.coords(n, px, py, pz);
+          const Index mm = d.id(px - d.hx + e[0], py - d.hy + e[1], pz - d.hz + e[2]);
+          Neighbours<L> nbu;
+          d.template fill_neighbours<L, NF, NS>(mm, nbu);
+          Real g[Q];
+          g[0] = acc.load_rest(nbu);
+          for (int i = 1; i < Q; i += 2) acc.load_pair(nbu, i, g[i], g[i + 1]);
+          if constexpr (Collision::Storage::shifted)
+            for (int i = 0; i < Q; ++i) g[i] += weight<L, Real>(i);
+          Real sm = Real(0), mu[3] = {Real(0), Real(0), Real(0)};
+          for (int i = 0; i < Q; ++i) {
+            sm += g[i];
+            for (int a = 0; a < 3; ++a) mu[a] += g[i] * Real(cvel<L>(i, a));
+          }
+          const Real ir = (sm > Real(0)) ? Real(1) / sm : Real(0);
+          for (int a = 0; a < 3; ++a) mu[a] *= ir;
+          for (int i = 0; i < Q; ++i)
+            f[i] = BC::EqType::eq(i, rw2, mu[0], mu[1], mu[2]);
           if constexpr (Collision::Storage::shifted)
             for (int i = 0; i < Q; ++i) f[i] -= weight<L, Real>(i);
           for (int i = 1; i < Q; i += 2) acc.store_pair(nb, i, f[i], f[i + 1]);
@@ -965,6 +996,28 @@ class FluidSolver {
           Real utn = Real(0);
           for (int a = 0; a < 3; ++a) utn += m4[a] * ir * Real(onr[a]);
           for (int a = 0; a < 3; ++a) uw[a] = m4[a] * ir + (un - utn) * Real(onr[a]);
+        } else if (code == NrmOutEq) {
+          // Mirrors the equilibrium-outlet branch of run_step: rho imposed and
+          // the velocity taken wholesale from the upstream neighbour, so what
+          // this reports is what that branch actually imposed.
+          rw = wall_u(tg, 3);
+          int e[3]; upstream_of(code, e);
+          Index px, py, pz; d.coords(n, px, py, pz);
+          const Index mm = d.id(px - d.hx + e[0], py - d.hy + e[1], pz - d.hz + e[2]);
+          Neighbours<L> nbu;
+          d.template fill_neighbours<L, NF, NS>(mm, nbu);
+          Real g[Q];
+          g[0] = acc.load_rest(nbu);
+          for (int i = 1; i < Q; i += 2) acc.load_pair(nbu, i, g[i], g[i + 1]);
+          if constexpr (Collision::Storage::shifted)
+            for (int i = 0; i < Q; ++i) g[i] += weight<L, Real>(i);
+          Real sm = Real(0); Real mu[3] = {Real(0), Real(0), Real(0)};
+          for (int i = 0; i < Q; ++i) {
+            sm += g[i];
+            for (int a = 0; a < 3; ++a) mu[a] += g[i] * Real(cvel<L>(i, a));
+          }
+          const Real ir = (sm > Real(0)) ? Real(1) / sm : Real(0);
+          for (int a = 0; a < 3; ++a) uw[a] = mu[a] * ir;
         } else if (code == NrmOutXp) {
           // Mirrors the outflow branch of run_step, which is the source of
           // truth: rho imposed, normal velocity from the inverted closure,

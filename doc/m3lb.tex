@@ -9624,6 +9624,34 @@ the fitted rate is blamed on the scheme.
   between branch vessels, which \S\ref{sec:aorta} calls an output of the
   simulation, must not be quoted without that caveat.
 
+
+\item \textbf{The constant-pressure outlet cannot pass a vortex, and the
+  symptom reads as a wake instability.} Measured 2026-09-13 on
+  \code{validation/square\_cylinder.cpp}, the confined square cylinder of
+  Breuer et~al.\ (2000). At $\mathrm{Re}=300$ the confined channel
+  ran healthily --- $C_d\simeq1.6$, $C_l$ swinging through $\pm1.3$ --- and then
+  went non-finite, at step $79\,999$ with \code{BGK} and $90\,000$ with central
+  moments, i.e.\ the collision operator is not the variable. The blow-up
+  \emph{coordinates} pointed into the far wake, $1200$ cells past the cylinder
+  and $260$ short of the outlet, and that reading was wrong: the non-finite
+  region was a contiguous block spanning $x=1745\ldots1999$ over the \emph{full}
+  channel height, $255$ columns anchored on the boundary and walking upstream a
+  cell a step. A location extracted from a field that is already $12.7\,\%$
+  destroyed is the propagation front, not the origin; the same mistake made
+  earlier in the same session with a ``first non-finite node'' report at
+  $99.1\,\%$ destroyed. \code{NrmOutEq} --- $\rho$ imposed, every velocity
+  component extrapolated, populations set to equilibrium, which is what
+  Breuer et~al.\ (2000) describe for their own lattice-Boltzmann runs --- clears
+  it, and the case then averages $12$ shedding cycles to $C_d=1.7113$ and
+  $St=0.1292$. The cost is that \code{NrmOutEq} and \code{NrmOutFree} impose
+  $\rho$ \emph{and} $\bm{u}$, over-determining the boundary into a mass source:
+  measured $8.31\times10^{-2}$ and $8.36\times10^{-2}$, and a drag normalised by
+  $\rho=1$ then read $8.30\,\%$ and $8.35\,\%$ high --- matching the drift to
+  three digits, so none of it was the flow. A proportional servo on the outlet
+  density restores $7\times10^{-8}$ mass conservation, after which all three
+  outlets agree on $C_d$ to $0.008\,\%$. Use \code{NrmOutXp} for a steady
+  outlet; it conserves mass unaided and is the more accurate closure.
+
 \end{enumerate}
 
 %==============================================================================
