@@ -404,7 +404,29 @@ class FluidSolver {
             else if (sy < 0 || sy >= dom_.ny) outside = true;
             if (dom_.periodic[2]) { sz = (sz + dom_.nz) % dom_.nz; }
             else if (sz < 0 || sz >= dom_.nz) outside = true;
-            if (!outside && h_flags_(dom_.id(sx, sy, sz)) == Excluded) outside = true;
+            // "OUTSIDE" HAS TWO SPELLINGS HERE TOO. This tested Excluded
+            // alone, which is right for a wall flush with the domain edge --
+            // the halo beyond it is Excluded -- and blind to a wall that has a
+            // SOLID neighbour, where the direction streaming from the solid is
+            // a bounce-back of this node's own previous emission and carries no
+            // interior information at all. Treating it as known left it out of
+            // the reconstruction.
+            //
+            // Measured on validation/shercliff.cpp at Ha = 0, the same duct
+            // flush against the domain edge and inset in solid padding: L2
+            // error 3.41e-3 against 5.80e-2, a factor of 17, with the centreline
+            // 3.5% low and the near-wall node 7.7% low. The error was identical
+            // for one, two, three and six cells of padding -- it is the
+            // ADJACENCY, not the amount -- and it vanishes with this line.
+            //
+            // rebuild_lists() a hundred lines up already spells both out; only
+            // this one was half written. Same shape as the GPU scalar outflow
+            // bug in CLAUDE.md, where outward was detected by ScalarExcluded
+            // alone and a box with on-node walls excluded nothing.
+            if (!outside) {
+              const std::uint8_t sf = h_flags_(dom_.id(sx, sy, sz));
+              if (sf == Excluded || sf == Solid) outside = true;
+            }
             if (outside) m |= (1u << i);
           }
           h_unk(n) = m;

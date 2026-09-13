@@ -84,6 +84,8 @@ class MagneticSolver {
     B_[2] = View1D<Real>("Bz", dom.n_padded);
     wall_ = View1D<std::uint8_t>("mwall", dom.n_padded);
     mface_ = View1D<std::uint8_t>("mface", dom.n_padded);
+    solid_ = View1D<std::uint8_t>("msolid", dom.n_padded);
+    solid_host_.assign(std::size_t(dom.n_padded), std::uint8_t(0));
     unk_  = View1D<std::uint32_t>("munk", dom.n_padded);
     // One entry per DISTINCT imposed field, not per node -- but a profiled
     // magnetic inlet makes nearly every node distinct, so this must not be a
@@ -117,6 +119,35 @@ class MagneticSolver {
     std::uint8_t face = MFaceNone;
   };
 
+  //----------------------------------------------------------------------------
+  // Mark the cells the magnetic field does NOT occupy. fn(x, y, z) -> bool,
+  // true where the node is solid.
+  //
+  // WHY IT EXISTS. unknown_mask already takes a predicate and ScalarSolver
+  // already passes a real one; this solver passed a lambda that returned true
+  // unconditionally, so its Dirichlet walls could only ever sit on the outside
+  // of a full box. That is enough for a channel or a duct and is exactly why
+  // it went unnoticed -- every MHD case in the tree is a flat box. A curved
+  // wall needs the unknown set built against the actual geometry, because the
+  // set of directions that have streamed from the fluid differs from node to
+  // node around a staircase.
+  //
+  // Call BEFORE set_moment_walls: the mask is what the unknown sets and the
+  // derived Neumann faces are built from.
+  //----------------------------------------------------------------------------
+  template <class Fn>
+  void set_geometry(Fn fn) {
+    for (Index z = 0; z < dom_.nz; ++z)
+      for (Index y = 0; y < dom_.ny; ++y)
+        for (Index x = 0; x < dom_.nx; ++x)
+          solid_host_[std::size_t(dom_.id(x, y, z))] =
+              fn(x, y, z) ? std::uint8_t(1) : std::uint8_t(0);
+    auto hs = Kokkos::create_mirror_view(solid_);
+    for (Index n = 0; n < dom_.n_padded; ++n) hs(n) = solid_host_[std::size_t(n)];
+    Kokkos::deep_copy(solid_, hs);
+    has_solid_ = true;
+  }
+
   template <class Fn>
   void set_moment_walls(Fn fn) {
     auto h_wall = Kokkos::create_mirror_view(wall_);
@@ -128,7 +159,11 @@ class MagneticSolver {
     }
 
     std::vector<std::array<Real, 3>> table;
-    auto in_fluid = [&](Index x, Index y, Index z) { (void)x; (void)y; (void)z; return true; };
+    auto in_fluid = [&](Index x, Index y, Index z) {
+      return solid_host_[std::size_t(dom_.id(x, y, z))] == 0;
+    };
+    // Axis steps, in the order the derived face code numbers them.
+    const int dirs[6][3] = {{-1,0,0},{1,0,0},{0,-1,0},{0,1,0},{0,0,-1},{0,0,1}};
     for (Index z = 0; z < dom_.nz; ++z)
       for (Index y = 0; y < dom_.ny; ++y)
         for (Index x = 0; x < dom_.nx; ++x) {
@@ -144,10 +179,58 @@ class MagneticSolver {
                     : w.neumann  ? std::uint8_t(MagNeumann)
                                  : std::uint8_t(MagDirichlet);
           if (w.neumann) {
-            if (w.face > MFaceZp)
-              throw std::runtime_error("set_moment_walls: a Neumann magnetic wall "
-                                       "needs an outward face; none was given");
-            h_face(n) = w.face;
+            std::uint8_t face = w.face;
+            if (face > MFaceZp) {
+              // DERIVE IT FROM THE GEOMETRY, the same rule the fluid's outflow
+              // donor uses: the outward direction is the axis step that LEAVES
+              // the field, and it is only usable if the OPPOSITE neighbour is
+              // inside, since that is where the two inward values are read. A
+              // staircase supplies exactly one such axis at most nodes and more
+              // than one at a corner, where the first in this order is taken --
+              // a choice, not a derivation, and the reason a curved Neumann
+              // wall is first order at its corners however good the stencil is.
+              face = MFaceNone;
+              for (int k = 0; k < 6; ++k) {
+                // PERIODICITY COUNTS. A step off a periodic face does not
+                // leave anything -- it wraps. Testing the raw index instead
+                // made every node on the x = 0 plane of a streamwise-periodic
+                // duct derive MFaceXm rather than the wall it is actually on,
+                // which is half the wall nodes at nx = 4. The fluid's outflow
+                // donor rule has the same shape and has never been bitten only
+                // because every geometry using it is non-periodic throughout.
+                Index qx = x + dirs[k][0], qy = y + dirs[k][1], qz = z + dirs[k][2];
+                bool leaves = false;
+                if (dom_.periodic[0]) qx = (qx + dom_.nx) % dom_.nx;
+                else if (qx < 0 || qx >= dom_.nx) leaves = true;
+                if (dom_.periodic[1]) qy = (qy + dom_.ny) % dom_.ny;
+                else if (qy < 0 || qy >= dom_.ny) leaves = true;
+                if (dom_.periodic[2]) qz = (qz + dom_.nz) % dom_.nz;
+                else if (qz < 0 || qz >= dom_.nz) leaves = true;
+                if (!leaves && !in_fluid(qx, qy, qz)) leaves = true;
+                if (!leaves) continue;
+                auto inward_ok = [&](int m) {
+                  Index ax = x - m * dirs[k][0], ay = y - m * dirs[k][1],
+                        az = z - m * dirs[k][2];
+                  if (dom_.periodic[0]) ax = (ax + dom_.nx) % dom_.nx;
+                  else if (ax < 0 || ax >= dom_.nx) return false;
+                  if (dom_.periodic[1]) ay = (ay + dom_.ny) % dom_.ny;
+                  else if (ay < 0 || ay >= dom_.ny) return false;
+                  if (dom_.periodic[2]) az = (az + dom_.nz) % dom_.nz;
+                  else if (az < 0 || az >= dom_.nz) return false;
+                  return in_fluid(ax, ay, az);
+                };
+                if (!inward_ok(1) || !inward_ok(2)) continue;   // need TWO inward
+                face = std::uint8_t(k);
+                break;
+              }
+              if (face == MFaceNone)
+                throw std::runtime_error(
+                    "set_moment_walls: a Neumann magnetic node at (" +
+                    std::to_string(x) + "," + std::to_string(y) + "," +
+                    std::to_string(z) + ") has no axis with two nodes inward; "
+                    "the second-order stencil cannot be built there");
+            }
+            h_face(n) = face;
           }
           h_tag(n)  = static_cast<std::uint16_t>(k);
           h_unk(n)  = unknown_mask<L>(dom_, x, y, z, in_fluid);
@@ -250,6 +333,7 @@ class MagneticSolver {
     auto bx = B_[0], by = B_[1], bz = B_[2];
     auto ux = u_[0], uy = u_[1], uz = u_[2];
     auto wall = wall_; auto unk = unk_; auto tag = tag_; auto wallB = wallB_;
+    auto solid = solid_;
     const bool have_u = ux.data() != nullptr;
 
     // All components must be collided from the SAME pre-collision B and u, so the
@@ -271,6 +355,8 @@ class MagneticSolver {
       KOKKOS_LAMBDA(Index n) {
         Index px, py, pz; d.coords(n, px, py, pz);
         if (!d.is_interior(px, py, pz)) return;
+        // Solid cells are not collided -- see the field kernel's note.
+        if (solid(n)) return;
         Neighbours<L> nb;
         d.template fill_neighbours<L, NF, NS>(n, nb);
         const Real B[3] = {bx(n), by(n), bz(n)};
@@ -302,13 +388,19 @@ class MagneticSolver {
   void field_kernel() {
     const Domain d = dom_;
     auto wall = wall_; auto unk = unk_; auto tag = tag_; auto wallB = wallB_;
-    auto mface = mface_;
+    auto mface = mface_; auto solid = solid_;
     for (int a = 0; a < NC; ++a) {
       const auto acc = pop_[a].template access<P>();
       auto Ba = B_[a];
       Kokkos::parallel_for("magnetic_field", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
         Index px, py, pz; d.coords(n, px, py, pz);
         if (!d.is_interior(px, py, pz)) { Ba(n) = Real(0); return; }
+        // A SOLID CELL CARRIES NO FIELD AND IS NOT COLLIDED. Without this the
+        // induction equation was solved inside the padding too, so the field
+        // diffused into a region with no boundary condition on it and leaned on
+        // the wall from outside. Harmless while every case was a flush box --
+        // there is no outside then -- and wrong the moment geometry appears.
+        if (solid(n)) { Ba(n) = Real(0); return; }
         // At a moment wall the streamed populations still hold the unfixed
         // inward direction, so their sum is NOT the field. The field there is
         // the imposed one by construction. Reading the raw sum instead feeds a
@@ -373,10 +465,16 @@ class MagneticSolver {
   View1D<Real> B_[3];
   View1D<std::uint8_t>  wall_;
   View1D<std::uint8_t>  mface_;
+  View1D<std::uint8_t>  solid_;
+  // Host-side copy kept as a plain vector: View1D is already a host view in a
+  // host build, so it has no HostMirror to name, and setup-time geometry does
+  // not need a device round trip to be read.
+  std::vector<std::uint8_t> solid_host_;
   View1D<std::uint16_t> tag_;
   View1D<std::uint32_t> unk_;
   View2D<Real>          wallB_;
   bool                  has_walls_ = false;
+  bool                  has_solid_ = false;
   std::size_t           n_wall_states_ = 0;
   View1D<Real> u_[3];
   std::size_t t_ = 0;

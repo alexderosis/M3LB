@@ -210,6 +210,8 @@ int main(int argc, char** argv) {
     std::size_t cap = 400000, probe = 500;
     int K = 120; bool trace = false, track = true, nofd = true;
     std::string walls = "insul";
+    Index inset = 0;    // solid padding around the duct, to exercise geometry
+    bool prof = false;
     for (int i = 1; i < argc; ++i) {
       const std::string a = argv[i];
       if (a == "-nu"   && i + 1 < argc) nu_in = std::atof(argv[++i]);
@@ -223,6 +225,8 @@ int main(int argc, char** argv) {
       if (a == "-notrack") track = false;
       if (a == "-fd") nofd = false;    // reproduce the failure on demand
       if (a == "-walls" && i + 1 < argc) walls = argv[++i];   // insul | cond
+      if (a == "-inset" && i + 1 < argc) inset = Index(std::atol(argv[++i]));
+      if (a == "-prof") prof = true;
       if (a == "-has"  && i + 1 < argc) {
         Has.clear(); std::string s = argv[++i], t;
         for (char c : s + ",") { if (c == ',') { if (!t.empty()) Has.push_back(std::atof(t.c_str())); t.clear(); } else t += c; }
@@ -264,14 +268,26 @@ int main(int argc, char** argv) {
         double up = 0;
         for (Index y = 1; y < ny - 1; ++y) {
           double uu, bb; series((double(y) - L) / L, 0.0, uu, bb);
+          (void)0;
           up = std::max(up, uu);
         }
         const double Uref = umax_t / std::max(up, 1e-30);
         const Real F = Real(Uref * double(nu) / (L * L));
         const double bref = Uref * std::sqrt(double(nu) / double(eta));
 
+        // -inset PADS THE DUCT WITH SOLID. Physically nothing changes -- the
+        // duct is the same duct -- but the walls are no longer the outermost
+        // nodes of the domain, so the unknown set at each wall node has to be
+        // built against the GEOMETRY rather than against the box. That is the
+        // path a curved wall needs, and this is the place to test it, because
+        // the answer is already known from the flush duct.
+        const Index pad = inset;
+        const Index nyt = ny + 2 * pad, nzt = nz + 2 * pad;
+        auto insolid = [&](Index y, Index z) {
+          return y < pad || y >= pad + ny || z < pad || z >= pad + nz;
+        };
         using FluidColl = MhdBGK<FL, SecondOrderEquilibrium<FL>, ShiftedPopulations, Guo>;
-        Domain d(nx, ny, nz, /*x*/ true, /*y*/ false, /*z*/ false);
+        Domain d(nx, nyt, nzt, /*x*/ true, /*y*/ false, /*z*/ false);
         MagneticBGK<ML> mc; mc.omega = MagneticBGK<ML>::omega_from_resistivity(eta);
         MagneticSolver<ML, EsotericPull<ML>, MagneticBGK<ML>> mag(d, mc);
         FluidColl fc;
@@ -280,15 +296,19 @@ int main(int argc, char** argv) {
         fc.Bx = mag.Bx(); fc.By = mag.By(); fc.Bz = mag.Bz();
         FluidSolver<FL, EsotericPull<FL>, FluidColl> fl(d, fc);
 
-        fl.set_geometry([&](Index, Index, Index) -> CellType { return Fluid; });
+        fl.set_geometry([&](Index, Index y, Index z) -> CellType {
+          return insolid(y, z) ? Solid : Fluid;
+        });
         using WS = typename decltype(fl)::WallSpec;
         // A duct has EDGES, where two walls meet and a single axis normal does
         // not describe the unknown set. NrmCorner builds it geometrically.
         fl.set_regularized_walls([&](Index, Index y, Index z) -> WS {
-          const bool wy = (y == 0 || y == ny - 1), wz = (z == 0 || z == nz - 1);
+          if (insolid(y, z)) return WS{};
+          const bool wy = (y == pad || y == pad + ny - 1);
+          const bool wz = (z == pad || z == pad + nz - 1);
           if (wy && wz) return WS{NrmCorner, Real(0), Real(0), Real(0)};
-          if (wy) return WS{y == 0 ? NrmYm : NrmYp, Real(0), Real(0), Real(0)};
-          if (wz) return WS{z == 0 ? NrmZm : NrmZp, Real(0), Real(0), Real(0)};
+          if (wy) return WS{y == pad ? NrmYm : NrmYp, Real(0), Real(0), Real(0)};
+          if (wz) return WS{z == pad ? NrmZm : NrmZp, Real(0), Real(0), Real(0)};
           return WS{};
         });
         // INSULATING on all four: the total field is the applied one, so the
@@ -300,11 +320,15 @@ int main(int argc, char** argv) {
         // Dirichlet. CONDUCTING is db_x/dn = 0 on the HARTMANN walls only (the
         // pair perpendicular to B); the side walls stay insulating, which is
         // the combination Hunt solves and the one that produces side jets.
+        mag.set_geometry([&](Index, Index y, Index z) { return insolid(y, z); });
         mag.set_moment_walls([&](Index, Index y, Index z) -> WB {
-          const bool wy = (y == 0 || y == ny - 1), wz = (z == 0 || z == nz - 1);
+          if (insolid(y, z)) return WB{};
+          const bool wy = (y == pad || y == pad + ny - 1);
+          const bool wz = (z == pad || z == pad + nz - 1);
           if (cond && wy && !wz) {
             WB w; w.is_wall = true; w.neumann = true;
-            w.face = (y == 0) ? MFaceYm : MFaceYp;
+            // face left unset: derived from the geometry, which is the rule a
+            // curved wall will use. On a flush duct it must come out the same.
             return w;
           }
           if (wy || wz) return WB{true, Real(0), B0c, Real(0)};
@@ -354,13 +378,14 @@ int main(int argc, char** argv) {
               double ue, be;
               series((double(y) - L) / L, (double(z) - 0.5 * double(nz - 1)) / L, ue, be);
               ue *= Uref;
-              const double v = double(h(d.id(0, y, z)));
+              const double v = double(h(d.id(0, y + pad, z + pad)));
               n2 += (v - ue) * (v - ue); d2 += ue * ue;
             }
           return std::sqrt(n2 / std::max(d2, 1e-300));
         };
         // Steady state on the WHOLE velocity field between probes.
         std::vector<double> prevf(std::size_t(ny) * std::size_t(nz), 0.0);
+        (void)nyt; (void)nzt;
         std::size_t taken = 0; double res = 1;
         for (std::size_t t = 0; t <= cap; ++t) {
           if (t % probe == 0) {
@@ -369,7 +394,7 @@ int main(int argc, char** argv) {
             double num = 0, den = 0; bool bad = false;
             for (Index z = 0; z < nz; ++z)
               for (Index y = 0; y < ny; ++y) {
-                const double v = double(hx(d.id(0, y, z)));
+                const double v = double(hx(d.id(0, y + pad, z + pad)));
                 if (!std::isfinite(v)) bad = true;
                 const std::size_t k = std::size_t(z) * ny + y;
                 num += (v - prevf[k]) * (v - prevf[k]); den += v * v;
@@ -419,7 +444,7 @@ int main(int argc, char** argv) {
             double ue, be;
             series((double(y) - L) / L, (double(z) - 0.5 * double(nz - 1)) / L, ue, be);
             ue *= Uref; be *= bref;
-            const Index n = d.id(0, y, z);
+            const Index n = d.id(0, y + pad, z + pad);
             const double uv = double(hx(n)), bv = double(hbx(n));
             umx = std::max(umx, std::abs(uv));
             if (y == (ny - 1) / 2) {
@@ -439,7 +464,7 @@ int main(int argc, char** argv) {
           for (Index y = 0; y < ny; ++y) {
             double ue2, be2;
             series((double(y) - L) / L, (double(z) - 0.5 * double(nz - 1)) / L, ue2, be2);
-            off += double(hbx(d.id(0, y, z))) - be2 * bref; cnt += 1;
+            off += double(hbx(d.id(0, y + pad, z + pad))) - be2 * bref; cnt += 1;
           }
         off /= std::max(cnt, 1.0);
         double nb2 = 0;
@@ -447,10 +472,22 @@ int main(int argc, char** argv) {
           for (Index y = 0; y < ny; ++y) {
             double ue2, be2;
             series((double(y) - L) / L, (double(z) - 0.5 * double(nz - 1)) / L, ue2, be2);
-            const double dv = double(hbx(d.id(0, y, z))) - off - be2 * bref;
+            const double dv = double(hbx(d.id(0, y + pad, z + pad))) - off - be2 * bref;
             nb2 += dv * dv;
           }
         const double eb_lvl = (de_b > 1e-28) ? std::sqrt(nb2 / de_b) : NAN;
+        if (prof) {
+          std::printf("        u(y) at mid-z, computed / exact / ratio\n");
+          const Index zc = (nz - 1) / 2;
+          for (Index y = 0; y < ny; y += std::max<Index>(1, (ny - 1) / 8)) {
+            double ue2, be2;
+            series((double(y) - L) / L, (double(zc) - 0.5 * double(nz - 1)) / L, ue2, be2);
+            const double v = double(hx(d.id(0, y + pad, zc + pad)));
+            std::printf("          y=%3d  %11.4e  %11.4e  %8.4f\n",
+                        int(y), v, ue2 * Uref,
+                        (std::abs(ue2) > 1e-14 ? v / (ue2 * Uref) : 0.0));
+          }
+        }
         const double eu = std::sqrt(nu_u / std::max(de_u, 1e-300));
         const double eb = (de_b > 1e-28) ? std::sqrt(nu_b / std::max(de_b, 1e-300)) : NAN;
         char ebs[16];
