@@ -45,7 +45,27 @@ namespace lbm {
 // natural suspects are the interaction with div(B) = 0 (see the known
 // limitation on divergence preservation) and the fact that a pure Neumann
 // condition does not constrain the field level at all.
-enum MagWallCode : std::uint8_t { MagNone = 0, MagDirichlet = 1, MagOutXp = 2 };
+// MagNeumann is the PERFECTLY CONDUCTING wall: dB/dn = 0. It is mechanically
+// the same as MagOutXp -- the node takes its field from a neighbour one step
+// inward and then imposes that as its moment -- except that the direction comes
+// from the wall's own outward normal instead of being hard-coded to -x, which
+// is what lets it sit on any face of a duct rather than only on an outlet.
+//
+// The physics it encodes: at an insulating wall the induced field has nowhere
+// to go and vanishes, which is Dirichlet on the total field; at a perfectly
+// conducting wall the tangential electric field vanishes instead, and in the
+// induced-field formulation that is a zero NORMAL DERIVATIVE. The two give
+// measurably different flows -- Shercliff's duct against Hunt's -- so this is
+// not a refinement of MagDirichlet but its counterpart.
+enum MagWallCode : std::uint8_t {
+  MagNone = 0, MagDirichlet = 1, MagOutXp = 2, MagNeumann = 3
+};
+
+// Outward face directions, indexed by the code stored per Neumann node.
+enum MagFace : std::uint8_t {
+  MFaceXm = 0, MFaceXp = 1, MFaceYm = 2, MFaceYp = 3, MFaceZm = 4, MFaceZp = 5,
+  MFaceNone = 255
+};
 
 template <class L, class Streaming, class Collision>
 class MagneticSolver {
@@ -63,6 +83,7 @@ class MagneticSolver {
     B_[1] = View1D<Real>("By", dom.n_padded);
     B_[2] = View1D<Real>("Bz", dom.n_padded);
     wall_ = View1D<std::uint8_t>("mwall", dom.n_padded);
+    mface_ = View1D<std::uint8_t>("mface", dom.n_padded);
     unk_  = View1D<std::uint32_t>("munk", dom.n_padded);
     // One entry per DISTINCT imposed field, not per node -- but a profiled
     // magnetic inlet makes nearly every node distinct, so this must not be a
@@ -89,14 +110,22 @@ class MagneticSolver {
     // Set is_wall as well -- outflow is a kind of boundary node, not a separate
     // flag orthogonal to it.
     bool outflow = false;
+    // Perfectly conducting wall, dB/dn = 0. `face` is the OUTWARD normal; the
+    // node reads its field one step INWARD from it. Bx/By/Bz are ignored, as
+    // for outflow. Set is_wall as well.
+    bool neumann = false;
+    std::uint8_t face = MFaceNone;
   };
 
   template <class Fn>
   void set_moment_walls(Fn fn) {
     auto h_wall = Kokkos::create_mirror_view(wall_);
+    auto h_face = Kokkos::create_mirror_view(mface_);
     auto h_unk  = Kokkos::create_mirror_view(unk_);
     auto h_tag  = Kokkos::create_mirror_view(tag_);
-    for (Index n = 0; n < dom_.n_padded; ++n) { h_wall(n) = 0; h_unk(n) = 0; h_tag(n) = 0; }
+    for (Index n = 0; n < dom_.n_padded; ++n) {
+      h_wall(n) = 0; h_unk(n) = 0; h_tag(n) = 0; h_face(n) = MFaceNone;
+    }
 
     std::vector<std::array<Real, 3>> table;
     auto in_fluid = [&](Index x, Index y, Index z) { (void)x; (void)y; (void)z; return true; };
@@ -111,7 +140,15 @@ class MagneticSolver {
           for (; k < table.size(); ++k)
             if (table[k][0] == v[0] && table[k][1] == v[1] && table[k][2] == v[2]) break;
           if (k == table.size()) table.push_back(v);
-          h_wall(n) = w.outflow ? std::uint8_t(MagOutXp) : std::uint8_t(MagDirichlet);
+          h_wall(n) = w.outflow  ? std::uint8_t(MagOutXp)
+                    : w.neumann  ? std::uint8_t(MagNeumann)
+                                 : std::uint8_t(MagDirichlet);
+          if (w.neumann) {
+            if (w.face > MFaceZp)
+              throw std::runtime_error("set_moment_walls: a Neumann magnetic wall "
+                                       "needs an outward face; none was given");
+            h_face(n) = w.face;
+          }
           h_tag(n)  = static_cast<std::uint16_t>(k);
           h_unk(n)  = unknown_mask<L>(dom_, x, y, z, in_fluid);
           has_walls_ = true;
@@ -127,6 +164,7 @@ class MagneticSolver {
       for (int a = 0; a < 3; ++a) h_B(k, a) = table[k][a];
     Kokkos::deep_copy(wallB_, h_B);
     Kokkos::deep_copy(wall_, h_wall);
+    Kokkos::deep_copy(mface_, h_face);
     Kokkos::deep_copy(unk_, h_unk);
     Kokkos::deep_copy(tag_, h_tag);
   }
@@ -251,7 +289,8 @@ class MagneticSolver {
           // upstream neighbour's value there, so the two paths differ only in
           // where the number comes from.
           if (code == MagDirichlet)   impose_moment<L>(g, wallB(tg, a), unk(n));
-          else if (code == MagOutXp)  impose_moment<L>(g, B[a], unk(n));
+          else if (code == MagOutXp || code == MagNeumann)
+            impose_moment<L>(g, B[a], unk(n));
           coll.collide(g, a, B, u);
           acc[a].store_rest(nb, g[0]);
           for (int i = 1; i < Q; i += 2) acc[a].store_pair(nb, i, g[i], g[i + 1]);
@@ -263,6 +302,7 @@ class MagneticSolver {
   void field_kernel() {
     const Domain d = dom_;
     auto wall = wall_; auto unk = unk_; auto tag = tag_; auto wallB = wallB_;
+    auto mface = mface_;
     for (int a = 0; a < NC; ++a) {
       const auto acc = pop_[a].template access<P>();
       auto Ba = B_[a];
@@ -284,6 +324,36 @@ class MagneticSolver {
         if (code == MagOutXp) {
           Index qx, qy, qz; d.coords(n, qx, qy, qz);
           src = d.id(qx - d.hx - 1, qy - d.hy, qz - d.hz);
+        } else if (code == MagNeumann) {
+          // SECOND ORDER, from TWO neighbours: B_wall = (4 B_1 - B_2)/3.
+          //
+          // Copying one neighbour imposes dB/dn = 0 only to first order, and
+          // measured on Hunt's duct that is not a detail -- the velocity error
+          // grew with Hartmann number, 3.0e-3 / 6.6e-2 / 1.7e-1 at Ha = 1/5/10,
+          // and the side jets came out at 1.579 against an analytic 1.853,
+          // because a conducting wall carries the return current and the whole
+          // solution leans on it. The field LEVEL was never the problem: the
+          // mean offset measured -1.4e-18, so the error was always shape.
+          //
+          // Populations are read, never a neighbour's Ba, for the same reason
+          // as the outflow branch: Ba is being written by another thread.
+          const int f = int(mface(n));
+          const int ex = (f == MFaceXm) ? 1 : (f == MFaceXp) ? -1 : 0;
+          const int ey = (f == MFaceYm) ? 1 : (f == MFaceYp) ? -1 : 0;
+          const int ez = (f == MFaceZm) ? 1 : (f == MFaceZp) ? -1 : 0;
+          Index qx, qy, qz; d.coords(n, qx, qy, qz);
+          const Index bx = qx - d.hx, by = qy - d.hy, bz = qz - d.hz;
+          auto field_at = [&](int m) {
+            Neighbours<L> nbm;
+            d.template fill_neighbours<L, NF, NS>(
+                d.id(bx + m * ex, by + m * ey, bz + m * ez), nbm);
+            Real gm[Q];
+            gm[0] = acc.load_rest(nbm);
+            for (int i = 1; i < Q; i += 2) acc.load_pair(nbm, i, gm[i], gm[i + 1]);
+            return Collision::field(gm);
+          };
+          Ba(n) = (Real(4) * field_at(1) - field_at(2)) / Real(3);
+          return;
         }
         Neighbours<L> nb;
         d.template fill_neighbours<L, NF, NS>(src, nb);
@@ -302,6 +372,7 @@ class MagneticSolver {
   Streaming pop_[3];
   View1D<Real> B_[3];
   View1D<std::uint8_t>  wall_;
+  View1D<std::uint8_t>  mface_;
   View1D<std::uint16_t> tag_;
   View1D<std::uint32_t> unk_;
   View2D<Real>          wallB_;
