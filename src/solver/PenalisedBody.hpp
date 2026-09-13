@@ -199,8 +199,14 @@
 //     tall body float upright, and it is exactly what this cannot express: it
 //     would need a second centre, a BG that no longer follows from the draft,
 //     and a weight torque restored to the third row.
-//   * NO SHAPE BUT A RECTANGLE. Rect::chi is the only indicator provided.
-//     Anything with a signed distance function drops straight in.
+//   * FIVE SHAPES, NOT ONE. This said "no shape but a rectangle" long after
+//     Wedge, Sphere, Box and Disc were added beside Rect; it was simply stale.
+//     Anything with a signed distance function still drops straight in.
+//   * EVERY INDICATOR MARKS THE BODY, NOT THE CONTAINER. chi is 1 INSIDE the
+//     shape, so a fluid-filled vessel -- a circular tank, a pipe -- is the
+//     complement of one of these and is not expressible here. A case that wants
+//     one writes its own chi and feeds it through FieldGuo, which is what
+//     validation/stokes_disc.cpp does.
 //==============================================================================
 #include "core/Types.hpp"
 #include "solver/RigidBody3D.hpp"
