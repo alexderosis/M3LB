@@ -115,6 +115,26 @@ class FluidSolver {
   // Operators exposing no shear rate cannot use the FD route at all; for those
   // the local closure is selected at compile time rather than silently running
   // Eq. (21) with omega = 1, which would impose the wrong viscosity.
+  //
+  // THE FD ROUTE IS INCOMPATIBLE WITH A LORENTZ FORCE AT AN EDGE, measured
+  // 2026-09-13 on validation/shercliff.cpp. A duct has twelve edges where two
+  // regularised walls meet; validation/hartmann3d.cpp has none, being periodic
+  // across the channel, which is why this went unseen. Eq. (21) builds the
+  // stress from velocity GRADIENTS alone and knows nothing about the magnetic
+  // force acting at those nodes, and the inconsistency shows up as mass:
+  //
+  //    Ha = 5, 33^2 duct, 100000 steps     FD corners      local closure
+  //      total mass drift                   -5.66e-03        -8.4e-06
+  //      whole-field residual                7.6e-06          1.4e-08
+  //      L2 error vs the exact solution   3.8e-3 RISING    3.583e-3 flat
+  //
+  // and at Ha = 0 the same duct holds mass to -2.5e-14 either way, so it is the
+  // MAGNETIC coupling and not the walls or the body force. The drift is linear
+  // and never saturates, which matters twice over: the solution walks away from
+  // an exact answer it had already reached, and the residual CANNOT SEE IT --
+  // a linear drift gives a constant per-interval change and reads as a
+  // converged floor. Call set_fd_corners(false) on any forced-MHD case with
+  // edges until Eq. (21) is taught about the force.
   //----------------------------------------------------------------------------
   // Rebuild the node lists from the current flags.
   //
