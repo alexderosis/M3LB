@@ -77,6 +77,10 @@ int main(int argc, char** argv) {
     double Re = 10.0;
     Real U0 = Real(0.005);
     Index Lx = 21, Lz = 1;
+    int lxfac = 0;                  // -lxfac F: Lx = F*Ly instead of a fixed Lx
+    bool reh = false;               // -reh: Re on the WIDTH H = Ly-1, not on Ly
+    std::string conv = "interval";  // -conv perstep|interval
+    double ctol = 1e-10;            // -ctol: the residual threshold
     int oo = 1;                     // outflow tangential extrapolation order
     std::string lat = "d2q9", op = "cm";
     std::vector<Index> Lys = {41, 81, 161, 321, 641};
@@ -89,6 +93,18 @@ int main(int argc, char** argv) {
       if (a == "-lat" && i + 1 < argc) lat = argv[++i];
       if (a == "-op"  && i + 1 < argc) op  = argv[++i];
       if (a == "-ly" && i + 1 < argc) Lys = {Index(std::atoi(argv[++i]))};
+      if (a == "-lxfac" && i + 1 < argc) lxfac = std::atoi(argv[++i]);
+      if (a == "-reh")                   reh = true;
+      if (a == "-conv" && i + 1 < argc)  conv = argv[++i];
+      if (a == "-ctol" && i + 1 < argc)  ctol = std::atof(argv[++i]);
+      if (a == "-lys" && i + 1 < argc) {           // explicit ladder, comma list
+        Lys.clear();
+        std::string v = argv[++i], tok;
+        for (char ch : v + ",") {
+          if (ch == ',') { if (!tok.empty()) Lys.push_back(Index(std::atoi(tok.c_str()))); tok.clear(); }
+          else tok += ch;
+        }
+      }
       if (a == "-lymax" && i + 1 < argc) {
         const Index m = std::atoi(argv[++i]);
         std::vector<Index> k; for (Index v : Lys) if (v <= m) k.push_back(v); Lys = k;
@@ -97,19 +113,44 @@ int main(int argc, char** argv) {
 
     std::printf("III.A (PRE 2017) Poiseuille, inlet driven   lattice %s   operator %s\n",
                 lat.c_str(), op.c_str());
-    std::printf("  U0 = %.4f   Re = U0 Ly / nu = %.0f   Lx = %d   Lz = %d (paper: 21)   outflow order %d\n\n",
-                double(U0), Re, int(Lx), int(Lz), oo);
+    // THE HEADER MUST DESCRIBE THE RUNS, NOT THE DEFAULTS. Lx is recomputed
+    // per grid when -lxfac is given, so printing the variable here reported
+    // "Lx = 21" for a ladder that every point ran at 5*Ly; and the Reynolds
+    // label is on Ly-1 under -reh, not Ly. A header that is wrong about the
+    // configuration is worse than none: it is what gets copied into the
+    // write-up.
+    char lxs[32], res_[48];
+    if (lxfac > 0) std::snprintf(lxs, sizeof lxs, "%d*Ly", lxfac);
+    else           std::snprintf(lxs, sizeof lxs, "%d", int(Lx));
+    std::snprintf(res_, sizeof res_, "U0 %s / nu", reh ? "(Ly-1)" : "Ly");
+    std::printf("  U0 = %.4f   Re = %s = %.0f   Lx = %s   Lz = %d (paper: 21)   "
+                "outflow order %d\n",
+                double(U0), res_, Re, lxs, int(Lz), oo);
+    std::printf("  convergence: %s, tol %.1e\n\n",
+                conv == "perstep" ? "per-step relative change (see the banner --"
+                                    " this is the criterion the case argues against)"
+                                  : "whole-field change over an interval of tau_d/200",
+                ctol);
     std::printf("  %6s %8s %11s %7s %11s %13s %8s\n",
                 "Ly", "tau", "steps", "t/tau_d", "residual", "rel L2 err", "order");
     std::printf("  %s\n", std::string(76, '-').c_str());
 
     std::FILE* f = open_out("A_poiseuille_inlet", "poiseuille", lat, op);
-    if (f) std::fprintf(f, "# Ly tau steps t/tau_d residual err   U0=%.4f Re=%.0f Lx=%d Lz=%d\n",
-                        double(U0), Re, int(Lx), int(Lz));
+    if (f) std::fprintf(f, "# Ly tau steps t/tau_d residual err   U0=%.4f Re=%.0f "
+                           "Lx=%s Lz=%d reh=%d conv=%s ctol=%.1e\n",
+                        double(U0), Re, lxs, int(Lz), reh ? 1 : 0, conv.c_str(), ctol);
 
     double prev = 0; Index prevL = 0;
     for (Index Ly : Lys) {
-      const Real nu = Real(double(U0) * double(Ly) / Re);
+      // -reh puts the Reynolds length on the CHANNEL WIDTH H = Ly-1, which is
+      // what an on-node regularised wall actually gives. The default keeps the
+      // file's original Ly, but for a convergence ladder that is not harmless:
+      // Re_phys = Re (Ly-1)/Ly varies from 80 at Ly = 5 to 99.2 at Ly = 129, so
+      // each grid solves a slightly DIFFERENT problem and the fitted order is
+      // contaminated by it.
+      const double Rlen = reh ? double(Ly - 1) : double(Ly);
+      const Real nu = Real(double(U0) * Rlen / Re);
+      if (lxfac > 0) Lx = Index(lxfac) * Ly;
       double err = NAN, resid = NAN, secs = 0; std::size_t taken = 0;
 
       dispatch(lat, op, [&](auto coll) {
@@ -153,9 +194,20 @@ int main(int argc, char** argv) {
         // the WHOLE field, over an interval that is a fixed fraction of tau_d
         // rather than a fixed number of steps, and no run may stop before two
         // diffusive times have elapsed.
+        //
+        // -conv perstep compares TWO SUBSEQUENT STEPS instead, which is what a
+        // specification sometimes asks for and which this case is the standing
+        // evidence against: the per-step relative change scale is 1/tau_d, and
+        // that is 4.5e-7 at Ly = 129 -- already below a 1e-6 threshold before
+        // the flow has developed at all. So the criterion stops the FINE grids
+        // earliest, which is exactly backwards for a convergence study. It is
+        // selectable so that the failure can be reproduced on demand, not
+        // because it is a reasonable default.
         const double tau_d  = Re * double(Ly) / double(U0);
-        const std::size_t probe = std::max<std::size_t>(500, std::size_t(tau_d / 200.0));
-        const std::size_t tmin  = std::size_t(0.5  * tau_d);
+        const bool perstep  = (conv == "perstep");
+        const std::size_t probe = perstep ? std::size_t(1)
+                                : std::max<std::size_t>(500, std::size_t(tau_d / 200.0));
+        const std::size_t tmin  = perstep ? std::size_t(0) : std::size_t(0.5 * tau_d);
         const std::size_t cap   = std::size_t(30.0 * tau_d);
 
         std::vector<double> prevf(std::size_t(Lx) * std::size_t(Ly), 0.0);
@@ -178,7 +230,7 @@ int main(int argc, char** argv) {
             }
           if (bad) { err = NAN; return; }
           res = std::sqrt(num / std::max(den, 1e-300));
-          if (taken >= tmin && res < 1e-10) break;
+          if (taken >= tmin && res < ctol) break;
         }
         secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         resid = res;
