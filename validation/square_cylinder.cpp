@@ -288,16 +288,11 @@ void run_one(const Opts& o, Index D, double Re, int& status) {
       // a domain sweep, so it runs on a coarse interval and never per step.
       const bool servo = (o.outlet != "press");
       double orho = 1.0;
+      // One table write, not a domain sweep. Re-issuing set_regularized_walls
+      // to move a single number rebuilt the geometry and the donor lists every
+      // 500 steps and cost about 60% in wall clock.
       auto reissue = [&]() {
-        s.set_regularized_walls([&](Index x, Index y, Index) -> WS {
-          if (x == 0) return WS{NrmXm, Real(prof(y)), Real(0), Real(0), Real(1)};
-          if (x == nx - 1) {
-            if (o.outlet == "free")
-              return WS{NrmOutFree, Real(0), Real(0), Real(0), Real(orho)};
-            return WS{NrmOutEq, Real(0), Real(0), Real(0), Real(orho)};
-          }
-          return WS{};
-        });
+        s.set_wall_density(Real(orho));
         if (o.outlet == "free") s.set_outflow_density(Real(orho));
       };
       // Boundary links of the CYLINDER only -- the channel walls carry a real

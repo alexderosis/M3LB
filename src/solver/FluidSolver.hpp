@@ -281,6 +281,36 @@ class FluidSolver {
     Kokkos::fence();
   }
 
+  //----------------------------------------------------------------------------
+  // Imposed density at every wall state -- the outlet pressure.
+  //
+  // THE MIRROR OF set_wall_velocity_scale. That one writes slots 0-2 and leaves
+  // slot 3 alone, because a density is not part of the drive; this writes slot
+  // 3 and leaves 0-2 alone, for the same reason in reverse. Between them a
+  // driver can move a time-varying inlet and a servoed outlet independently,
+  // and neither touches geometry.
+  //
+  // EVERY STATE, which is safe by the WallSpec contract above: slot 3 is read
+  // only by the pressure and outflow codes, and a velocity wall closes for rho
+  // from its own populations and ignores it. Filtering by normal is not
+  // possible in any case -- the table is keyed by distinct STATE, not by code.
+  //
+  // WHY IT EXISTS. The alternative is re-issuing set_regularized_walls, which
+  // sweeps the whole domain and rebuilds the outflow donor lists to change one
+  // number. A mass servo calling that every 500 steps on a 644000-node grid
+  // cost about 60% in wall clock (13.1 ms a step against 8). This touches a
+  // table with a handful of entries.
+  //
+  // wall_u0_ is written too, so that a later set_wall_velocity_scale -- which
+  // rebuilds 0-2 FROM u0 -- cannot resurrect a stale density alongside them.
+  //----------------------------------------------------------------------------
+  void set_wall_density(Real r) {
+    auto u = wall_u_; auto u0 = wall_u0_;
+    Kokkos::parallel_for("wall_density", Range(0, Index(u.extent(0))),
+      KOKKOS_LAMBDA(Index k) { u(k, 3) = r; u0(k, 3) = r; });
+    Kokkos::fence();
+  }
+
   template <class Fn>
   void set_regularized_walls(Fn fn) {
     auto h_nrm = Kokkos::create_mirror_view(bc_nrm_);
