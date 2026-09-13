@@ -9597,6 +9597,33 @@ the fitted rate is blamed on the scheme.
   a uniform $F/(2\rho)$ into the reported velocity, so with a mean temperature
   away from $T_0$ the textbook $\langle vT\rangle$ form returned
   $\mathrm{Nu}=53.77$ for a fluid at rest, where the answer is exactly $1$.
+
+\item \textbf{The aorta's outlet condition drives the vessel whenever the inlet
+  waveform returns to zero, and the branch flow split is soft.} Measured
+  2026-09-13 with the physiological drive (\code{-wave physio}), whose inlet is
+  at rest for $57\,\%$ of the cycle. \code{NrmOutFree} rescales a copied
+  distribution to an \emph{imposed density}, so with no through-flow left to
+  copy that density becomes the only thing driving the domain: the descending
+  aorta runs faster in diastole than at peak systole ($p_{99}$ of $|\bm{u}|$ in
+  the exit band $0.0543$ against $0.0142$), which momentum coasting cannot do.
+  All of the top $0.1\,\%$ of speeds lie within two voxels of an outlet cap
+  against none at systole, and $80.5\,\%$ belong to one cap. Two explanations
+  were tested and killed --- an acoustic echo, whose arrival time agrees to
+  $0.7\,\%$ but which a space-time map shows never propagates; and a
+  donor-selection fault, which is a real blind spot in the rule (outward is
+  detected only as \emph{Solid or off-domain}, so a neighbouring outlet node
+  falls through) but does not bite here, the cap resolving its outward direction
+  for $419$ of $449$ nodes. Demoting the $25$ staircase fragment caps
+  (\code{-fragmin}, $105$ voxels, about $19\,\%$ of the outlet area at that end)
+  makes it \emph{worse} by a near-constant $11.8\,\%$ at every diastolic phase
+  and $1.0\,\%$ at systole --- a flux-driven boundary, so that flag is a
+  diagnostic and not a repair. Systolic velocities in the ascending aorta and
+  arch survive: those bands move by $0.6$--$2.9\,\%$ under the same
+  perturbation. The flow split does not --- the branch end moves by
+  $16$--$23\,\%$ from a change made $350$ voxels away, so the division of flow
+  between branch vessels, which \S\ref{sec:aorta} calls an output of the
+  simulation, must not be quoted without that caveat.
+
 \end{enumerate}
 
 %==============================================================================

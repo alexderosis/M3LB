@@ -88,6 +88,7 @@ int main(int argc, char** argv) {
   double vmax = -1, az = 25.0, el = 10.0, step = 0.5;
   double ksurf = 0.09, a0 = 0.003, a1 = 1.60, gref = 0.30, agam = 2.0;
   double phase = -1.0;   // >= 0 draws the cardiac-phase inset
+  bool physio = false;   // -wave physio: the aortic drive, not the smooth one
   int nsl = 0, slsteps = 260; double slstep = 0.9, ksl = 2.6;
   bool cbar = false;
   double printpct = -1.0;  // report a speed percentile and exit, for the driver
@@ -112,6 +113,7 @@ int main(int argc, char** argv) {
     else if (a == "-gref"   && i + 1 < argc) gref  = std::atof(argv[++i]);
     else if (a == "-agam"   && i + 1 < argc) agam  = std::atof(argv[++i]);
     else if (a == "-phase"  && i + 1 < argc) phase = std::atof(argv[++i]);
+    else if (a == "-wave"   && i + 1 < argc) physio = (std::string(argv[++i]) == "physio");
     else if (a == "-sl"      && i + 1 < argc) nsl     = std::atoi(argv[++i]);
     else if (a == "-slsteps" && i + 1 < argc) slsteps = std::atoi(argv[++i]);
     else if (a == "-slstep"  && i + 1 < argc) slstep  = std::atof(argv[++i]);
@@ -612,9 +614,24 @@ int main(int argc, char** argv) {
       img[o + 1] = (unsigned char)(img[o + 1] * (1 - al) + g * al);
       img[o + 2] = (unsigned char)(img[o + 2] * (1 - al) + b * al);
     };
-    auto prof = [](double ph) {
-      const double w = 0.5 + 0.5 * std::sin(2.0 * M_PI * ph - M_PI / 2.0);
-      return 0.15 + 0.85 * std::pow(w, 1.5);
+    // THE INSET MUST DRAW THE WAVEFORM THAT WAS ACTUALLY RUN. This hardcoded
+    // the smooth profile, so a -wave physio sequence was captioned with a
+    // drive it never used: a symmetric hump peaking at mid-cycle against an
+    // ejection that ends at phase 0.35. The marker then sits at the right
+    // phase on the wrong curve, which is worse than no inset -- it is a
+    // confident, legible, incorrect statement about what the frame shows.
+    // Kept in step with inlet_profile() in aorta.cpp by hand; there is no
+    // shared header between a driver and its renderer.
+    auto prof = [&](double ph) {
+      if (!physio) {
+        const double w = 0.5 + 0.5 * std::sin(2.0 * M_PI * ph - M_PI / 2.0);
+        return 0.15 + 0.85 * std::pow(w, 1.5);
+      }
+      const double phi_s = 0.35, skew = 0.70, sharp = 1.30;
+      const double back = 0.10, back_w = 0.08;
+      if (ph < phi_s) return std::pow(std::sin(M_PI * std::pow(ph / phi_s, skew)), sharp);
+      if (ph < phi_s + back_w) return -back * std::sin(M_PI * (ph - phi_s) / back_w);
+      return 0.0;
     };
     for (int i = 0; i < IW; ++i) put(IX + i, IY + IH, 150, 158, 175, 0.7);
     int prev = -1;

@@ -41,6 +41,11 @@ def pct_of(fn, p=PCT):
 def main():
     argv = sys.argv[1:]
     period = probe = None
+    wave = None
+    if '--wave' in argv:
+        i = argv.index('--wave')
+        wave = argv[i + 1]
+        del argv[i:i + 2]
     for k in ('--period', '--probe'):
         if k in argv:
             i = argv.index(k)
@@ -70,6 +75,8 @@ def main():
                '-vmax', '%.6g' % vmax, '-smooth', '3']
         if ncyc > 1:
             cmd += ['-phase', '%.5f' % ((i * probe % period) / period)]
+        if wave:
+            cmd += ['-wave', wave]
         subprocess.run(cmd, check=True)
 
     cmd = ['ffmpeg', '-y', '-framerate', str(fps),

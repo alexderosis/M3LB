@@ -33,6 +33,50 @@
 //  and that what goes in at the inlet comes out at the outlets. That last one is
 //  the useful check -- a leak through the bounce-back surface, or a mis-tagged
 //  cap, shows up there and nowhere else.
+//
+//  WHAT THE OUTLET DOES WHEN THE DRIVE STOPS, MEASURED 2026-09-13. Under the
+//  physiological waveform the inlet is at REST for 57% of the cycle, and
+//  `NrmOutFree` then has no through-flow left to copy: it rescales a copied
+//  distribution to an IMPOSED DENSITY, so in diastole that density is the only
+//  thing driving the vessel. The descending aorta runs FASTER in diastole than
+//  at peak systole -- p99 of |u| in the exit band 0.0543 against 0.0142 --
+//  which momentum coasting after ejection cannot do. 100% of the top-0.1%
+//  voxels sit within 2 voxels of an outlet cap (91% within 1) against 0% at
+//  systole, and 80.5% of them belong to ONE cap, the 449-voxel descending-aorta
+//  cap at z = 6. The old waveform never showed this because its diastolic floor
+//  of 15% of peak kept flow moving through the caps at all times.
+//
+//  TWO EXPLANATIONS WERE TESTED AND KILLED, and both were plausible. An
+//  ACOUSTIC ECHO: valve closure peaks at step 585, sound crosses 361 cells in
+//  626 steps, and 585 + 626 lands at phase 0.807 -- which is where the peak is.
+//  A band-by-band space-time map killed it: the maximum is PINNED at z ~ 10
+//  from phase 0.70 to 0.95 and never propagates, and a wave moves. A BAD DONOR:
+//  the rule in FluidSolver detects "outward" only as a neighbour that is Solid
+//  or off-domain, and a NEIGHBOURING OUTLET NODE is neither -- the same blind
+//  spot GPU/'s ehd_cavity had. But cap #3 resolves its true outward direction
+//  for 419 of its 449 nodes (mean alignment +0.930, 6.7% badly aligned) against
+//  cap #2's 10.0%, and cap #2 shows no artefact at all. The hole in that rule
+//  is real and does not bite on this geometry.
+//
+//  THE PROBE THAT CONFIRMED IT ALSO FAILED AS A FIX. `-fragmin 33` demotes the
+//  25 staircase fragment caps (1-32 voxels, 105 in total, all at z = 1..8) to
+//  Solid, removing about 19% of the outlet area at that end. The diastolic exit
+//  velocity went UP by a near-constant 11.8% at every diastolic phase (11.8,
+//  11.9, 11.8, 11.8, 13.1% at phases 0.35 to 0.90) and by 1.0% at systole. That
+//  is a FLUX-driven boundary: less area, the same imposed-density-driven flux,
+//  higher speed. Real flow would have gone the other way. So `-fragmin` is a
+//  diagnostic rather than a repair, and it is off by default.
+//
+//  WHAT STILL STANDS, AND WHAT DOES NOT. The contamination is confined to about
+//  twenty voxels of each cap. At peak systole the z-bands holding the inlet
+//  (z = 137) and the whole systolic core (z = 100-179) move by 0.6-2.9% when
+//  those 105 voxels are removed, so systolic velocities in the ascending aorta
+//  and arch are not outlet-driven. The FLOW SPLIT is the casualty: the branch
+//  end at z ~ 330-350 moves by 16-23% from a change made 350 voxels away, so
+//  the division of flow between the branch vessels -- called an OUTPUT rather
+//  than an input above -- is a soft one, and 105 voxels of staircase debris
+//  move it by about a fifth. Do not quote a branch flow fraction from this
+//  geometry without saying that.
 //==============================================================================
 #include "collision/BGK.hpp"
 #include "collision/MomentCollision.hpp"
@@ -55,22 +99,91 @@
 using namespace lbm;
 
 //------------------------------------------------------------------------------
-// Pulsatile inlet waveform, in lattice time units. This is the profile the
-// aorta project drives its inlet with, reproduced unchanged so the two runs are
-// comparable: a linear ramp from rest over `ramp` steps, then a cycle running
-// between a diastolic floor at 15% of peak and a systolic peak of 1, with the
-// upstroke sharpened by raising the sinusoid to the 1.5 power. Phase 0 is the
-// diastolic minimum; the systolic peak falls at phase 0.5.
+// Pulsatile inlet waveforms, in lattice time units.
 //
-// The return value multiplies the inlet velocity, so the DIRECTION is fixed by
-// the cap normal and only the magnitude varies. That is what lets the whole
-// drive be a scale on the wall table rather than a per-node update.
+// TWO OF THEM, AND THE DIFFERENCE IS NOT COSMETIC. The return value multiplies
+// the inlet velocity, so the DIRECTION is fixed by the cap normal and only the
+// magnitude varies -- which is what lets the whole drive be a scale on the wall
+// table rather than a per-node update. `set_wall_velocity_scale` multiplies the
+// ORIGINAL table, so a negative scale reverses the inlet cleanly; that is what
+// makes the diastolic backflow lobe below possible at all.
+//
+//   Wave::Smooth   the profile the aorta project drives its inlet with,
+//                  reproduced unchanged so the two runs stay comparable: a
+//                  cycle running between a diastolic floor at 15% of peak and a
+//                  systolic peak of 1, with the upstroke sharpened by raising
+//                  the sinusoid to the 1.5 power. Phase 0 is the diastolic
+//                  minimum; the systolic peak falls at phase 0.5.
+//
+//   Wave::Physio   an aortic flow waveform. It is NOT a smoothed version of the
+//                  above -- it differs in the three properties that decide what
+//                  the flow does:
+//
+//                    ejection occupies 0.35 of the cycle, not all of it
+//                      (0.30 s of a 0.857 s beat at 70 bpm)
+//                    the peak sits at phase 0.13, not 0.50
+//                    diastole is at REST, not at 15% of peak, with a small
+//                      reverse lobe at valve closure
+//
+//                  Measured on the form below: peak at phase 0.1300, cycle
+//                  mean 0.2069 of peak, reverse volume 2.40% of forward
+//                  (physiological regurgitant fraction through closure is a few
+//                  per cent). The smooth waveform's cycle mean is 0.5108 of
+//                  peak -- 2.5x the flow for the same Doppler peak velocity, so
+//                  the two do not describe the same cardiac output and their
+//                  Reynolds numbers are not comparable at matched U.
+//
+//                  WHY THE SHAPE MATTERS AT HIGH WOMERSLEY. At alpha = 13 the
+//                  core is inertia-dominated and follows the drive almost
+//                  instantly, so the flow structure is set by the waveform's
+//                  DERIVATIVE as much as its amplitude. The deceleration after
+//                  peak systole is what produces separation and reverse flow
+//                  near the wall; a drive that never leaves 15% of peak and
+//                  decelerates over half a cycle does not produce it. Running
+//                  this case for aortic haemodynamics with Wave::Smooth is the
+//                  units error of the waveform: every dimensionless group can
+//                  be right and the flow still be the wrong flow.
+//
+//                  The skew exponent is what puts the peak early: with
+//                  x = phi/phi_s, sin(pi x^0.7) peaks at x = 0.372 rather than
+//                  at 0.5. It is a shape fit to the three properties above, not
+//                  a Fourier reconstruction of any one published trace.
 //------------------------------------------------------------------------------
-static double inlet_profile(double t, double ramp, double period) {
+enum class Wave { Smooth, Physio };
+
+static double inlet_profile(double t, double ramp, double period, Wave w) {
   const double ramp_factor = std::min(1.0, t / ramp);
   const double phase = std::fmod(t, period) / period;
-  const double wave = 0.5 + 0.5 * std::sin(2.0 * M_PI * phase - M_PI / 2.0);
-  return ramp_factor * (0.15 + 0.85 * std::pow(wave, 1.5));
+  if (w == Wave::Smooth) {
+    const double wave = 0.5 + 0.5 * std::sin(2.0 * M_PI * phase - M_PI / 2.0);
+    return ramp_factor * (0.15 + 0.85 * std::pow(wave, 1.5));
+  }
+  const double phi_s = 0.35;   // ejection duration / cycle
+  const double skew  = 0.70;   // < 1 moves the systolic peak early
+  const double sharp = 1.30;   // exponent on the sine
+  const double back  = 0.10;   // reverse lobe amplitude, fraction of peak
+  const double back_w = 0.08;  // reverse lobe width, in phase
+  double q;
+  if (phase < phi_s) {
+    q = std::pow(std::sin(M_PI * std::pow(phase / phi_s, skew)), sharp);
+  } else if (phase < phi_s + back_w) {
+    q = -back * std::sin(M_PI * (phase - phi_s) / back_w);
+  } else {
+    q = 0.0;
+  }
+  return ramp_factor * q;
+}
+
+// Cycle mean of a waveform, as a fraction of its peak. Used to turn a peak
+// velocity into a cardiac output without assuming the shape.
+static double wave_mean(Wave w, double period) {
+  const int N = 20000;
+  double s = 0;
+  // ramp = 0 would divide; a ramp far below one step makes ramp_factor 1 for
+  // every sample taken, which is what a cycle mean of the SHAPE needs.
+  for (int i = 0; i < N; ++i)
+    s += inlet_profile((double(i) + 0.5) * period / N, 1e-9, period, w);
+  return s / N;
 }
 
 using L  = D3Q27;
@@ -91,6 +204,19 @@ int main(int argc, char** argv) {
     std::size_t steps = 20000, probe = 500;
     bool pulse = false;
     double period = 2000.0, ramp = 800.0;
+    bool ramp_set = false;
+    Wave wave = Wave::Smooth;
+    // -physio inputs. Blood is Newtonian at 3.5 mPa s over 1060 kg/m^3, which
+    // is the high-shear asymptote and the standard aortic value; the vessel is
+    // well above the shear rate where rouleaux make that wrong.
+    bool physio = false;
+    double hr = 70.0;         // beats per minute
+    double upeak = 100.0;     // peak systolic velocity, cm/s (clinical Doppler)
+    double nu_blood = 0.0330; // cm^2/s
+    double tau = 0.515;       // the lattice knob that is actually free
+    double umax = 0.035;      // Mach clamp on the lattice peak inlet speed
+    double beats = 0.0;       // run length, in beats; 0 = use -steps
+    std::size_t fragmin = 0;  // demote outlet caps smaller than this to Solid
     std::size_t dumpfrom = 0;
     for (int i = 1; i < argc; ++i) {
       const std::string a = argv[i];
@@ -101,8 +227,19 @@ int main(int argc, char** argv) {
       if (a == "-probe" && i + 1 < argc) probe = std::size_t(std::atol(argv[++i]));
       if (a == "-pulse") pulse = true;
       if (a == "-period" && i + 1 < argc) period = std::atof(argv[++i]);
-      if (a == "-ramp"   && i + 1 < argc) ramp   = std::atof(argv[++i]);
+      if (a == "-ramp"   && i + 1 < argc) { ramp = std::atof(argv[++i]); ramp_set = true; }
       if (a == "-dumpfrom" && i + 1 < argc) dumpfrom = std::size_t(std::atol(argv[++i]));
+      if (a == "-wave" && i + 1 < argc) {
+        const std::string w = argv[++i];
+        wave = (w == "physio") ? Wave::Physio : Wave::Smooth;
+      }
+      if (a == "-physio") { physio = true; pulse = true; wave = Wave::Physio; }
+      if (a == "-hr"    && i + 1 < argc) hr    = std::atof(argv[++i]);
+      if (a == "-upeak" && i + 1 < argc) upeak = std::atof(argv[++i]);
+      if (a == "-tau"   && i + 1 < argc) tau   = std::atof(argv[++i]);
+      if (a == "-umax"  && i + 1 < argc) umax  = std::atof(argv[++i]);
+      if (a == "-beats" && i + 1 < argc) beats = std::atof(argv[++i]);
+      if (a == "-fragmin" && i + 1 < argc) fragmin = std::size_t(std::atol(argv[++i]));
     }
 
     std::printf("Aorta: flow through a voxelised patient geometry   D3Q27, central moments\n");
@@ -128,11 +265,149 @@ int main(int argc, char** argv) {
 
     // Reynolds number on the inlet cap's equivalent diameter: the cap holds
     // n_in voxels, so its area is n_in in lattice units and D = 2 sqrt(A/pi).
+    //
+    // THAT DIAMETER IS 14% TOO LARGE, and it is kept anyway. A voxelised cap
+    // oblique to the axes holds about A*max|n_i| voxels for a true planar area
+    // A, so counting voxels OVERSTATES the area by 1/max|n_i| = 1/0.832 here.
+    // The exact area is the magnitude of the summed exposed-face normals -- the
+    // same identity the flux measurement below rests on, since a staircase and
+    // the plane it approximates bound a closed region whose total vector area
+    // is zero. Measured: 653.2 against 851 voxels, so D_true = 28.84 lattice
+    // units (1.777 cm) against 32.92. The voxel-count form still sets nu from
+    // -re, because every number recorded for this case was produced that way
+    // and changing it silently would move them all by 14%; the true diameter is
+    // what the -physio scaling below uses, and both are printed.
     const double Dlb = 2.0 * std::sqrt(double(n_in) / M_PI);
-    const Real nu = Real(double(U) * Dlb / Re);
+    double Ain = 0.0;
+    {
+      const int dirs[6][3] = {{-1,0,0},{1,0,0},{0,-1,0},{0,1,0},{0,0,-1},{0,0,1}};
+      double A[3] = {0, 0, 0};
+      for (Index z = 0; z < g.nz; ++z)
+        for (Index y = 0; y < g.ny; ++y)
+          for (Index x = 0; x < g.nx; ++x) {
+            if (g.at(x, y, z) != VoxelGeometry::TagInlet) continue;
+            for (int k = 0; k < 6; ++k) {
+              const Index qx = x + dirs[k][0], qy = y + dirs[k][1], qz = z + dirs[k][2];
+              const bool exposed =
+                  (qx < 0 || qx >= g.nx || qy < 0 || qy >= g.ny ||
+                   qz < 0 || qz >= g.nz) ||
+                  g.at(qx, qy, qz) == VoxelGeometry::TagSolid;
+              if (!exposed) continue;
+              A[0] += dirs[k][0]; A[1] += dirs[k][1]; A[2] += dirs[k][2];
+            }
+          }
+      Ain = std::sqrt(A[0] * A[0] + A[1] * A[1] + A[2] * A[2]);
+    }
+    const double Dtrue = 2.0 * std::sqrt(Ain / M_PI);
 
-    std::printf("\n  inlet %zu voxels -> D = %.1f lattice units   Re = %.0f\n",
-                n_in, Dlb, Re);
+    // PHYSIOLOGICAL SCALING. One free lattice parameter, and it is NOT the
+    // Reynolds number.
+    //
+    // dx is fixed by the geometry file -- it IS the voxel pitch. Choosing dt
+    // then fixes everything: u_lat = u_phys dt/dx, nu_lat = nu_phys dt/dx^2,
+    // T_lat = T_phys/dt, and both dimensionless groups come out at their
+    // physiological values automatically. So a fully physiological run has NO
+    // freedom left, and this is what it demands:
+    //
+    //     u_peak = 0.05 (the Mach ceiling) forces dt = 3.08e-5 s
+    //     -> nu_lat = 2.68e-4, tau = 0.50080, 27825 steps per beat
+    //
+    // tau = 0.50080 is BELOW the tau_crit = 0.5034-0.5077 this tree measured
+    // for its own regularised wall, and 28 beats at that period is 7.8e5 steps
+    // -- about ten hours here. So the physiological point is not reachable, and
+    // pretending otherwise by quoting Re and hoping is the failure mode this
+    // file's siblings are full of.
+    //
+    // WHAT IS GIVEN UP, DELIBERATELY. tau is taken as the free parameter and
+    // the WOMERSLEY number is matched exactly, because alpha is what makes a
+    // pulsatile flow pulsatile: it sets how far the wall shear layer penetrates
+    // in a beat and therefore the phase lag between drive and core. Re then
+    // falls out of the Mach clamp and is short by a stated factor. The run is
+    // dynamically similar in alpha and NOT in Re: near-wall oscillatory
+    // structure and timing carry over, convective secondary flow does not --
+    // which in an arch means the Dean number, and so the helicity, is low by
+    // the same factor. Say that rather than showing a spiral and calling it
+    // physiological.
+    //
+    // One invariant worth knowing before choosing a run length: the number of
+    // BEATS in one viscous diffusion time is alpha^2/(2 pi), independent of tau
+    // -- because T_lat and R^2/nu both scale as 1/nu. At alpha = 13.2 that is
+    // 27.9 beats, and no choice of lattice parameters makes it cheaper in
+    // beats. Only in steps.
+    Real nu = Real(double(U) * Dlb / Re);
+    if (physio) {
+      const double dx = g.pitch;                       // cm, from the file
+      const double Dphys = Dtrue * dx;                 // cm
+      const double Tphys = 60.0 / hr;                  // s
+      const double Rlb = 0.5 * Dtrue;
+      const double alpha =
+          0.5 * Dphys * std::sqrt(2.0 * M_PI / (Tphys * nu_blood));
+      const double Rephys = upeak * Dphys / nu_blood;
+
+      const double nulb = (tau - 0.5) / 3.0;           // D3Q27, cs2 = 1/3
+      // alpha matched, then the period ROUNDED TO A MULTIPLE OF 20 so that a
+      // probe interval can divide it exactly. Cycle-to-cycle comparison is the
+      // only convergence test this case has -- the same phase in successive
+      // beats, which needs samples that land on the same phases every beat --
+      // and an exact divisor is what guarantees it. 1490 -> 1500 here, moving
+      // alpha by 0.33% since alpha goes as 1/sqrt(T); the value printed below
+      // is the one actually run, not the target.
+      period = 2.0 * M_PI * Rlb * Rlb / (alpha * alpha * nulb);
+      period = 20.0 * std::max(1.0, std::round(period / 20.0));
+      const double alpha_run = Rlb * std::sqrt(2.0 * M_PI / (period * nulb));
+      const double dt = Tphys / period;                // s per step
+      const double u_ideal = upeak * dt / dx;          // what physiology wants
+      const double u_use = std::min(umax, u_ideal);
+
+      nu = Real(nulb);
+      U = Real(u_use);
+      Re = u_use * Dtrue / nulb;
+      // TWO BEATS, not half of one. The physiological waveform stops ejecting
+      // abruptly at phase 0.35 where the smooth one decelerates over half a
+      // cycle, and an abrupt stop in a weakly compressible scheme launches a
+      // pressure wave: sound crosses this domain in 361/0.577 = 626 steps, so
+      // it reverberates several times per beat rather than leaving. Ramping
+      // over two beats spreads the startup step over the same number of
+      // acoustic round trips instead of one. It does not remove the per-beat
+      // deceleration transient, which is physical in origin and is what the
+      // run is there to show -- only the start-from-rest one.
+      if (!ramp_set) ramp = 2.0 * period;
+      if (beats > 0) steps = std::size_t(beats * period);
+
+      const double wmean = wave_mean(wave, period);
+      const double Aphys = M_PI * Dphys * Dphys / 4.0;             // cm^2
+      const double CO = wmean * upeak * Aphys * 60.0 / 1000.0;     // L/min
+      const double delta = Rlb * std::sqrt(2.0) / alpha_run;       // cells
+      const double dtime = Rlb * Rlb / nulb;                       // steps
+
+      std::printf("\n  PHYSIOLOGY -> LATTICE\n");
+      std::printf("    blood          nu = %.4f cm^2/s  (mu 3.5 mPa s / rho 1060)\n", nu_blood);
+      std::printf("    vessel         D  = %.3f cm at the inlet cap (true area %.1f lu^2)\n", Dphys, Ain);
+      std::printf("    heart rate     %.0f bpm -> T = %.4f s\n", hr, Tphys);
+      std::printf("    peak systolic  U  = %.0f cm/s -> cardiac output %.2f L/min\n", upeak, CO);
+      std::printf("    physiological  Re_peak = %.0f      Womersley alpha = %.2f\n", Rephys, alpha);
+      std::printf("    grid           dx = %.6f cm (file pitch)   dt = %.3e s\n", dx, dt);
+      std::printf("\n    MATCHED   alpha    = %.2f      against %.2f wanted (period rounded to %.0f)\n",
+                  alpha_run, alpha, period);
+      std::printf("    NOT       Re_peak  = %.0f      short by %.0fx  (Mach clamp: the\n",
+                  Re, Rephys / Re);
+      std::printf("                                 drive physiology wants is u = %.3f,\n", u_ideal);
+      std::printf("                                 capped at %.3f)\n", umax);
+      std::printf("    so the simulated peak velocity is %.2f cm/s, not %.0f\n",
+                  u_use * dx / dt, upeak);
+      std::printf("\n    resolution     D = %.1f cells, Stokes layer delta = %.2f cells,\n", Dtrue, delta);
+      std::printf("                   Re_cell = %.1f at peak\n", u_use / nulb);
+      std::printf("    convergence    viscous diffusion time R^2/nu = %.0f steps\n", dtime);
+      std::printf("                   = alpha^2/2pi = %.1f beats, whatever tau is\n",
+                  alpha_run * alpha_run / (2.0 * M_PI));
+      std::printf("    waveform       %s\n",
+                  wave == Wave::Physio ? "physiological (ejection 0.35 of cycle, peak at 0.13)"
+                                       : "smooth sinusoid -- NOT an aortic waveform");
+    }
+
+    std::printf("\n  inlet %zu voxels -> D = %.1f lattice units (voxel count)\n", n_in, Dlb);
+    std::printf("                     D = %.1f lattice units (true area %.1f)   Re = %.0f\n",
+                Dtrue, Ain, Re);
     std::printf("  U = %.4f   nu = %.6e   tau = %.6f\n",
                 double(U), double(nu), 3.0 * double(nu) + 0.5);
     if (pulse) {
@@ -141,13 +416,73 @@ int main(int argc, char** argv) {
       // wall-driven shear layer penetrates in a beat, and so whether the
       // profile is quasi-steady (small alpha) or plug-like with a thin
       // oscillating boundary layer (large alpha). Re alone says nothing here.
+      //
+      // ON THE TRUE DIAMETER, not the voxel count. alpha goes as D, so the 14%
+      // area overstatement above is a 14% overstatement here -- it read 15.11
+      // against 13.24 for the same run, which is the difference between this
+      // vessel and one beating half again as fast.
       const double omega_c = 2.0 * M_PI / period;
-      const double alpha = 0.5 * Dlb * std::sqrt(omega_c / double(nu));
+      const double alpha = 0.5 * Dtrue * std::sqrt(omega_c / double(nu));
       std::printf("  pulsatile: period %.0f   ramp %.0f   Womersley alpha = %.2f\n",
                   period, ramp, alpha);
-      std::printf("             U is the SYSTOLIC PEAK; diastolic floor is 15%% of it\n");
+      if (wave == Wave::Physio)
+        std::printf("             physiological waveform: U is the SYSTOLIC PEAK, ejection\n"
+                    "             lasts 0.35 of the cycle, diastole is at REST\n");
+      else
+        std::printf("             U is the SYSTOLIC PEAK; diastolic floor is 15%% of it\n");
     }
     std::printf("\n");
+
+    // FRAGMENT CAPS. The voxeliser tags a frontier voxel as an outlet wherever
+    // stepping outward leaves the fluid, and where the vessel is clipped by the
+    // domain edge that produces specks: this geometry has FOUR real caps (526,
+    // 461, 459, 449 voxels, D = 1.5 cm each) and TWENTY-FIVE fragments of 1 to
+    // 32 voxels, 105 voxels in total, all at z = 1..8 beside the descending
+    // aorta's own cap. A one-voxel outlet is not a vessel; it is a hole in the
+    // wall with a pressure condition on it.
+    //
+    // -fragmin N demotes every cap smaller than N to Solid, which turns those
+    // holes back into wall. It is off by default: the four real caps are all
+    // >= 449 voxels, so -fragmin 33 removes exactly the fragments and nothing
+    // else, and leaving it off reproduces every number recorded for this case.
+    std::vector<std::uint8_t> demote(g.count(), 0);
+    if (fragmin > 0) {
+      // 26-connected flood fill over the outlet tag.
+      std::vector<int> lab(g.count(), -1);
+      std::vector<std::vector<Index>> comps;
+      for (Index z = 0; z < g.nz; ++z)
+        for (Index y = 0; y < g.ny; ++y)
+          for (Index x = 0; x < g.nx; ++x) {
+            const Index n0 = Index(x) + g.nx * (Index(y) + g.ny * Index(z));
+            if (g.at(x, y, z) != VoxelGeometry::TagOutlet || lab[n0] >= 0) continue;
+            const int id = int(comps.size());
+            comps.push_back({});
+            std::vector<Index> st{n0};
+            lab[n0] = id;
+            while (!st.empty()) {
+              const Index c = st.back(); st.pop_back();
+              comps[id].push_back(c);
+              const Index cx = c % g.nx, cy = (c / g.nx) % g.ny, cz = c / (g.nx * g.ny);
+              for (int dz = -1; dz <= 1; ++dz)
+                for (int dy = -1; dy <= 1; ++dy)
+                  for (int dx = -1; dx <= 1; ++dx) {
+                    const Index rx = cx + dx, ry = cy + dy, rz = cz + dz;
+                    if (rx < 0 || rx >= g.nx || ry < 0 || ry >= g.ny ||
+                        rz < 0 || rz >= g.nz) continue;
+                    const Index m = rx + g.nx * (ry + g.ny * rz);
+                    if (lab[m] >= 0 || g.at(rx, ry, rz) != VoxelGeometry::TagOutlet) continue;
+                    lab[m] = id; st.push_back(m);
+                  }
+            }
+          }
+      std::size_t nd = 0, ncap = 0;
+      for (const auto& c : comps) {
+        if (c.size() >= fragmin) { ++ncap; continue; }
+        for (const Index m : c) { demote[m] = 1; ++nd; }
+      }
+      std::printf("  [fragmin %zu] %zu outlet caps kept, %zu demoted to Solid (%zu voxels)\n",
+                  fragmin, ncap, comps.size() - ncap, nd);
+    }
 
     Domain d(g.nx, g.ny, g.nz, false, false, false);
     CM coll;
@@ -158,6 +493,7 @@ int main(int argc, char** argv) {
     // other fluid voxel collides normally.
     s.set_geometry([&](Index x, Index y, Index z) -> CellType {
       const std::uint8_t t = g.at(x, y, z);
+      if (demote[std::size_t(x) + g.nx * (std::size_t(y) + g.ny * std::size_t(z))]) return Solid;
       if (t == VoxelGeometry::TagSolid) return Solid;
       if (t == VoxelGeometry::TagInlet || t == VoxelGeometry::TagOutlet) return RegWall;
       return Fluid;
@@ -173,6 +509,7 @@ int main(int argc, char** argv) {
     using WS = decltype(s)::WallSpec;
     s.set_regularized_walls([&](Index x, Index y, Index z) -> WS {
       const std::uint8_t t = g.at(x, y, z);
+      if (demote[std::size_t(x) + g.nx * (std::size_t(y) + g.ny * std::size_t(z))]) return WS{};
       if (t == VoxelGeometry::TagInlet)  return WS{NrmCorner, ux, uy, uz, Real(1)};
       // The outlet caps are oblique to the voxel axes, so they get the
       // arbitrary-face outflow: rho pinned to 1, velocity taken from a fluid
@@ -226,47 +563,87 @@ int main(int argc, char** argv) {
     // independent check either -- both quantities are downstream of the same
     // imposed rho. Read Q in as exact (it is the imposed inlet velocity through
     // a cap whose area is known to 0.65 degrees) and Q out as indicative only.
-    auto cap_flux = [&](std::uint8_t tagv) {
-      auto hxf = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.ux());
-      auto hyf = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.uy());
-      auto hzf = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.uz());
+    // PRECOMPUTED TRAVERSALS. Every probe used to walk all 7.24M voxels three
+    // times -- once for |u|max and once per cap -- to touch 1.18M fluid nodes
+    // and 2851 cap nodes. The lists below are built once, in exactly the z,y,x
+    // order those loops used, so the arithmetic is performed on the same values
+    // in the same order and the output is bit-identical: verified against the
+    // 400-step reference row (Q in -1.298043e+01, Q out 1.142291e+00, |u|max
+    // 3.346624e-02, mass 4.50e-03). That is the whole reason the per-face
+    // entries are kept separate rather than pre-summed into one normal per
+    // voxel -- summing them early is algebraically identical and changes the
+    // last bits.
+    //
+    // Measured at 0.146 s per probe afterwards (39 extra probes cost 5.70 s on
+    // the 400-step timing run), which is what makes sampling the beat twenty
+    // times per cycle affordable over a 28-beat run.
+    std::vector<Index> live;                       // every non-solid node
+    // AND A SECOND LIST WITHOUT THE CAPS. A regularised wall reports the
+    // IMPOSED velocity rather than a population moment, so a cap node is not a
+    // measurement -- and there are 851 of them at exactly U against a top-0.1%
+    // cut of 1184 nodes, which pinned p99.9 to the inlet drive to four figures
+    // for the whole early transient. |u|max still uses `live`, because the
+    // non-finite check has to cover every node the solver writes and because
+    // every number recorded for this case was measured that way.
+    std::vector<Index> interior;                   // fluid only, for statistics
+    live.reserve(std::size_t(n_in) + n_out + g.count_of(VoxelGeometry::TagFluid));
+    struct Face { Index n; int dx, dy, dz; };
+    std::vector<Face> face_in, face_out;
+    std::vector<double> speeds;                    // probe scratch for the percentile
+    {
       const int dirs[6][3] = {{-1,0,0},{1,0,0},{0,-1,0},{0,1,0},{0,0,-1},{0,0,1}};
-      double q = 0;
       for (Index z = 0; z < g.nz; ++z)
         for (Index y = 0; y < g.ny; ++y)
           for (Index x = 0; x < g.nx; ++x) {
-            if (g.at(x, y, z) != tagv) continue;
-            const Index i = d.id(x, y, z);
-            const double u3[3] = {double(hxf(i)), double(hyf(i)), double(hzf(i))};
-            // Sum over EVERY exposed face. Verified against the geometry:
-            // the inlet's exposed faces give |sum n_face| = 653.2 pointing
-            // within 0.65 degrees of the file's stored normal, so
-            // U * A * cos = 0.02 * 653.2 * 0.9935 = 12.98, which is what this
-            // returns. Filtering the faces by direction to exclude the vessel
-            // wall was tried and is WRONG -- it double-weights by the
-            // projection and drove the inlet from 12.98 down to 10.38. The
-            // lateral wall faces already cancel in the vector sum; that is
-            // what makes the identity sum(n_face) = A n hold.
+            const std::uint8_t tv = g.at(x, y, z);
+            if (tv == VoxelGeometry::TagSolid) continue;
+            // A demoted fragment is Solid to the solver, so its velocity is
+            // never written; leaving it in the probe lists would average zeros
+            // into the statistics and add null faces to the outlet flux.
+            if (demote[std::size_t(x) + g.nx * (std::size_t(y) + g.ny * std::size_t(z))]) continue;
+            live.push_back(d.id(x, y, z));
+            if (tv == VoxelGeometry::TagFluid) interior.push_back(d.id(x, y, z));
+            if (tv != VoxelGeometry::TagInlet && tv != VoxelGeometry::TagOutlet) continue;
+            auto& dst = (tv == VoxelGeometry::TagInlet) ? face_in : face_out;
             for (int k = 0; k < 6; ++k) {
               const Index qx = x + dirs[k][0], qy = y + dirs[k][1], qz = z + dirs[k][2];
               const bool exposed =
                   (qx < 0 || qx >= g.nx || qy < 0 || qy >= g.ny ||
                    qz < 0 || qz >= g.nz) ||
                   g.at(qx, qy, qz) == VoxelGeometry::TagSolid;
-              if (!exposed) continue;
-              q += u3[0] * dirs[k][0] + u3[1] * dirs[k][1] + u3[2] * dirs[k][2];
+              if (exposed) dst.push_back(Face{d.id(x, y, z), dirs[k][0], dirs[k][1], dirs[k][2]});
             }
           }
+      std::printf("  [probe] %zu live nodes (%zu interior), %zu inlet faces, %zu outlet faces\n",
+                  live.size(), interior.size(), face_in.size(), face_out.size());
+    }
+
+    //
+    // THE HOST MIRRORS ARE PASSED IN, not made here. Each mirror is 58 MB on
+    // this geometry and the probe already holds three; making three more per
+    // cap call meant nine copies per probe instead of three. Bit-identical --
+    // the caller's mirrors are taken after the same compute_macroscopic() this
+    // used to follow -- and it is a third of the probe cost, which on a
+    // 28-beat run is the difference between 11 and 4 minutes of pure copying.
+    auto cap_flux = [&](const std::vector<Face>& faces, const auto& hxf,
+                        const auto& hyf, const auto& hzf) {
+      double q = 0;
+      for (const Face& f : faces) {
+        const double u3[3] = {double(hxf(f.n)), double(hyf(f.n)), double(hzf(f.n))};
+        q += u3[0] * f.dx + u3[1] * f.dy + u3[2] * f.dz;
+      }
       return q;
     };
 
     if (pulse)
-      std::printf("  %8s %6s %13s %13s %13s %10s %10s %9s\n", "step", "phase",
-                  "|u| max", "Q in", "Q out", "imbalance", "mass", "out rho");
+      std::printf("  %8s %6s %11s %11s %11s %13s %13s %10s %10s %9s\n", "step", "phase",
+                  "|u| mean", "|u| p99.9", "|u| max", "Q in", "Q out", "imbalance",
+                  "mass", "out rho");
     else
-      std::printf("  %8s %13s %13s %13s %10s %10s %9s\n", "step",
-                  "|u| max", "Q in", "Q out", "imbalance", "mass", "out rho");
-    std::printf("  %s\n", std::string(pulse ? 93 : 86, '-').c_str());
+      std::printf("  %8s %11s %11s %11s %13s %13s %10s %10s %9s\n", "step",
+                  "|u| mean", "|u| p99.9", "|u| max", "Q in", "Q out", "imbalance",
+                  "mass", "out rho");
+    std::printf("  %s\n", std::string(pulse ? 117 : 110, '-').c_str());
 
     const Real m0 = s.total_mass();
 
@@ -329,7 +706,7 @@ int main(int argc, char** argv) {
       // diagnostics instead makes the t = 0 row -- and the t = 0 volume dump --
       // show the inlet at full U while the waveform says the drive is zero.
       if (pulse)
-        s.set_wall_velocity_scale(Real(inlet_profile(double(t), ramp, period)));
+        s.set_wall_velocity_scale(Real(inlet_profile(double(t), ramp, period, wave)));
       if (t >= ctrl_start && t % ctrl_every == 0) {
         const double err = (double(s.total_mass()) - double(m0)) / double(m0);
         if (pulse) { err_sum += err; ++err_n; }
@@ -344,33 +721,52 @@ int main(int argc, char** argv) {
         auto hx = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.ux());
         auto hy = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.uy());
         auto hz = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.uz());
-        double um = 0; bool finite = true;
-        for (Index z = 0; z < g.nz; ++z)
-          for (Index y = 0; y < g.ny; ++y)
-            for (Index x = 0; x < g.nx; ++x) {
-              if (g.at(x, y, z) == VoxelGeometry::TagSolid) continue;
-              const Index i = d.id(x, y, z);
-              const double a = double(hx(i)), b = double(hy(i)), c = double(hz(i));
-              if (!std::isfinite(a) || !std::isfinite(b) || !std::isfinite(c)) finite = false;
-              um = std::max(um, std::sqrt(a * a + b * b + c * c));
-            }
+        // |u|max IS A SINGLE STAIRCASE CORNER VOXEL and has been since this
+        // case was written -- p100 = 0.070 against p99.9 = 0.026 on the
+        // documented steady run. It is kept because a non-finite value has to
+        // be caught somewhere, and it is the wrong thing to draw a conclusion
+        // from or to scale a colour map by. The mean and the 99.9th percentile
+        // are what a cycle-to-cycle comparison should read: a corner spike
+        // moves with the geometry's worst voxel, a mean moves with the flow.
+        double um = 0, usum = 0; bool finite = true;
+        for (const Index i : live) {
+          const double a = double(hx(i)), b = double(hy(i)), c = double(hz(i));
+          if (!std::isfinite(a) || !std::isfinite(b) || !std::isfinite(c)) finite = false;
+          um = std::max(um, std::sqrt(a * a + b * b + c * c));
+        }
+        speeds.clear();
+        for (const Index i : interior) {
+          const double a = double(hx(i)), b = double(hy(i)), c = double(hz(i));
+          const double sp = std::sqrt(a * a + b * b + c * c);
+          usum += sp;
+          speeds.push_back(sp);
+        }
+        const double umean = usum / double(interior.size());
+        double u999 = 0;
+        if (finite && !speeds.empty()) {
+          const std::size_t k =
+              std::min(speeds.size() - 1, std::size_t(0.999 * double(speeds.size())));
+          std::nth_element(speeds.begin(), speeds.begin() + std::ptrdiff_t(k), speeds.end());
+          u999 = speeds[k];
+        }
         if (!finite) { std::printf("  DIVERGED at step %zu\n", t); status = 1; break; }
         // outward flux at the outlet is -n.u with the file's inward normal
         // convention, but the outlet caps have no stored normal, so the outlet
         // flux is measured as the shortfall in total divergence instead: what
         // enters must leave, and the inlet is the only driven face.
-        const double qin = cap_flux(VoxelGeometry::TagInlet);
-        const double qout = cap_flux(VoxelGeometry::TagOutlet);
+        const double qin = cap_flux(face_in, hx, hy, hz);
+        const double qout = cap_flux(face_out, hx, hy, hz);
         // qin is negative (entering), qout positive (leaving); at steady
         // state they cancel, so their sum is the conservation error.
         const double imb = (std::abs(qout) > 0) ? (qin + qout) / std::abs(qout) : 0.0;
         if (pulse)
-          std::printf("  %8zu %6.3f %13.6e %13.6e %13.6e %10.2e %10.2e %9.5f\n",
-                      t, std::fmod(double(t), period) / period, um, qin, qout, imb,
+          std::printf("  %8zu %6.3f %11.4e %11.4e %11.4e %13.6e %13.6e %10.2e %10.2e %9.5f\n",
+                      t, std::fmod(double(t), period) / period, umean, u999, um,
+                      qin, qout, imb,
                       double(s.total_mass() - m0) / double(m0), out_rho);
         else
-          std::printf("  %8zu %13.6e %13.6e %13.6e %10.2e %10.2e %9.5f\n",
-                      t, um, qin, qout, imb,
+          std::printf("  %8zu %11.4e %11.4e %11.4e %13.6e %13.6e %10.2e %10.2e %9.5f\n",
+                      t, umean, u999, um, qin, qout, imb,
                       double(s.total_mass() - m0) / double(m0), out_rho);
         // FIGVEC dumps the three velocity COMPONENTS rather than the speed,
         // which is what streamline integration needs -- speed alone gives no
@@ -411,7 +807,13 @@ int main(int argc, char** argv) {
           std::printf("  wrote %s (%d x %d x %d, 3 components)\n",
                       vf, int(g.nx), int(g.ny), int(g.nz));
         }
-        if (std::getenv("FIGVOL")) {
+        // -dumpfrom APPLIES HERE TOO. It did not, and FIGVEC's did, which is
+        // the kind of asymmetry that is invisible until it fills a disk: a
+        // 28-beat run probed twenty times a beat is 560 frames at 29 MB, or
+        // 16 GB, where one cardiac cycle is 21 frames and 0.6 GB. A volume
+        // animation wants the last beat of a converged run, never the whole
+        // history.
+        if (std::getenv("FIGVOL") && t >= dumpfrom) {
           // The whole speed field, for the volume renderer. Any single x-plane
           // cuts this vessel into disconnected islands -- the aorta curves out
           // of every plane -- so a slice misrepresents the geometry however the
