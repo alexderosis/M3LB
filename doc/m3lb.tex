@@ -6970,9 +6970,28 @@ geometry-aware.
 
 $\mathrm{Re}=50$ on the inlet cap's equivalent diameter $D = 2\sqrt{A/\pi} =
 32.9$ lattice units, $U=0.02$, $\nu=1.3167\e{-2}$, $\tau=0.5395$, D3Q27 central
-moments. After $13\,500$ steps the run is steady: $|\uu|_{\max}$ flat at
-$7.2\e{-2}$, outlet density settled at $0.9934$, and the mass error oscillating
-about zero at ${\sim}1\e{-5}$ --- which is the conserving outflow working.
+moments. After $13\,500$ steps $|\uu|_{\max}$ is $4.11\e{-2}$, the outlet
+density $0.99765$ and the mass error $-3.6\e{-5}$, oscillating about zero ---
+which is the conserving outflow working.
+
+These are \emph{not} the numbers this section carried before 2026-09-13, and the
+difference is a corrected boundary rather than a retuned case. \code{FluidSolver}
+decided which populations at a regularised wall are unknown by testing the source
+cell for \code{Excluded} alone, which is right for a wall flush with the domain
+edge and blind to one with a \code{Solid} neighbour --- and the inlet and outlet
+caps here are exactly that, \code{RegWall} surrounded by solid vessel. The
+population arriving from a solid is a bounce-back of the node's own emission and
+carries no interior information; it was being treated as known. Every velocity in
+this section was therefore about $40\,\%$ too high: $|\uu|_{\max}$ read
+$7.2\e{-2}$ and $p_{99.9}$ read $2.6\e{-2}$, against $4.11\e{-2}$ and
+$1.50\e{-2}$ now. The defect was found on \code{validation/shercliff.cpp}, which
+has an exact solution; nothing in this case could have caught it.
+
+One claim is also weaker than it was. ``Steady'' overstates the state at
+$13\,500$ steps: a ${\sim}1500$-step oscillation of the mass servo is still
+decaying there, its envelope narrowing from $4.1\e{-4}$ to $2.7\e{-4}$ in mass
+over the last few thousand steps, and $|\uu|_{\max}$ still swings a few per cent
+between probes. It is converging, not converged.
 
 The inlet flux is $12.98$ in lattice units, and this is worth one sentence
 because measuring it is less obvious than it looks. Summing over \emph{every}
@@ -7017,7 +7036,7 @@ The parameter that characterises a pulsatile flow is not $\mathrm{Re}$ but the
 Womersley number, which fixes how far the oscillating shear layer penetrates in a
 beat:
 \begin{equation}
-  \alpha = \frac{D}{2}\sqrt{\frac{2\pi}{T\nu}} = 8.04 ,
+  \alpha = \frac{D}{2}\sqrt{\frac{2\pi}{T\nu}} = 7.05 ,
   \label{eq:womersley}
 \end{equation}
 in the physiological range for an aorta. The drive is exact beat after beat:
@@ -7025,10 +7044,18 @@ $Q_{\rm in}$ reaches $-12.98043$ at every systolic peak and $-1.947065$ at every
 trough, identical to five digits across six cycles.
 
 \paragraph{Convergence.} The viscous diffusion time across the vessel is
-$R^2/\nu = 20\,552$ steps, which is $10.3$ beats. This run is $60\,000$ steps,
-$2.92$ diffusion times, and it is converged: sampled at matched phase over the
-final three beats, \emph{every} statistic of the speed field repeats to eight
-significant figures.
+$R^2/\nu = 15\,807$ steps, which is $7.9$ beats. This run is $60\,000$ steps,
+$3.8$ diffusion times, and it is converged: sampled at matched phase over the
+final three beats, \emph{every} statistic of the speed field repeats to every
+digit printed --- $\langle|\uu|\rangle = 2.5007\e{-3}$ and $p_{99.9} =
+1.0446\e{-2}$ at the systolic peak for beats $26.5$ through $29.5$ alike.
+
+$\alpha$, $R^2/\nu$ and the beat count all moved on 2026-09-13 and all for one
+reason: $D$ was being taken from the cap's VOXEL COUNT, which overstates an
+oblique staircase cap by $1/\max|n_i|$ and gave $32.9$ lattice units against a
+true $28.8$. $\alpha$ goes as $D$ and $R^2/\nu$ as $D^2$, so the error
+propagated into both. The speeds moved separately and for the wall reason given
+in \S\ref{sec:aortasteady}.
 
 \begin{center}\small
 \begin{tabular}{clcccc}
@@ -7102,15 +7129,18 @@ volume is cast rather than sliced.}
 \includegraphics[width=0.32\textwidth]{aorta_diastole.png} \\[1mm]
 \small (a) systolic peak, $\phi=0.5$ & \small (b) diastolic trough, $\phi=0$ \\
 \end{tabular}
-\caption{\textbf{Pulsatile inflow}, converged, $\alpha=8.04$, shared colour
+\caption{\textbf{Pulsatile inflow}, converged, $\alpha=7.05$, shared colour
 scale, with streamlines traced from the inlet cap through the current field. The
 inset traces \eqref{eq:aortawave} with a marker at the current phase. At systole
 the root drives a visible jet; at the diastolic trough it has gone pale while the
 descending aorta carries the fastest flow in the vessel --- the antiphase fast
 tail of \S\ref{sec:aortapulse}, which is a storage-and-release effect and not a
-Womersley lag. Both panels are from the same beat, at $2.9$ viscous diffusion
-times, where every speed statistic repeats to eight significant figures from beat
-to beat.}
+Womersley lag. Both panels are from the same beat, at $3.8$ viscous diffusion
+times, where every speed statistic repeats to every printed digit from beat to
+beat. The antiphase tail is quantitative, not an impression: at the trough
+$p_{99.9} = 1.2317\e{-2}$ and $|\uu|_{\max} = 3.3362\e{-2}$ against
+$1.0446\e{-2}$ and $2.0743\e{-2}$ at the systolic peak, so the fastest fluid in
+the vessel is genuinely there when the inlet is slowest.}
 \label{fig:aortapulse}
 \end{figure}
 
