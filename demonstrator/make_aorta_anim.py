@@ -41,6 +41,17 @@ def pct_of(fn, p=PCT):
 def main():
     argv = sys.argv[1:]
     period = probe = None
+    # --vmax OVERRIDES THE COMPUTED SCALE, for two reasons. The p99.9 taken
+    # here is over every fluid speed, and the 851 prescribed inlet-cap nodes sit
+    # inside the top 0.1% whenever the drive is near its peak -- at systole the
+    # figure comes back as exactly U, the imposed speed, so the scale is set by
+    # the boundary condition rather than by the flow. And the scan is a pure
+    # python sort of 1.18M floats per frame, which is minutes over a cycle.
+    vmax_override = None
+    if '--vmax' in argv:
+        i = argv.index('--vmax')
+        vmax_override = float(argv[i + 1])
+        del argv[i:i + 2]
     wave = None
     if '--wave' in argv:
         i = argv.index('--wave')
@@ -65,9 +76,13 @@ def main():
 
     ncyc = int(round(period / probe)) if (period and probe) else 0
     tail = frames[-ncyc:] if ncyc > 1 else frames[max(0, len(frames) - 3):]
-    vmax = max(pct_of(f) for f in tail)
-    print('  %d frames, shared scale p%.1f = %.5g  (over %d tail frames)'
-          % (len(frames), PCT, vmax, len(tail)))
+    if vmax_override is not None:
+        vmax = vmax_override
+        print('  %d frames, shared scale %.5g (given)' % (len(frames), vmax))
+    else:
+        vmax = max(pct_of(f) for f in tail)
+        print('  %d frames, shared scale p%.1f = %.5g  (over %d tail frames)'
+              % (len(frames), PCT, vmax, len(tail)))
 
     for i, f in enumerate(frames):
         p = os.path.join(d, 'r_%04d.ppm' % i)
