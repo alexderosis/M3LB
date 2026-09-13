@@ -9643,7 +9643,16 @@ the fitted rate is blamed on the scheme.
   component extrapolated, populations set to equilibrium, which is what
   Breuer et~al.\ (2000) describe for their own lattice-Boltzmann runs --- clears
   it, and the case then averages $12$ shedding cycles to $C_d=1.7113$ and
-  $St=0.1292$. The cost is that \code{NrmOutEq} and \code{NrmOutFree} impose
+  $St=0.1292$ at $\mathrm{Ma}=0.0866$. Halving the Mach number to $0.052$
+  moves $C_d$ to $1.5908$ and the lift amplitude from $3.1855$ to $2.9575$ ---
+  both forces down about $7\,\%$ --- while $St$ goes to $0.1294$, i.e.\ does
+  not move at all. Compressibility scales the pressure field so the forces
+  follow it, and the shedding frequency is kinematic and does not; anything
+  that had altered the flow rather than the force scale would have moved $St$
+  too. The $7\,\%$ by which the first run sat above the paper's LBA curve was
+  a Mach artefact. It is bounded rather than apportioned: $\tau$ must move with
+  $u_{\max}$ at fixed $\mathrm{Re}$ and $D$, so the two are confounded, and
+  separating them needs $\tau$ held fixed at four times the cells. The cost is that \code{NrmOutEq} and \code{NrmOutFree} impose
   $\rho$ \emph{and} $\bm{u}$, over-determining the boundary into a mass source:
   measured $8.31\times10^{-2}$ and $8.36\times10^{-2}$, and a drag normalised by
   $\rho=1$ then read $8.30\,\%$ and $8.35\,\%$ high --- matching the drift to

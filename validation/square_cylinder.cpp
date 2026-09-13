@@ -59,6 +59,38 @@
 //  digitised curve with a stated uncertainty, and a percentage agreement
 //  quoted to three figures against it would be a fiction. The grid convergence
 //  below is the part that stands on its own.
+//
+//  MACH CONTAMINATES THE FORCES AND LEAVES THE FREQUENCY ALONE, measured
+//  2026-09-13 at Re = 300, D = 40, central moments, equilibrium outlet, twelve
+//  shedding cycles averaged in both runs:
+//
+//      u_max   Ma       tau      C_d      St       max-min C_l
+//      0.05    0.0866   0.520    1.7113   0.1292   3.1855
+//      0.03    0.0520   0.512    1.5908   0.1294   2.9575
+//                                -7.0 %   +0.15 %  -7.2 %
+//
+//  BOTH force coefficients fell by about 7 % while the shedding frequency did
+//  not move at all. That pattern is the evidence, not the single number:
+//  compressibility scales the pressure field, so drag and lift follow it, and
+//  the frequency is set by the wake's kinematics and does not care. Anything
+//  that had altered the FLOW rather than the force scale would have moved St
+//  too. The 7 % by which the higher-Mach run sat above the paper's LBA curve
+//  was therefore a Mach artefact, and at Ma = 0.052 the drag lands on it.
+//
+//  WHAT THIS DOES NOT SEPARATE. tau moved with the Mach number, 0.520 to
+//  0.512, because at fixed Re and D it must: tau = 1/2 + 3 u_max D / Re. So
+//  the 7 % is bounded, not apportioned. A two-point fit in Ma^2 extrapolates
+//  to C_d = 1.52 at Ma -> 0, which is NOT claimed: it is two points with two
+//  variables moving, and this tree has already extrapolated a coarse ladder
+//  into a regime none of its points reached once. Isolating the Mach number
+//  needs tau held fixed, i.e. D = 80 at u_max = 0.025, which is four times the
+//  cells.
+//
+//  A SIDE EFFECT WORTH MORE THAN THE MEASUREMENT. The low-Mach run holds
+//  tau = 0.512 for 380000 steps. Every earlier attempt at that same tau died
+//  between steps 59000 and 90000, and the only thing changed since is the
+//  outlet. That is a clean single-variable confirmation that NrmOutXp was the
+//  cause, where the original diagnosis rested on the geometry of a NaN block.
 //==============================================================================
 #include "Campaign.hpp"
 
