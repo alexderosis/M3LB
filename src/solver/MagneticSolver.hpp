@@ -57,6 +57,23 @@ namespace lbm {
 // induced-field formulation that is a zero NORMAL DERIVATIVE. The two give
 // measurably different flows -- Shercliff's duct against Hunt's -- so this is
 // not a refinement of MagDirichlet but its counterpart.
+//
+// IT NEEDS A DIRICHLET BOUNDARY SOMEWHERE ON THE DOMAIN, and that is a real
+// restriction rather than a caution. Measured 2026-09-14 in
+// demonstrator/mhd_decay.cpp: a CLOSED boundary that is Neumann on every face
+// goes non-finite inside sixty steps, at the grid scale -- the magnetic energy
+// rises 263x in twenty steps, max|b| goes 0.14 -> 19.2, and the magnetic
+// integral scale collapses to one cell. It is not the staircase (a square
+// domain, with 0.9 % of its Neumann nodes reading another wall node against a
+// disc's 14.6 %, fails identically) and it is not omega -> 2 (1.949, 1.901,
+// 1.769 and 1.586 all fail identically). The control that holds is Hunt's own
+// arrangement: Neumann on ONE opposing pair of faces with Dirichlet on the
+// other decays cleanly. So use MagNeumann for a conducting wall PAIR inside a
+// domain whose remaining boundary is Dirichlet, which is what Hunt's duct is
+// and what validation/shercliff.cpp validated; do not close a domain with it.
+// A pure Neumann problem does not determine the field level, and the |<b>|
+// drift is visible even in the arrangements that work -- mhd_decay's Hunt
+// control has the domain mean climb two decades while max|b| falls one.
 enum MagWallCode : std::uint8_t {
   MagNone = 0, MagDirichlet = 1, MagOutXp = 2, MagNeumann = 3
 };

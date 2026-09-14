@@ -9103,6 +9103,28 @@ Stated plainly, because each has been measured.
   against $2.80$. A matched-resolution comparison across the whole sweep has
   still not been made.
 
+\item \textbf{The perfectly conducting magnetic wall cannot close a domain,
+  and the failure is not what any of three plausible explanations predicted.}
+  \code{MagNeumann} ($\partial\bm{B}/\partial n=0$) is validated on Hunt's duct,
+  where it sits on \emph{one} opposing pair of walls and the other pair is
+  Dirichlet. Applied to every face of a closed domain --- a confined decaying
+  MHD field, \code{demonstrator/mhd\_decay.cpp} --- it goes non-finite inside
+  sixty steps at the \emph{grid scale}: the magnetic energy rises by a factor
+  $263$ over twenty steps, $\max|\bm{b}|$ goes $0.14\to19.2$, and the magnetic
+  integral scale collapses to one cell. Three explanations were tested and
+  falsified. It is not the staircase: a square domain, where $0.9\,\%$ of
+  Neumann nodes read another wall node one step inward against a disc's
+  $14.6\,\%$, fails identically. It is not $\omega\to2$: $\omega_{\rm mag}=
+  1.949$, $1.901$, $1.769$ and $1.586$ all fail identically. It is not a slow
+  drift of the unpinned field level, which cannot produce a factor $263$ in
+  twenty steps at the grid scale. What holds is the control --- Neumann on one
+  face pair with Dirichlet on the other decays cleanly and tracks the insulating
+  run to two figures. So the condition requires a Dirichlet boundary somewhere
+  on the domain, and the drift it leaves behind is visible even then: in that
+  control the domain mean $|\langle\bm{b}\rangle|$ climbs two decades while
+  $\max|\bm{b}|$ falls one. The mechanism of the fast growth is \emph{not}
+  diagnosed.
+
 \item \textbf{The on-node zero-flux scalar wall is about twice the halfway
   one's error, and the mechanism is not diagnosed.} With the fluid frozen, where
   the charge/potential solution is exactly one-dimensional and any lateral
@@ -9233,14 +9255,36 @@ the fitted rate is blamed on the scheme.
   measures $10^{-9}\%$ at ratios from $0.1$ to $100$.
 
 \item \textbf{$\nabla\!\cdot\!\bb$ is not preserved to machine precision}
-  (order 1.65 convergence). No divergence cleaning is implemented.
+  (order 1.65 convergence). No divergence cleaning is implemented. \textbf{On a
+  long unforced run it reaches parity with the field's own curl.} Orszag--Tang,
+  the only other case exercising the property, is short and leaves the
+  divergence at truncation level; the confined decay of
+  \code{demonstrator/mhd\_decay.cpp} runs 29 turnovers and measures
+  $\mathrm{rms}|\nabla\!\cdot\!\bb| / \mathrm{rms}|\nabla\!\times\!\bb|$
+  growing from $8\times10^{-16}$ to $1.04$: $0.097$ at $1.7$ turnovers, $0.354$
+  at $4.9$, $0.976$ at $19.4$. The consequence is specific rather than general.
+  A spurious gradient field contributes to $E_{\rm mag}$ and nothing to
+  $\langle j^2\rangle$, so the magnetic integral scale
+  $L_b=\sqrt{2E_{\rm mag}/\langle j^2\rangle}$ is inflated once the divergence
+  is appreciable and its $5.5\times$ growth over the full run is an upper bound
+  --- inside the window where the ratio stays under $10\,\%$ the growth is
+  $1.26\times$. What is unaffected is anything built from $\nabla\times\bb$,
+  which is blind to a gradient field by construction. The \emph{energy} fraction
+  carried by the spurious part is \emph{not} bounded by this measurement, since
+  that ratio also carries $(L_{\rm spurious}/L_b)^2$ and the spurious field's
+  length scale was not measured.
 
-\item \textbf{Magnetic walls impose a prescribed $\bb$ only.} The moment
-  condition of \S\ref{sec:momentbc} sets $\bb$ to a given value at the wall,
-  which is what Maxwell's equations give for the Hartmann geometry. Genuinely
-  conducting and insulating walls --- where the wall's conductivity determines
-  the field rather than the field being prescribed --- are not implemented and
-  are not faked.
+\item \textbf{Magnetic walls now carry the wall's conductivity, and this entry
+  used to say they did not.} Both conditions exist: \code{MagDirichlet} sets
+  $\bb$ at the wall, which is the insulating case (the induced field has nowhere
+  to go and vanishes), and \code{MagNeumann} sets $\partial\bb/\partial n=0$,
+  which is the perfectly conducting one (the tangential electric field vanishes
+  instead). They give measurably different flows --- Shercliff's duct against
+  Hunt's --- so the second is the counterpart of the first and not a refinement
+  of it. What remains a limitation is the \emph{closure}, which is the separate
+  entry near the head of this list: the Neumann condition needs a Dirichlet
+  boundary somewhere on the domain and cannot be applied to every face of a
+  closed one.
 
 \item \textbf{FP32 cannot resolve the finest convergence tests.} At $H=64$ the
   discretisation error falls below the FP32 round-off floor; the affected
