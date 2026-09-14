@@ -51,15 +51,16 @@ namespace lbm {
 //   false -- the second-order truncation, which is what the published Eq. (11)
 //            is built on. Kept so Table 1 of the paper remains reproducible.
 // The Maxwell-stress part is identical either way.
-template <class L, bool HighOrder = true>
+template <class L, bool HighOrder = true, class Forcing = NoForcing>
 struct MhdCentralMoments;
 
 //------------------------------------------------------------------------------
 //  D2Q9 -- the published two-dimensional scheme, Eq. (11) written out directly.
 //------------------------------------------------------------------------------
-template <bool HighOrder>
-struct MhdCentralMoments<D2Q9, HighOrder> {
+template <bool HighOrder, class Forcing>
+struct MhdCentralMoments<D2Q9, HighOrder, Forcing> {
   using Lattice     = D2Q9;
+  using ForcingPolicy = Forcing;
   using Equilibrium = std::conditional_t<HighOrder, ProductFormEquilibrium<D2Q9>,
                                                     SecondOrderEquilibrium<D2Q9>>;
   using Storage     = RawPopulations;
@@ -68,7 +69,26 @@ struct MhdCentralMoments<D2Q9, HighOrder> {
   Real omega      = Real(1);    // omega_4 = omega_5, sets the viscosity
   Real omega_bulk = Real(1);    // omega_3
   View1D<Real> Bx, By, Bz;
-  NoForcing forcing{};
+  //--------------------------------------------------------------------------
+  // A BODY FORCE, AND IN THE CENTRAL FRAME IT IS ONE LINE.
+  //
+  // Guo's force expands in central moments as
+  //     K_F = [0, F_x, F_y, 0, 0, 0, cs^2 F_y, cs^2 F_x, 0],
+  // and MomentCollision.hpp argues at length why the third-order pair is not
+  // added. What is special about a CENTRAL operator is the order-2 block: the
+  // generic form carries (1 - omega/2)(F_a du_b + F_b du_a) with
+  // du = u - u_basis, and for central moments u_basis IS u, so du vanishes
+  // identically and the whole second-order contribution with it. The force
+  // therefore enters ONLY at first order.
+  //
+  // The half-force convention does the rest. `macroscopic` reports
+  // u = (sum c f + F/2)/rho, so the PRE-collision first central moment is
+  // -F/2; the post-collision value must be +F/2, which is why the two lines
+  // below write F/2 where the unforced operator writes zero. Getting that
+  // factor wrong is a silent 2x in the force and is exactly what the momentum
+  // identity in demonstrator/mhd_decay.cpp -fcheck exists to catch.
+  //--------------------------------------------------------------------------
+  Forcing forcing{};
 
   static Real omega_from_viscosity(Real nu) {
     return Real(1) / (nu * inv_cs2<D2Q9, Real>() + Real(0.5));
@@ -79,7 +99,7 @@ struct MhdCentralMoments<D2Q9, HighOrder> {
   KOKKOS_INLINE_FUNCTION static Real density(const Macro& m) { return m.dens; }
 
   KOKKOS_INLINE_FUNCTION
-  Macro macroscopic(const Real f[9], Index = 0) const {
+  Macro macroscopic(const Real f[9], Index n = 0) const {
     Real s = Real(0), mx = Real(0), my = Real(0);
     for (int i = 0; i < 9; ++i) {
       s  += f[i];
@@ -87,7 +107,12 @@ struct MhdCentralMoments<D2Q9, HighOrder> {
       my += f[i] * Real(D2Q9::cy(i));
     }
     const Real ir = Real(1) / s;
-    return Macro{s, mx * ir, my * ir, Real(0)};
+    Macro m{s, mx * ir, my * ir, Real(0)};
+    // Guo's half-force velocity shift, exactly as MhdBGK does it. Omitting it
+    // biases the reported velocity by F/(2 rho), which on a penalised node is
+    // a systematic offset in the very quantity the penalisation is driving.
+    forcing.shift_velocity(n, s, m.ux, m.uy, m.uz);
+    return m;
   }
 
   //----------------------------------------------------------------------------
@@ -157,8 +182,14 @@ struct MhdCentralMoments<D2Q9, HighOrder> {
 
     // back to monomial central moments; k0 = rho, k1 = k2 = 0 are invariants
     m[0][0] = rho;
-    m[1][0] = Real(0);
-    m[0][1] = Real(0);
+    if constexpr (Forcing::active) {
+      Real F[3]; forcing.at(n, F);
+      m[1][0] = Real(0.5) * F[0];
+      m[0][1] = Real(0.5) * F[1];
+    } else {
+      m[1][0] = Real(0);
+      m[0][1] = Real(0);
+    }
     m[2][0] = Real(0.5) * (k3s + k4s);
     m[0][2] = Real(0.5) * (k3s - k4s);
     m[1][1] = k5s;
@@ -202,8 +233,14 @@ struct MhdCentralMoments<D2Q9, HighOrder> {
 //  omega_bulk, its five deviatoric components at omega, everything of order
 //  three and above straight to equilibrium.
 //------------------------------------------------------------------------------
-template <bool HighOrder>
-struct MhdCentralMoments<D3Q27, HighOrder> {
+template <bool HighOrder, class Forcing>
+struct MhdCentralMoments<D3Q27, HighOrder, Forcing> {
+  // The 2-D operator above takes a forcing policy; this one does not implement
+  // it. Refuse at compile time rather than accept the template argument and
+  // silently drop the force, which would run and be wrong.
+  static_assert(std::is_same_v<Forcing, NoForcing>,
+                "MhdCentralMoments<D3Q27> has no forcing term; use MhdBGK for a "
+                "forced three-dimensional MHD run.");
   using Lattice     = D3Q27;
   using Equilibrium = std::conditional_t<HighOrder, ProductFormEquilibrium<D3Q27>,
                                                     SecondOrderEquilibrium<D3Q27>>;

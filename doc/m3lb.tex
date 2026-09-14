@@ -9125,6 +9125,27 @@ Stated plainly, because each has been measured.
   $\max|\bm{b}|$ falls one. The mechanism of the fast growth is \emph{not}
   diagnosed.
 
+\item \textbf{Volume penalisation cannot reach the permeability its source
+  method uses, and the boundary condition is therefore imposed to a few per cent
+  rather than to zero.} An explicit penalisation is stable only for
+  $\epsilon\gtrsim\Delta t$, and $\Delta t=1$ on a lattice, so $\epsilon$ is
+  $O(1)$ where Neffaa, Bos \& Schneider use $\epsilon=10^{-3}$ with
+  $\Delta t=5\times10^{-4}$ --- three orders of magnitude, and a property of the
+  discretisation rather than of a parameter choice. Measured on the magnetic
+  condition in \code{demonstrator/mhd\_decay.cpp}, where the penalised wall
+  claims $\bm{B}\!\cdot\!\bm{n}=0$: the ratio
+  $\max|\bm{B}\!\cdot\!\bm{n}|/\max|\bm{B}|$ on the boundary ring starts at
+  $5.7\,\%$ for all settings, grows to $26\,\%$ with the term removed, and falls
+  to and holds $2.7\,\%$ at $\epsilon_m=2$, with $\epsilon_m=20$ in between. So
+  the condition is genuinely imposed and monotonic in strength, and its floor is
+  a few per cent. The same arithmetic bounds the velocity side:
+  \code{validation/stokes\_disc.cpp}'s exact azimuthal decay mode puts the
+  penalised wall at $R-0.431$ cells against a staircase's $R-0.096$, both
+  constant to $1\,\%$ over a $4\times$ refinement, so penalisation is not a
+  different convergence class but the same fixed offset $4.5\times$ larger. What penalisation buys in
+  exchange is that $\bm{u}$ and $\bm{B}$ are penalised through one indicator and
+  are therefore co-located by construction, with no half-cell mismatch to price.
+
 \item \textbf{The on-node zero-flux scalar wall is about twice the halfway
   one's error, and the mechanism is not diagnosed.} With the fluid frozen, where
   the charge/potential solution is exactly one-dimensional and any lateral

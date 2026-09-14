@@ -269,6 +269,38 @@ class MagneticSolver {
     Kokkos::deep_copy(tag_, h_tag);
   }
 
+  //----------------------------------------------------------------------------
+  // A PER-NODE SOURCE ON THE INDUCTION EQUATION, off unless set.
+  //
+  // This exists for volume penalisation -- Neffaa, Bos & Schneider impose their
+  // magnetic boundary that way rather than with a wall condition -- but it is
+  // deliberately a general SOURCE rather than a penalisation, because their
+  // condition is not the one a "penalise B toward zero" hook can express.
+  //
+  // THE CONDITION IS B.n = 0, NOT B = 0. Their solid is "a perfect conductor,
+  // coated inside with a thin layer of insulant", so the field may not PENETRATE
+  // it but the tangential component is free: their Eq. (2) penalises toward
+  // B_0 = B_parallel, i.e. the source is -chi (B.n) n / eps and it damps the
+  // normal component only. Writing it as -chi B / eps instead would impose
+  // B = 0, which is the INSULATING wall -- a different physical problem, and
+  // one this file's -walls insul already provides sharply. Keeping the source
+  // general lets the case say which it wants rather than having the solver
+  // assume.
+  //
+  // WHY IT IS DISTRIBUTED ON THE WEIGHTS. The source has to change the zeroth
+  // moment, which is B, and nothing else -- the first moment is the induction
+  // flux u B - B u and a penalisation has no business touching it. Adding
+  // w_i S_a to every population does exactly that: sum_i w_i = 1 puts S_a into
+  // B, and sum_i w_i c_i = 0 leaves the flux untouched. Any other distribution
+  // would penalise the flux as well and would not be the stated equation.
+  //
+  // Null views (the default) skip the branch entirely, so every existing case
+  // is bit-identical.
+  //----------------------------------------------------------------------------
+  void set_source(View1D<Real> sx, View1D<Real> sy, View1D<Real> sz) {
+    src_[0] = sx; src_[1] = sy; src_[2] = sz;
+  }
+
   void set_velocity(View1D<Real> ux, View1D<Real> uy, View1D<Real> uz) {
     u_[0] = ux; u_[1] = uy; u_[2] = uz;
   }
@@ -351,6 +383,8 @@ class MagneticSolver {
     auto ux = u_[0], uy = u_[1], uz = u_[2];
     auto wall = wall_; auto unk = unk_; auto tag = tag_; auto wallB = wallB_;
     auto solid = solid_;
+    auto s0 = src_[0]; auto s1 = src_[1]; auto s2 = src_[2];
+    const bool have_src = s0.data() != nullptr;
     const bool have_u = ux.data() != nullptr;
 
     // All components must be collided from the SAME pre-collision B and u, so the
@@ -395,6 +429,11 @@ class MagneticSolver {
           else if (code == MagOutXp || code == MagNeumann)
             impose_moment<L>(g, B[a], unk(n));
           coll.collide(g, a, B, u);
+          // The source, POST-collision and on the weights: see set_source.
+          if (have_src) {
+            const Real sa = (a == 0) ? s0(n) : (a == 1) ? s1(n) : s2(n);
+            for (int i = 0; i < Q; ++i) g[i] += weight<L, Real>(i) * sa;
+          }
           acc[a].store_rest(nb, g[0]);
           for (int i = 1; i < Q; i += 2) acc[a].store_pair(nb, i, g[i], g[i + 1]);
         }
@@ -492,6 +531,7 @@ class MagneticSolver {
   View2D<Real>          wallB_;
   bool                  has_walls_ = false;
   bool                  has_solid_ = false;
+  View1D<Real>          src_[3];              // per-node source on B, may be null
   std::size_t           n_wall_states_ = 0;
   View1D<Real> u_[3];
   std::size_t t_ = 0;

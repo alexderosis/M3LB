@@ -405,11 +405,84 @@ Hunt's own arrangement -- decays cleanly. So the stencil is sound and the
 **closure** is not: the condition needs a Dirichlet boundary somewhere on the
 domain. Written up in `doc/m3lb.tex`'s known limitations.
 
+### Running Neffaa's own cases
+
+`-regime 1..4` selects a row of the paper's Table I and sets the geometry, the
+spectrum and the energy ratio **together**, because they are one case and
+picking them apart produces a run that is of no published thing at all. It also
+switches the boundary to the reference's method.
+
+| | E_u/E_B | H_c | Re (theirs) | character |
+|---|---|---|---|---|
+| I | 0.3 | 0.012 | 3868 | magnetically dominated, selective decay |
+| II | 1.9e4 | 3.5e-5 | 7920 | Navier-Stokes limit, `a` as a passive scalar |
+| III | 1.3 | 0.27 | 5176 | dynamic alignment, Alfvenic |
+| IV | 1.0 | 0.045 | 5725 | erratic |
+
+Geometry `r = (19/20)pi` in a `2pi` box, spectrum
+`E(k) ~ k/[0.98 + k/((3/4)sqrt(2)pi)]^4` (their Eq. 6). The amplitude **per
+mode** is not the spectrum: a 2-D shell holds `O(k)` modes so `|u_k|^2 ~ E(k)/k`,
+and `u = curl psi` gives `|psi_k| ~ 1/(k[g + k/k0]^2)`. Getting that chain wrong
+is silent -- the field still looks like turbulence with the wrong spectrum.
+
+**The cross-helicity is selected, not set.** A regime is defined by the PAIR
+`(E_u/E_B, H_c)`. The energy ratio is imposed exactly; `H_c` falls out of the
+random draw and, with the energy concentrated near `k = 3`, only ~20 modes
+carry it, so `cos(theta)` at `t = 0` scatters over `+-0.28` between seeds.
+Regime I wants it near zero, so the seed is chosen for that (`-seed 99` gives
+`+0.021`) -- running a draw at `+0.23` would be a case between regimes I and
+III, which is not a case the paper has.
+
+### What was reproduced, and what was not
+
+Run at `N = 321`, `Re = 1000`, 50 domain crossings (their `t = 450`):
+
+- **Reproduced.** The progression of Figs. 7-8 -- filamentary turbulence, then a
+  few large structures, then one domain-scale structure. `E_kin/E_mag` falls
+  from 0.30 to 0.009, strongly magnetically dominated as regime I should be. And
+  the feature the paper singles out is plainly there: *"the vorticity and
+  current density fields are rather similar"* -- the two panels are near-copies
+  at every instant.
+- **NOT reproduced.** Their Fig. 4 has regime I's alignment `cos(theta)` rising
+  to ~0.85. Ours oscillates about zero throughout. The paper names the likely
+  reason itself: *"nontrivial final states are only observed if the initial
+  Reynolds number is sufficiently high"*, and `Re = 1000` against their 3868 is
+  the gap. Central moments bought a factor 2.5 over BGK's ceiling of 400; the
+  rest would need `N ~ 2450`.
+- **Watch the divergence.** `L_b` grows 8.8 to 42.7 but stops around
+  `t/T_e = 25`, while the bulk `div b` climbs back to 0.34 -- so the late
+  plateau is partly contamination, not purely physics.
+
+### Is the penalisation actually doing anything?
+
+Two checks, because the differential one alone only shows that a term does
+*something*:
+
+**Delete it and see if the answer moves.** Turning off the fluid penalisation
+changes `E_kin` by a factor of **8** -- it is also what creates the disc at all,
+since under `-wall pen` there are no solid cells and no wall condition. Turning
+off the magnetic one moves `E_mag` by 2.8 % and `L_b` by 3.8 %.
+
+**Measure the condition itself.** `max|B.n| / max|B|` on the boundary ring:
+
+| eps_m | t=0 | | | |
+|---|---|---|---|---|
+| 2 (default) | 5.72e-02 | 3.08e-02 | 2.68e-02 | 2.68e-02 |
+| 20 | 5.72e-02 | 6.97e-02 | 6.45e-02 | 6.40e-02 |
+| off | 5.72e-02 | 1.56e-01 | 2.12e-01 | 2.60e-01 |
+
+All three start identical; unconstrained it grows to 26 % of `|B|`, penalised it
+falls to 2.7 % and holds. So `B.n = 0` is genuinely imposed -- **to a few per
+cent, not to machine zero**. That floor is the method: explicit penalisation is
+stable only for `eps >~ dt`, and `dt = 1` on a lattice, where the reference uses
+`eps = 1e-3` at `dt = 5e-4`.
+
 ### The clips in `anim/`
 
 | file | what it shows |
 |---|---|
 | `mhd_decay_disc.mp4` | vorticity above, current below, 29 turnovers of decay at `Re = 1000` |
+| `mhd_decay_neffaa_regime1.mp4` | Neffaa regime I with the reference's own penalisation, 50 crossings |
 
 `--pernorm` is used for that clip and is the exception to this repository's
 shared-scale rule. The amplitude falls by four decades and on a shared scale the
