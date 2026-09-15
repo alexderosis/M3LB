@@ -9169,27 +9169,34 @@ slope near $k^{-2.1}$ against the $k^{-3}$ stated in the sentence following
 Eq.~(6), with the four regimes agreeing on that exponent independently.
 \code{results/N\_neffaa/spectrum\_check.py} carries the arithmetic.
 
-\subsection{The Reynolds definition, and a caution on Table~I}
+\subsection{The clock, and a correction that changed the result}
 
-Eq.~(7) writes $E$ as an integral over $V_f$, but $\mathrm{Re} = 2r\sqrt{2E_u}/\nu$ is a
-Reynolds number only if $\sqrt{2E_u}$ is a \emph{velocity}: in two dimensions an
-integral of $|u|^2$ over an area has units $L^4/T^2$, whose square root is
-$L^2/T$, and $2r(L^2/T)/\nu$ then has units of length. The two cannot both be
-literal. The mean reading --- $E_u$ per unit area --- gives
-$u_{\mathrm{rms}}\approx 0.65$--$1.33$ and reproduces the quoted $\mathrm{Re}$ by
-construction; the integral reading gives $u_{\mathrm{rms}}\approx0.12$--$0.25$ and
-a physical Reynolds number of only $731$--$1497$, far too low for the $k^{-3}$
-turbulence of their Figs.~7--8. So $E_u$ is per unit area, this tree's $\mathrm{Re}$
-means the same thing, and the runs really are a factor $3.9$ below the reference
-rather than above it.
+$E_u$ is the TOTAL kinetic energy, $\tfrac12\int|u|^2\,d^2x$ over $V_f$, as Eq.~(7)
+writes it. The velocity scale is therefore $u_{\mathrm{rms}}=\sqrt{2E_u/A}$ with
+$A=\pi r^2=27.983$, not $\sqrt{2E_u}$. One eddy turnover is $2r/u_{\mathrm{rms}}$
+in the paper's units and $2R/u_0$ in ours --- the same dimensionless turnover ---
+so crossings map one-for-one and only the scale differs: $57.65$, $0.229$, $27.69$
+and $31.58$ paper time units per crossing for regimes I to IV.
 
-Table~I's $\mathrm{Re}$ column is nonetheless \emph{not} derivable from its other
-columns. Eq.~(10) normalises to $E_B = 1/2$, so $E_u/E_B$ alone would fix $E_u$
-and hence $\mathrm{Re}$; the implied $E_B$ instead comes out $0.70$, $4.6\times10^{-5}$,
-$0.29$, $0.46$, with regime~II off by four orders of magnitude. Each regime is its
-own realisation and the absolute amplitude was not held fixed across the four.
-That is the second place Table~I does not close against the paper's own
-equations.
+An earlier version of this section used $9.0$ for all four, taken from reading
+Table~I's $\mathrm{Re}$ column as the velocity scale. That column is the printed
+formula $2r\sqrt{2E_u}/\nu$ applied literally to a total, which carries units of
+LENGTH and equals the physical Reynolds number times $\sqrt{A}=5.29$. The
+consequence was that the runs were read $6.4\times$, $3.1\times$ and $3.5\times$
+too late for regimes I, III and IV and $39\times$ too early for II. Every
+time-series comparison moved when it was fixed, and mostly toward the reference.
+
+The same correction removes the Reynolds gap. The reference's PHYSICAL Reynolds
+numbers are $618$, $155536$, $1287$ and $1128$ against this tree's $1000$: the
+campaign sits within a factor $1.3$ of regimes III and IV and $1.6\times$ ABOVE
+regime~I. The earlier claim of ``$\mathrm{Re}=1000$ against their $3868$--$7920$''
+compared our physical Reynolds number against their length-dimensioned column.
+
+Table~I therefore fails to close against the paper's own equations in three
+places: $E/A$ against Eq.~(6), the $\mathrm{Re}$ column against the ratio column
+(Eq.~(10) fixes $E_B=1/2$, but the implied $E_B$ is $0.70$, $4.6\times10^{-5}$,
+$0.29$, $0.46$), and the $\mathrm{Re}$ column against its own formula. None of it
+touches the campaign, which uses only the ratio columns and Figs.~2 and~4.
 
 \subsection{What reproduces}
 
@@ -9209,31 +9216,34 @@ in the comparison.
 
 \subsection{What does not, and why}
 
-Dynamic alignment is not sustained. Both curves rise to the same peak and then
-part: ours reaches $\cos\theta = 0.880$ at $t=27$ against the reference's $0.864$
-at $t=30$, agreeing to $1.9\,\%$ in amplitude and about $10\,\%$ in timing, after
-which ours decays to $0.029$ where theirs climbs to $0.847$. The corroborating
-diagnostic is $E/|H_c|$, whose value $2$ is the paper's own signature of
-alignment: ours leaves it, $3.45 \to 9.89 \to 48.7 \to 119$, where theirs holds
-$2.04$ throughout. So the mechanism is captured and not held --- a sharper
-statement than ``alignment not reproduced'', and one that only became available
-when regime~III became runnable.
+On the corrected clock most of what looked like disagreement was a reading error.
+Regime~III's dynamic alignment IS reproduced through the window the paper plots:
+$\cos\theta$ is $18\,\%$ high at $t=100$ ($0.866$ against $0.733$) and $6.6\,\%$
+low at $t=200$ ($0.691$ against $0.740$), falling away only at $t=450$, some
+$28\times$ further into the decay than $t=0$. Regime~IV's negative alignment is
+reproduced to within $33\,\%$ at every time, sign included, and its decay exponent
+is $-0.70$ against the stated $-0.4$ rather than the $-1.33$ first reported.
 
-The intermediate-time decay exponents are two to three times too steep, and that
-is structural rather than a defect: fifty crossings is $t=450$ on the
-\emph{advective} clock, but at $\mathrm{Re}=1000$ against their $3868$--$7920$ it is
-$\nu t/R^2 \approx 0.20$ against their $0.0505$, four times further into
-diffusive decay. Both clocks cannot be matched at mismatched Reynolds number.
+Two genuine disagreements remain. Regime~I's alignment climbs to $0.906$ in the
+reference while ours goes negative and stays there --- and since the campaign ran
+$1.6\times$ ABOVE that regime's Reynolds number, insufficient $\mathrm{Re}$ cannot
+be the explanation. And regime~III loses the equipartition its regime is defined
+by, $E_u/E_B$ falling to $0.035$ where the reference holds $0.72$.
 
-Regime~II's $E_u/E_B$ disagrees qualitatively --- theirs rises four decades,
-ours falls --- but $E_{\mathrm{mag}}$ there is $2\times10^{-11}$, four decades
-below the seeded field, so the late ratio is plausibly a numerical floor. It is
-reported as uninterpretable rather than as a discrepancy.
+Regime~II is not a disagreement but out of range: its velocity scale puts $t=450$
+at $1964$ crossings where the campaign ran $50$, reaching $t=11$. Extending it
+needs a $39\times$ longer run.
+
+The largest remaining caveat is therefore duration and realisation rather than
+Reynolds number. Every regime here is a single draw, the paper does not state how
+many realisations its curves average, and a single two-dimensional decay at these
+Reynolds numbers is not self-averaging --- which is the most likely reason
+regime~I's alignment goes the other way.
 
 Not attempted: Fig.~9's final-state scatter plots, which need $\psi$ and hence a
 Poisson solve; Fig.~5's PDF of the local $\cos\theta$; and Fig.~3's periodic
-control. The $E/A$ shortfall is no longer among the open items: it is a property
-of the reference, as \S\ref{sec:neffaa} shows.
+control. The $E/A$ shortfall is not among the open items: it is a property of the
+reference, as above.
 
 %==============================================================================
 \section{Known limitations}
