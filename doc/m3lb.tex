@@ -9919,6 +9919,34 @@ the fitted rate is blamed on the scheme.
   outlets agree on $C_d$ to $0.008\,\%$. Use \code{NrmOutXp} for a steady
   outlet; it conserves mass unaided and is the more accurate closure.
 
+\item \textbf{The magnetic volume penalisation injects $\nabla\!\cdot\!\bm{B}$, and
+  in three dimensions it is about half the field's gradient.}
+  \code{demonstrator/mhd\_sphere.cpp} confines a decaying MHD flow to a sphere by
+  penalising both fields, and it works: $|\bm{B}\!\cdot\!\bm{n}|/|\bm{B}|$ on the
+  shell falls from $0.503$ to $8\times10^{-4}$, the initial condition is
+  solenoidal to $3.7\times10^{-16}$, and the run shows clean selective decay
+  ($E_u$ down $3500\times$ over four turnovers against $E_b$ down $84\times$).
+  The cost is that $-\chi(\bm{B}\!\cdot\!\bm{n})\bm{n}/\varepsilon_m$ is not
+  solenoidal. Measured as $\mathrm{rms}(\nabla\!\cdot\!\bm{b})/\mathrm{rms}(|\bm{j}|)$
+  at $N=64$, $\mathrm{Re}=200$, one turnover: both penalisations $0.393$, fluid
+  only $\mathbf{0.0087}$, magnetic only $\mathbf{0.314}$, neither $0.011$. The
+  magnetic source carries all of it. It does not refine away ($0.399$ at $N=48$
+  against $0.393$ at $N=64$) and it grows with time, reaching $0.502$ by four
+  turnovers. The two-dimensional disc reaches $0.073$ on the same diagnostic at
+  the same Reynolds number, so three dimensions cost about $5\times$.
+
+  Two cautions follow. $\varepsilon_m$ is \emph{not} the knob: sweeping it
+  $2\to100$ moves $|\bm{B}\!\cdot\!\bm{n}|/|\bm{B}|$ by $56\times$ but the
+  divergence by $17\,\%$, because $\nabla\!\cdot\!\bm{B}$ saturates where
+  injection balances the resistive decay of the error --- a parameter sweep over
+  a saturating quantity measures the approach, not the cause, and only switching
+  each penalisation off separately identifies it. And $\cos(\bm{J},\bm{B})$ rises
+  to $0.231$ at one turnover and then \emph{falls} to $0.170$, which cannot be
+  separated from the divergence error and must not be read as a Taylor
+  relaxation. \emph{Untested:} any divergence cleaning. There is no projection,
+  no Powell source and no constrained transport in this tree, and no Poisson
+  solver with which to build the first.
+
 \item \textbf{The BGK family's body force is second order, the moment operators'
   is complete, and nothing measured the gap until 2026-09-15.}
   \code{guo\_source\_raw} is \emph{exactly} the second-order Hermite expansion of

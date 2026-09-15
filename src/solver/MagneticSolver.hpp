@@ -297,7 +297,23 @@ class MagneticSolver {
   // Null views (the default) skip the branch entirely, so every existing case
   // is bit-identical.
   //----------------------------------------------------------------------------
+  // ALL THREE OR NONE, and on a 3-D lattice "all three" means all three. The
+  // apply loop below runs a = 0 .. NC-1 with NC = L::D and guards on src_[0]
+  // only, so on D3Q7 a null sz is DEREFERENCED rather than skipped. A 2-D case
+  // can pass View1D<Real>() as the third argument and get away with it because
+  // NC = 2 there -- demonstrator/mhd_decay.cpp does exactly that -- which is
+  // precisely what makes the 3-D version an easy mistake. Caught at the setter
+  // rather than at the null read, because the null read is a segfault inside a
+  // parallel_for with no indication of which view was missing.
   void set_source(View1D<Real> sx, View1D<Real> sy, View1D<Real> sz) {
+    const int given = int(sx.data() != nullptr) + int(sy.data() != nullptr)
+                    + int(sz.data() != nullptr);
+    if (given != 0 && given < NC)
+      throw std::runtime_error(
+          "MagneticSolver::set_source: " + std::to_string(NC) +
+          " components are read on this lattice but only " +
+          std::to_string(given) + " non-null view(s) were given. Pass all " +
+          std::to_string(NC) + " or none.");
     src_[0] = sx; src_[1] = sy; src_[2] = sz;
   }
 
