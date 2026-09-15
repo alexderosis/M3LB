@@ -84,6 +84,27 @@ struct MagneticParams {
   // limit, allocated only when walls are set at all. On a device where the
   // magnetic populations already cost 84 bytes per node that is a 14% surcharge
   // on runs that have walls and nothing on runs that do not.
+  // A PER-NODE VECTOR SOURCE, added POST-collision and on the weights.
+  //
+  // What it is for: the reference's Eq. (2) penalisation, S = -chi (B.n) n / eps,
+  // which damps the NORMAL component of B and leaves the tangential one free --
+  // a perfect conductor coated in insulant. Anything per-node and vector-valued
+  // fits the same hook.
+  //
+  // WHY THE WEIGHTS. sum_i w_i = 1 puts S_a straight into B, and sum_i w_i c_i = 0
+  // leaves the induction flux u B - B u untouched, so the source moves the field
+  // and not its transport. Added between collide and scatter, which is also why
+  // it needs no pair-swap correction: gather and scatter are a STREAMING pair,
+  // and a separate pass that gathered, added and scattered back would advance the
+  // field by a step rather than update it in place -- the trap CLAUDE.md records
+  // for the EHD Poisson source.
+  //
+  // Null-checked at runtime rather than templated: the pointer is uniform across
+  // every node, so the branch predicts perfectly and costs nothing, where a
+  // fourth template axis would double twelve kernel instantiations to twenty-four.
+  const Real* sx = nullptr;
+  const Real* sy = nullptr;
+  const Real* sz = nullptr;
   const std::uint8_t* mwall = nullptr;
   const std::uint8_t* unknown = nullptr;     // directions that streamed in from outside
   const Real* wBx = nullptr;
@@ -140,6 +161,10 @@ LBM_HD LBM_INLINE void magnetic_node_update(const MagneticParams& p, long N, lon
     if (HasWalls && code != MagBulk)
       impose_moment<MagneticLattice>(g[a], B[a], p.unknown[n]);
     collide_magnetic<MagneticLattice>(g[a], a, B, u, p.omega);
+    if (p.sx) {
+      const Real sa = (a == 0) ? p.sx[n] : (a == 1) ? p.sy[n] : p.sz[n];
+      for (int i = 0; i < Q; ++i) g[a][i] += MagneticLattice::w(i) * sa;
+    }
     scatter<Parity, MagneticLattice>(p.g + magnetic_offset(a, N), N,
                                      x, y, z, p.nx, p.ny, p.nz, g[a]);
   }
@@ -332,6 +357,12 @@ class MagneticSolver {
     LBM_CUDA_CHECK(cudaMemcpy(wBz_, wall_bz.data(), sizeof(Real) * N_, cudaMemcpyHostToDevice));
     has_walls_ = nwall > 0;
   }
+  // All three arrays or none: a partially-null triple would silently apply the
+  // source to some components and not others, which is the accident the parent's
+  // set_source guard exists to refuse.
+  void set_source(const Real* sx, const Real* sy, const Real* sz) {
+    sx_ = sx; sy_ = sy; sz_ = sz;
+  }
   void advect_with(const Real* ux, const Real* uy, const Real* uz) {
     ux_ = ux; uy_ = uy; uz_ = uz;
   }
@@ -406,6 +437,7 @@ class MagneticSolver {
     MagneticParams p;
     p.g = g_; p.flags = flags_;
     p.ux = ux_; p.uy = uy_; p.uz = uz_;
+    p.sx = sx_; p.sy = sy_; p.sz = sz_;
     p.Bx = Bx_; p.By = By_; p.Bz = Bz_;
     p.mwall = mwall_; p.unknown = unk_;
     p.wBx = wBx_; p.wBy = wBy_; p.wBz = wBz_;
@@ -424,6 +456,7 @@ class MagneticSolver {
   Real *wBx_ = nullptr, *wBy_ = nullptr, *wBz_ = nullptr;
   std::vector<std::uint8_t> geom_;            // host copy, for the unknown mask
   const Real *ux_ = nullptr, *uy_ = nullptr, *uz_ = nullptr;
+  const Real *sx_ = nullptr, *sy_ = nullptr, *sz_ = nullptr;
   bool has_geometry_ = false;
   bool has_walls_ = false;
   bool field_current_ = false;

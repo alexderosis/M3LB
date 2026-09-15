@@ -218,9 +218,21 @@ class Fluid {
     else                     dispatch_force<P, 1>();
   }
   template <int P, int O> void dispatch_force() {
+    // EVERY FORCE KIND THE NON-MHD BRANCH TAKES, THE MHD BRANCH MUST TAKE TOO.
+    // This enumerates template combinations by hand so that only the ones used
+    // are instantiated, and ForceField was missing from the mhd_ branch -- it
+    // fell through to ForceNone and the collision applied NOTHING. Silent,
+    // because macro_force honours ForceField unconditionally, so the reported
+    // velocity still carried Guo's half shift F/(2 rho) from a force that was
+    // never applied: a penalised MHD run would have shown the wall acting in
+    // every diagnostic and doing nothing to the dynamics. Held by
+    // test/host_physics.cpp mhd_field_force(), which measured exactly F/2 --
+    // the shift alone -- before this line existed.
     if (mhd_) {
-      if (fkind_ == ForceUniform) run<P, O, ForceUniform, true>();
-      else                        run<P, O, ForceNone,    true>();
+      if      (fkind_ == ForceUniform)    run<P, O, ForceUniform,    true>();
+      else if (fkind_ == ForceField)      run<P, O, ForceField,      true>();
+      else if (fkind_ == ForceBoussinesq) run<P, O, ForceBoussinesq, true>();
+      else                                run<P, O, ForceNone,       true>();
     } else if (fkind_ == ForceUniform) {
       run<P, O, ForceUniform, false>();
     } else if (fkind_ == ForceBoussinesq) {
@@ -449,6 +461,11 @@ class Magnetic {
                                                           : std::vector<std::uint8_t>(),
                                       nx_, ny_, nz_, unk_, blind) > 0;
   }
+  // All three or none: a partially-null triple would apply the source to some
+  // components and not others. See magnetic.cuh's MagneticParams for what it is.
+  void set_source(const Real* sx, const Real* sy, const Real* sz) {
+    sx_ = sx; sy_ = sy; sz_ = sz;
+  }
   void advect_with(const Real* ux, const Real* uy, const Real* uz) {
     ux_ = ux; uy_ = uy; uz_ = uz;
   }
@@ -532,6 +549,7 @@ class Magnetic {
     MagneticParams p;
     p.g = g_.data(); p.flags = flags_.data();
     p.ux = ux_; p.uy = uy_; p.uz = uz_;
+    p.sx = sx_; p.sy = sy_; p.sz = sz_;
     p.Bx = Bx_.data(); p.By = By_.data(); p.Bz = Bz_.data();
     if (has_walls_) {
       p.mwall = mwall_.data();  p.unknown = unk_.data();
@@ -549,6 +567,7 @@ class Magnetic {
   std::vector<Real> wBx_, wBy_, wBz_;
   std::vector<std::uint8_t> flags_, mwall_, unk_;
   const Real *ux_ = nullptr, *uy_ = nullptr, *uz_ = nullptr;
+  const Real *sx_ = nullptr, *sy_ = nullptr, *sz_ = nullptr;
   bool has_geometry_ = false;
   bool has_walls_ = false;
   bool field_current_ = false;

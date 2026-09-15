@@ -786,9 +786,21 @@ class Solver {
     else                     launch_force<P, 1>();
   }
   template <int P, int O> void launch_force() {
+    // EVERY FORCE KIND THE NON-MHD BRANCH TAKES, THE MHD BRANCH MUST TAKE TOO.
+    // This enumerates template combinations by hand so that only the ones used
+    // are instantiated, and ForceField was missing from the mhd_ branch -- it
+    // fell through to ForceNone and the collision applied NOTHING. Silent,
+    // because macro_force honours ForceField unconditionally, so the reported
+    // velocity still carried Guo's half shift F/(2 rho) from a force that was
+    // never applied: a penalised MHD run would have shown the wall acting in
+    // every diagnostic and doing nothing to the dynamics. Held by
+    // test/host_physics.cpp mhd_field_force(), which measured exactly F/2 --
+    // the shift alone -- before this line existed.
     if (mhd_) {
-      if (fkind_ == ForceUniform) run<P, O, ForceUniform, true>();
-      else                        run<P, O, ForceNone,    true>();
+      if      (fkind_ == ForceUniform)    run<P, O, ForceUniform,    true>();
+      else if (fkind_ == ForceField)      run<P, O, ForceField,      true>();
+      else if (fkind_ == ForceBoussinesq) run<P, O, ForceBoussinesq, true>();
+      else                                run<P, O, ForceNone,       true>();
     } else if (fkind_ == ForceUniform) {
       run<P, O, ForceUniform, false>();
     } else if (fkind_ == ForceBoussinesq) {

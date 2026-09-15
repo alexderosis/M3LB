@@ -1614,6 +1614,180 @@ static void magnetic_wall() {
 //  ORDER shows up only in the damping -- and it does not refine away, which is
 //  how the parent implementation eventually found it.
 //==============================================================================
+//------------------------------------------------------------------------------
+// MHD + A PER-NODE FORCE. The two force kinds must agree.
+//
+// ForceUniform and ForceField are the same force delivered two ways: one a
+// constant in BodyForce, the other an array read per cell. On a uniform field
+// they must put identical momentum on the lattice, with or without a magnetic
+// coupling. Comparing them rather than checking either alone is what makes this
+// a test and not a restatement of the implementation.
+//
+// IT EXISTS BECAUSE IT FAILED. launch_force() and dispatch_force() enumerate the
+// template combinations by hand, and under mhd_ only ForceUniform was listed --
+// ForceField fell through to ForceNone and the collision applied NOTHING. That
+// alone would have been loud, but macro_force honours ForceField unconditionally,
+// so the REPORTED velocity still carried Guo's half shift F/(2 rho) from a force
+// that was never applied. A penalised MHD run would have shown the wall acting in
+// every diagnostic while contributing nothing to the dynamics -- the same silent
+// coupling failure CLAUDE.md records for ehd_cavity, where deleting the term
+// changed the answer by nothing.
+//------------------------------------------------------------------------------
+static void mhd_field_force() {
+  const int L = 16, ny = 4, nz = 4;
+  const int N = L * ny * nz;
+  const double nu = 0.02, eta = 0.02;
+  const Real Fx = Real(1e-5), B0 = Real(0.01);
+
+  auto momentum = [&](bool mhd, int kind) {
+    host::Magnetic mag(L, ny, nz, Real(eta));
+    host::Fluid    fl (L, ny, nz, Op::BGK, Real(nu));
+    std::vector<Real> field(std::size_t(N), Fx);
+    BodyForce b;
+    if (kind == ForceUniform) b.fx = Fx;
+    else { b.Fx = field.data(); b.Fy = nullptr; b.Fz = nullptr; }
+    // ForceField reads all three arrays, so give the null ones somewhere to point
+    std::vector<Real> zero(std::size_t(N), Real(0));
+    if (kind == ForceField) { b.Fy = zero.data(); b.Fz = zero.data(); }
+    fl.set_force(b, kind);
+    if (mhd) {
+      fl.couple_magnetic(mag.Bx_device(), mag.By_device(), mag.Bz_device());
+      mag.advect_with(fl.ux_device(), fl.uy_device(), fl.uz_device());
+      mag.initialise_with(
+          [B0](int, int, int, Real B[3]) { B[0] = Real(0); B[1] = B0; B[2] = Real(0); },
+          [](int, int, int, Real u[3]) { u[0] = u[1] = u[2] = Real(0); });
+    }
+    fl.initialise_with([](int, int, int) {
+      Macro m; m.rho = Real(1); m.ux = m.uy = m.uz = Real(0); return m;
+    });
+    const std::size_t T = 200;
+    for (std::size_t t = 0; t < T; ++t) { if (mhd) mag.compute_field(); fl.step(); if (mhd) mag.step(); }
+    const std::size_t NN = static_cast<std::size_t>(N);
+    std::vector<Real> rho(NN), ux(NN), uy(NN), uz(NN);
+    fl.macroscopic_to_host(rho, ux, uy, uz);
+    double p = 0;
+    for (std::size_t n = 0; n < NN; ++n) p += double(rho[n]) * double(ux[n]);
+    return p / double(N);                       // momentum per cell
+  };
+
+  const double want = double(Fx) * (200.0 + 0.5);   // F*(T + 1/2): Guo's half shift
+  for (int mhd = 0; mhd < 2; ++mhd) {
+    const double pu = momentum(mhd != 0, ForceUniform);
+    const double pf = momentum(mhd != 0, ForceField);
+    char buf[160];
+    std::snprintf(buf, sizeof buf, "%s: ForceField == ForceUniform",
+                  mhd ? "MHD" : "hydro");
+    check(std::fabs(pf - pu) / want < 1e-9, buf, pf, pu);
+    std::snprintf(buf, sizeof buf, "%s: ForceField momentum == F*(T+1/2)",
+                  mhd ? "MHD" : "hydro");
+    // the differential check above is exact -- same arithmetic both ways -- but
+    // the absolute one accumulates 200 steps of rounding, so it takes the
+    // precision-dependent tolerance the rest of this file uses.
+    check(std::fabs(pf - want) / want < (fp64 ? 1e-9 : 1e-4), buf, pf, want);
+  }
+}
+
+//------------------------------------------------------------------------------
+// THE PER-NODE MAGNETIC SOURCE, against the identity it cannot get wrong.
+//
+// The source is added post-collision on the weights, so sum_i w_i = 1 puts S_a
+// straight into B and sum_i w_i c_i = 0 leaves the induction flux alone. In a
+// periodic box with no velocity and no resistive decay to fight -- B uniform, so
+// laplacian B = 0 -- one step must therefore add EXACTLY S to B, and T steps T*S.
+//
+// Two things this checks that a single run cannot. A zero source must leave the
+// field bit-identical, which catches a source applied where it should not be.
+// And the growth must be LINEAR in T: a source added on the wrong side of the
+// scatter would still move B, but it would advance the field by a step as well,
+// which the parent tree records as the gather/scatter trap. Only a differential
+// run over several steps separates the two.
+//------------------------------------------------------------------------------
+static void magnetic_source() {
+  const int L = 8, ny = 4, nz = 4;
+  const std::size_t N = std::size_t(L) * ny * nz;
+  const Real B0 = Real(0.01), S = Real(1e-6);
+
+  auto run = [&](Real s_amp, std::size_t T) {
+    host::Magnetic mag(L, ny, nz, Real(0.02));
+    std::vector<Real> sx(N, s_amp), sy(N, Real(0)), sz(N, Real(0));
+    mag.set_source(sx.data(), sy.data(), sz.data());
+    mag.initialise_with(
+        [B0](int, int, int, Real B[3]) { B[0] = B0; B[1] = Real(0); B[2] = Real(0); },
+        [](int, int, int, Real u[3]) { u[0] = u[1] = u[2] = Real(0); });
+    for (std::size_t t = 0; t < T; ++t) mag.step();
+    double bx = 0;
+    const std::vector<Real>& b = mag.bx();
+    for (std::size_t n = 0; n < N; ++n) bx += double(b[n]);
+    return bx / double(N);
+  };
+
+  // a zero source must change nothing
+  check(std::fabs(run(Real(0), 50) - double(B0)) < (fp64 ? 1e-12 : 1e-6),
+        "magnetic source: S = 0 leaves B untouched", run(Real(0), 50), double(B0));
+
+  // and a uniform one must add exactly T*S, linearly
+  for (std::size_t T : {10u, 40u}) {
+    const double got = run(S, T);
+    const double want = double(B0) + double(T) * double(S);
+    char buf[128];
+    std::snprintf(buf, sizeof buf, "magnetic source: B grows by T*S after %zu steps", T);
+    check(std::fabs(got - want) / want < (fp64 ? 1e-9 : 1e-5), buf, got, want);
+  }
+}
+
+//------------------------------------------------------------------------------
+// nz = 1 ON THE MAGNETIC LATTICE. Untested until now, and relied upon.
+//
+// In a periodic direction one cell deep, wrap(z +/- 1, 1) = z, so a +/-z pair's
+// neighbour IS the node. Esoteric Pull still writes slots i and i+1 -- two
+// distinct slots at one node -- so nothing races and the population stays put,
+// which is what streaming into yourself means. rb_high_ra.cu:56 argues that for
+// the FLUID and measures it; every magnetic driver and every magnetic test in
+// this tree uses nz = 4, so the same claim on D3Q7 was assumption rather than
+// measurement. It matters because a 2-D case ported here runs at nz = 1.
+//
+// The test is an identity, not a tolerance: a field varying only in x cannot
+// know how deep the box is, so nz = 1 and nz = 4 must agree to round-off at
+// every node -- through resistive decay AND through advection by a velocity.
+//------------------------------------------------------------------------------
+static void magnetic_thin() {
+  const int L = 32;
+  const double eta = 0.02, k = 2.0 * M_PI / L, B0 = 0.02, U = 0.01;
+
+  auto profile = [&](int nz, std::size_t T) {
+    const int ny = 4;
+    host::Magnetic mag(L, ny, nz, Real(eta));
+    std::vector<Real> ux(std::size_t(L) * ny * nz, Real(U)),
+                      uy(std::size_t(L) * ny * nz, Real(0)),
+                      uz(std::size_t(L) * ny * nz, Real(0));
+    mag.advect_with(ux.data(), uy.data(), uz.data());
+    mag.initialise_with(
+        [k, B0](int x, int, int, Real B[3]) {
+          B[0] = Real(0); B[1] = Real(B0 * std::sin(k * x)); B[2] = Real(0);
+        },
+        [](int, int, int, Real u[3]) { u[0] = u[1] = u[2] = Real(0); });
+    for (std::size_t t = 0; t < T; ++t) mag.step();
+    // one x-line, which is all the field varies along
+    std::vector<double> line(static_cast<std::size_t>(L));
+    const std::vector<Real>& by = mag.by();
+    for (int x = 0; x < L; ++x) line[std::size_t(x)] = double(by[std::size_t(x)]);
+    return line;
+  };
+
+  for (std::size_t T : {1u, 200u}) {
+    const std::vector<double> a = profile(1, T), b = profile(4, T);
+    double worst = 0, scale = 0;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+      worst = std::max(worst, std::fabs(a[i] - b[i]));
+      scale = std::max(scale, std::fabs(b[i]));
+    }
+    char buf[128];
+    std::snprintf(buf, sizeof buf, "magnetic nz=1 == nz=4 after %zu step%s",
+                  T, T == 1 ? "" : "s");
+    check(worst / scale < (fp64 ? 1e-12 : 1e-5), buf, worst / scale, 0.0);
+  }
+}
+
 static void alfven(Op op, const char* name) {
   const int L = 64, ny = 4, nz = 4;
   const double nu = 0.01, eta = 0.01;
@@ -1720,6 +1894,9 @@ int main() {
   std::printf("\n  -- magnetohydrodynamics --\n");
   resistive_decay();
   magnetic_wall();
+  mhd_field_force();
+  magnetic_source();
+  magnetic_thin();
   alfven(Op::BGK, "BGK");
   alfven(Op::CentralMoments, "CM");
 
