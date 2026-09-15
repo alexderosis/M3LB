@@ -70,23 +70,63 @@ struct MhdCentralMoments<D2Q9, HighOrder, Forcing> {
   Real omega_bulk = Real(1);    // omega_3
   View1D<Real> Bx, By, Bz;
   //--------------------------------------------------------------------------
-  // A BODY FORCE, AND IN THE CENTRAL FRAME IT IS ONE LINE.
+  // A BODY FORCE. ORDER 2 IS FREE HERE; ORDER 3 IS NOT, AND WAS MISSING.
   //
-  // Guo's force expands in central moments as
-  //     K_F = [0, F_x, F_y, 0, 0, 0, cs^2 F_y, cs^2 F_x, 0],
-  // and MomentCollision.hpp argues at length why the third-order pair is not
-  // added. What is special about a CENTRAL operator is the order-2 block: the
-  // generic form carries (1 - omega/2)(F_a du_b + F_b du_a) with
-  // du = u - u_basis, and for central moments u_basis IS u, so du vanishes
-  // identically and the whole second-order contribution with it. The force
-  // therefore enters ONLY at first order.
+  // Guo's force expands in monomial central moments as
+  //     K_F = [0, F_x, F_y, 0, 0, 0, cs^2 F_y, cs^2 F_x, 0]
+  // in the ordering (00,10,01,20,02,11,21,12,22).
+  //
+  // What a CENTRAL operator gets for free is the order-2 block: the generic
+  // form carries (1 - omega/2)(F_a du_b + F_b du_a) with du = u - u_basis, and
+  // for central moments u_basis IS u, so du vanishes identically and the whole
+  // second-order contribution with it. That argument is sound and is why the
+  // order-2 lines below carry no force term.
+  //
+  // THE THIRD-ORDER PAIR IS A DIFFERENT MATTER, AND UNTIL 2026-09-15 THIS
+  // OPERATOR SIMPLY DROPPED IT. The original code deferred to
+  // MomentCollision.hpp's argument that putting the force in the first-order
+  // slot alone already delivers k_21 = cs^2 F_y "for free". Read that argument:
+  // it is explicitly conditioned on ITS basis being Hermite, phi_2 = C^2 - cs^2,
+  // so that k_21(monomial) = k_21(Hermite) + cs^2 k_01(Hermite) and the cs^2
+  // comes out of the basis function. THIS basis is the plain monomial one --
+  // said twice above, at the header note and at fwd/inv -- so nothing is
+  // carried and nothing is delivered. Transcribing a moment list from one basis
+  // into another is the trap CLAUDE.md names under "A published moment list
+  // belongs to a basis", and this was an instance of it.
+  //
+  // The coefficient is (1 - omega_6/2) K_21 with omega_6 = 1, i.e. cs^2 F / 2,
+  // which is F/6 on D2Q9. Three routes agree on it: the mode-wise (I - Lambda/2)
+  // rule; the Hermite identity above evaluated at the POST-collision first
+  // moment, k_21(monomial) = k_21(Hermite)^eq + cs^2 (F/2), which is what
+  // MomentCollision actually puts on the lattice in a run; and MhdBGK's Guo
+  // path, (1 - omega/2) cs^2 F, at omega = 1. So after this fix the two
+  // central-moment operators agree exactly and MhdBGK agrees at omega = 1.
+  //
+  // WHY NO TEST SAW IT. The omitted term is a divergence: it cancels for a
+  // UNIFORM force and is O(F) only where the force varies within a cell, which
+  // is precisely what a penalisation layer is. demonstrator/mhd_decay.cpp
+  // -fcheck is a uniform force in a periodic box measured on momentum, so it
+  // could not see it; tests/test_moments.cpp instantiates this operator with
+  // NoForcing. validation/forcing_cm.cpp now covers it directly, in both bases,
+  // and reverting these two lines takes it from 7.1e-13 to 1.67e-01 = cs^2/2 --
+  // i.e. the whole term, since nothing else was supplying it.
+  //
+  // AND HOW MUCH IT WAS WORTH, because "required" and "large" are not the same
+  // claim. Measured on `-regime 1 -n 161 -steps 4000`, the penalised case this
+  // operator was written for: the worst relative change across every reported
+  // column is 4.8e-4, at the divergence diagnostic. So the term is necessary for
+  // the operator to be its own documented scheme and to agree with its sibling,
+  // and it is NOT what stands between this case and the reference. It relaxes at
+  // omega_6 = 1 and enters the recovered hydrodynamics as an error term, so a
+  // thin penalisation layer is not enough leverage to move the bulk integrals.
+  // Do not quote this fix as a change in any regime result.
   //
   // The half-force convention does the rest. `macroscopic` reports
   // u = (sum c f + F/2)/rho, so the PRE-collision first central moment is
-  // -F/2; the post-collision value must be +F/2, which is why the two lines
-  // below write F/2 where the unforced operator writes zero. Getting that
-  // factor wrong is a silent 2x in the force and is exactly what the momentum
-  // identity in demonstrator/mhd_decay.cpp -fcheck exists to catch.
+  // -F/2; the post-collision value must be +F/2, which is why the line below
+  // writes F/2 where the unforced operator writes zero. Getting that factor
+  // wrong is a silent 2x in the force and is exactly what the momentum
+  // identity in -fcheck exists to catch -- and does catch.
   //--------------------------------------------------------------------------
   Forcing forcing{};
 
@@ -182,20 +222,23 @@ struct MhdCentralMoments<D2Q9, HighOrder, Forcing> {
 
     // back to monomial central moments; k0 = rho, k1 = k2 = 0 are invariants
     m[0][0] = rho;
-    if constexpr (Forcing::active) {
-      Real F[3]; forcing.at(n, F);
-      m[1][0] = Real(0.5) * F[0];
-      m[0][1] = Real(0.5) * F[1];
-    } else {
-      m[1][0] = Real(0);
-      m[0][1] = Real(0);
-    }
     m[2][0] = Real(0.5) * (k3s + k4s);
     m[0][2] = Real(0.5) * (k3s - k4s);
     m[1][1] = k5s;
-    m[2][1] = k6e;
-    m[1][2] = k7e;
     m[2][2] = k8e;
+    if constexpr (Forcing::active) {
+      constexpr Real cs2v = cs2<D2Q9, Real>();
+      Real F[3]; forcing.at(n, F);
+      m[1][0] = Real(0.5) * F[0];
+      m[0][1] = Real(0.5) * F[1];
+      m[2][1] = k6e + Real(0.5) * cs2v * F[1];   // (1 - omega_6/2) cs^2 F_y
+      m[1][2] = k7e + Real(0.5) * cs2v * F[0];   // (1 - omega_7/2) cs^2 F_x
+    } else {
+      m[1][0] = Real(0);
+      m[0][1] = Real(0);
+      m[2][1] = k6e;
+      m[1][2] = k7e;
+    }
 
     for (int q = 0; q < 3; ++q) inv(m[0][q], m[1][q], m[2][q], ux);
     for (int a = 0; a < 3; ++a) inv(m[a][0], m[a][1], m[a][2], uy);

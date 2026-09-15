@@ -1,9 +1,14 @@
 //==============================================================================
-//  Forcing central moments -- D2Q9 and D3Q27 central-moment operators.
+//  Forcing central moments -- every central-moment operator in the tree.
 //
-//  RESULT: the forcing this code already had is EXACTLY the high-order Hermite
-//  forcing, on both lattices. No extra term is needed, and adding one double
-//  counts.
+//  RESULT 1 (CentralMoments, D2Q9 and D3Q27): the forcing this code already had
+//  is EXACTLY the high-order Hermite forcing. No extra term is needed, and
+//  adding one double counts.
+//
+//  RESULT 2 (MhdCentralMoments, D2Q9): the SAME conclusion does not transfer,
+//  and assuming it did cost a wrong third-order force term from the operator's
+//  first commit until 2026-09-15. See "THE TRAP" below and that operator's
+//  banner. This case is what now holds it.
 //
 //  Expanding a body force in Hermite polynomials -- to fourth order on D2Q9, to
 //  sixth on D3Q27 -- and transforming to MONOMIAL central moments gives a single
@@ -42,6 +47,33 @@
 //  representations of the same populations: monomial must show the full pattern,
 //  Hermite must show the force in the first-order slots and nowhere else.
 //
+//  AND THE TRAP HAS A SECOND HALF: the argument is conditional on the basis, so
+//  it does NOT license dropping the term in an operator whose basis is monomial.
+//  MhdCentralMoments is exactly that -- De Rosis, Leveque & Chahine's Eq. (8),
+//  plain monomials, no cs^2 inside the basis functions -- and it deferred to the
+//  paragraph above and wrote its third-order slots at pure equilibrium. Nothing
+//  was delivered, so cs^2 F / 2 was simply absent. It is covered here now.
+//
+//  THE SCALE COLUMN, and why the two operator families read differently. This
+//  case measures the force CONTRIBUTION as (forced post-collision) minus
+//  (unforced post-collision) at the same rho, u and pre-collision f, which makes
+//  the equilibrium cancel. The two families reach the same post-collision state
+//  by different routes:
+//
+//    * CentralMoments ADDS the source to whatever the first-order moment was,
+//      so the difference is the source itself: scale 1.
+//    * MhdCentralMoments WRITES the post-collision moments absolutely, on the
+//      premise that `macroscopic` already applied Guo's half shift and left the
+//      pre-collision first central moment at -F/2. Here u and f are consistent,
+//      so that moment is 0 and the operator records half: scale 1/2, uniformly,
+//      in both bases -- k_1 = F/2 and, through the identity above evaluated at
+//      that post-collision value, k_21 = cs^2 F/2.
+//
+//  Both put the SAME populations on the lattice in a run, where the pre-collision
+//  moment really is -F/2; the factor is a property of the measurement, not of the
+//  physics, and it is asserted rather than assumed so that a future change to
+//  either convention fails here instead of silently.
+//
 //  METHOD. The force contribution is isolated by colliding the SAME macroscopic
 //  state twice, once with forcing and once without, and differencing the central
 //  moments. Passing Macro explicitly keeps u identical between the two calls, so
@@ -49,6 +81,7 @@
 //  macroscopic() instead would also pick up the F/(2 rho) velocity shift and
 //  measure the wrong thing.
 //==============================================================================
+#include "collision/MhdCentralMoments.hpp"
 #include "collision/MomentCollision.hpp"
 #include "core/Types.hpp"
 #include "forcing/Forcing.hpp"
@@ -82,14 +115,17 @@ static void cmoments(const Real f[], const Real u[3], int basis,
   }
 }
 
-template <class L>
-static int check(const char* name, const int (*E)[3], int NM) {
-  using Forced   = CentralMoments<L, Guo, RawPopulations>;
-  using Unforced = CentralMoments<L, NoForcing, RawPopulations>;
+// `scale` is the factor described under THE SCALE COLUMN in the banner: 1 for an
+// operator that adds the source, 1/2 for one that writes the post-collision
+// moments absolutely under the half-force convention. `setup` applies whatever
+// else the operator needs -- for the MHD operators, the magnetic field, which
+// must be identical in the forced and unforced calls so the equilibrium cancels.
+template <class L, class Forced, class Unforced, class Setup>
+static int check(const char* name, const int (*E)[3], int NM, double scale, Setup setup) {
   constexpr int D = L::D;
   const double cs2v = double(cs2<L, Real>());
 
-  std::mt19937 rng(2024);
+  std::mt19937 rng(2024), brng(7);
   std::uniform_real_distribution<double> U(-0.10, 0.10), Fd(-2e-3, 2e-3);
   int bad = 0;
 
@@ -99,10 +135,14 @@ static int check(const char* name, const int (*E)[3], int NM) {
       const Real rho = Real(1);
       const Real u[3] = {Real(U(rng)), Real(U(rng)), D == 3 ? Real(U(rng)) : Real(0)};
       const double F[3] = {Fd(rng), Fd(rng), D == 3 ? Fd(rng) : 0.0};
+      // Drawn from a separate stream so that adding the MHD operators here left
+      // the u and F sequences of the two original checks untouched.
+      const double b[3] = {U(brng), U(brng), D == 3 ? U(brng) : 0.0};
 
       Forced fc;  fc.omega = Real(1.2);
       fc.forcing = Guo{Real(F[0]), Real(F[1]), Real(F[2])};
       Unforced uc; uc.omega = Real(1.2);
+      setup(fc, b); setup(uc, b);
 
       std::vector<Real> f1(L::Q), f2(L::Q), d(L::Q);
       for (int i = 0; i < L::Q; ++i)
@@ -127,14 +167,15 @@ static int check(const char* name, const int (*E)[3], int NM) {
           if (basis == 0)              want = std::pow(cs2v, twos) * F[axis];
           else if (twos == 0)          want = F[axis];
         }
-        const double e = std::abs(k[j] - want) / sc;
+        const double e = std::abs(k[j] - scale * want) / sc;
         if (e > worst) { worst = e; wj = j; }
       }
     }
     const bool ok = worst < 1e-11;
     if (!ok) ++bad;
-    std::printf("  %-6s %-9s worst |operator - K_force| / |F| = %.2e   at k_%d%d%d   %s\n",
-                name, basis ? "Hermite" : "monomial", worst,
+    std::printf("  %-8s %-9s scale %.1f   worst |operator - K_force| / |F| = %.2e"
+                "   at k_%d%d%d   %s\n",
+                name, basis ? "Hermite" : "monomial", scale, worst,
                 E[wj][0], E[wj][1], E[wj][2], ok ? "OK" : "MISMATCH");
   }
   return bad;
@@ -155,11 +196,46 @@ int main(int argc, char** argv) {
     std::printf("Forcing central moments vs the Hermite closed form\n");
     std::printf("backend %s   precision %s\n\n", ExecSpace::name(), precision_name());
     std::printf("  K_force(monomial) = cs^(2m) F_a   exponent 1 on axis a, 2 on m others\n");
-    std::printf("  K_force(Hermite)  = F_a on the first-order slots, zero elsewhere\n\n");
-    bad += check<D2Q9>("D2Q9", E2, n2);
-    bad += check<D3Q27>("D3Q27", E3, n3);
+    std::printf("  K_force(Hermite)  = F_a on the first-order slots, zero elsewhere\n");
+    std::printf("  scale 1 = the operator adds the source; 1/2 = it writes the\n"
+                "  post-collision moments absolutely under the half-force convention\n\n");
+
+    auto none = [](auto&, const double*) {};
+    bad += check<D2Q9,  CentralMoments<D2Q9,  Guo, RawPopulations>,
+                        CentralMoments<D2Q9,  NoForcing, RawPopulations>>
+                ("D2Q9", E2, n2, 1.0, none);
+    bad += check<D3Q27, CentralMoments<D3Q27, Guo, RawPopulations>,
+                        CentralMoments<D3Q27, NoForcing, RawPopulations>>
+                ("D3Q27", E3, n3, 1.0, none);
+
+    // The MHD operator on the same lattice, in the paper's plain MONOMIAL basis.
+    // Its third-order force term is the one this case was extended to hold: it
+    // was absent, and the argument that licensed dropping it belongs to the
+    // Hermite basis above. Both equilibrium orders are run because the force
+    // must not depend on which one is selected -- HighOrder only moves hyd6/hyd7,
+    // which cancel in the difference, so a force term accidentally folded into
+    // the equilibrium would show up as a scale that differs between these rows.
+    View1D<Real> bx("bx", 1), by("by", 1), bz("bz", 1);
+    auto hbx = Kokkos::create_mirror_view(bx);
+    auto hby = Kokkos::create_mirror_view(by);
+    auto hbz = Kokkos::create_mirror_view(bz);
+    auto mhd = [&](auto& op, const double b[3]) {
+      hbx(0) = Real(b[0]); hby(0) = Real(b[1]); hbz(0) = Real(b[2]);
+      Kokkos::deep_copy(bx, hbx);
+      Kokkos::deep_copy(by, hby);
+      Kokkos::deep_copy(bz, hbz);
+      op.omega_bulk = Real(0.8);      // distinct from omega, and identical in both
+      op.Bx = bx; op.By = by; op.Bz = bz;
+    };
+    bad += check<D2Q9, MhdCentralMoments<D2Q9, true,  Guo>,
+                       MhdCentralMoments<D2Q9, true,  NoForcing>>
+                ("MhdCM", E2, n2, 0.5, mhd);
+    bad += check<D2Q9, MhdCentralMoments<D2Q9, false, Guo>,
+                       MhdCentralMoments<D2Q9, false, NoForcing>>
+                ("MhdCM2", E2, n2, 0.5, mhd);
+
     std::printf("\n  %s\n", bad == 0
-      ? "CONFIRMED on both lattices: the existing forcing already equals the Hermite K_force"
+      ? "CONFIRMED: every central-moment operator delivers the Hermite K_force"
       : "*** MISMATCH ***");
   }
   Kokkos::finalize();
