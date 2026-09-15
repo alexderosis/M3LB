@@ -121,11 +121,19 @@ in the decay.
 | IV | −0.236 | −0.095 | −0.088 | −0.162 | −0.024 | −0.201 |
 
 **This is the headline non-reproduction, and Eq. (11) sharpened it rather than
-fixing it.** Regime III reaches **cos θ = 0.866 at t = 40 against the paper's
-0.864 at t = 30** — essentially exact — and then falls away to 0.029 where the
-paper climbs to 0.847. So the alignment mechanism *is* captured and then not
-sustained. That is a much more specific statement than "alignment not
-reproduced", and it was unavailable before, because regime III could not be run.
+fixing it.** Both curves rise to the same peak and then part: ours reaches
+**cos θ = 0.880 at t = 27**, the paper's **0.864 at t = 30** — agreeing to
+**1.9 %** in amplitude and about 10 % in timing — after which ours falls away to
+0.029 while the paper climbs to 0.847. So the alignment mechanism *is* captured
+and then not sustained. That is a much more specific statement than "alignment
+not reproduced", and it was unavailable before, because regime III could not be
+run.
+
+*(An earlier draft of this file quoted 0.866 at t = 40 against 0.864 at t = 30
+and called the agreement "essentially exact" at 0.2 %. Both numbers are real —
+0.866 is the t = 36 sample — but pairing our value at one time with theirs at
+another is not a comparison, and it flattered the result. Peak against peak is
+1.9 %.)*
 
 The corroborating measurement is E/|H_c| (Fig. 2, bottom), whose minimum of 2 is
 the paper's own signature of dynamic alignment: regime III goes 3.45 → 9.89 →
@@ -180,8 +188,8 @@ Selective decay in regime I: the E/A decay factor agrees to 6 %. Regime II's
 late-time decay rate α to 12 %.
 
 **Not reproduced.** Dynamic alignment is not sustained: regime III matches to
-0.2 % at t ≈ 30–40 and then decays away, with E/|H_c| leaving 2 rather than
-settling on it. Absolute E/A is low by 1.4–4.3× *at t = 0*, cause unknown.
+1.9 % at the peak near t ≈ 30 and then decays away, with E/|H_c| leaving 2
+rather than settling on it. Absolute E/A is low by 1.4–4.3× *at t = 0*, cause unknown.
 Intermediate-time decay exponents are 2–3× too steep, explained by the clock
 mismatch at Re = 1000.
 
