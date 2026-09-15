@@ -243,6 +243,7 @@
 #include "collision/MhdBGK.hpp"
 #include "collision/MhdCentralMoments.hpp"
 #include "solver/MagneticSolver.hpp"
+#include "solver/ScalarSolver.hpp"
 
 #include <type_traits>
 
@@ -359,6 +360,8 @@ struct Opts {
   std::size_t steps = 170000, probe = 2000, vtkevery = 0, binevery = 0;
   double eps = 2.0, smooth = 1.0, epsm = 2.0;
   int regime = 0;                 // 0 = this file's own IC; 1..4 = Neffaa Table I
+  double hct = 0.0;               // Table I's H_c for that regime; 0 = do not impose
+  int kmax = 0;                   // spectrum cut for -regime; 0 = the default 24
   std::string vtkdir, bindir, walls = "insul", shape = "disc", wall = "reg";
 };
 
@@ -403,6 +406,14 @@ static int run(const Opts& o) {
   // turnover times of the `cond` run are that relaxation and not decay.
   //--------------------------------------------------------------------------
   std::vector<double> hux(std::size_t(N) * N, 0.0), huy(hux), hbx(hux), hby(hux);
+  // THE VECTOR POTENTIAL, CARRIED RATHER THAN RECOVERED. A = (1/2) int a^2 is
+  // Table I's first column and the centre panel of Fig. 2, and it is regime II's
+  // only published signature. Inverting the curl of b to get a would be a Poisson
+  // solve on a disc AND would inherit whatever div b the run has drifted to; but
+  // b is built from potentials by a LINEAR operator, and every transformation
+  // below -- orthogonalisation, Eq. (11) mixing, normalisation -- is linear too,
+  // so the potential of the final b is exact if it is carried alongside.
+  std::vector<double> hapot(hux);
   {
     Rng rng(o.seed);
     struct Mode { double kx, ky, pp, pa, ap, aa; };
@@ -416,7 +427,13 @@ static int run(const Opts& o) {
     // Getting that chain wrong is silent: the field still looks like turbulence
     // and simply has the wrong spectrum.
     const double g_ne = 0.98, k0_ne = 0.75 * std::sqrt(2.0) * M_PI;
-    const int kmax = o.regime ? 24 : o.k0 + o.kw;
+    // THE SPECTRUM CUT, AND IT IS NOT FREE. Neffaa run 512^2 dealiased, so their
+    // Eq. (6) is populated to k ~ 170; 24 was this file's own choice and was
+    // never stated. Energy loss above k = 24 is small (~4%) because E(k) ~ k^-3,
+    // but ENSTROPHY is not -- int k^2 E ~ int 1/k -- so a truncated field
+    // renormalised to the same energy is much smoother, and E/A, being 1/length^2,
+    // reads low. -kmax makes that a measurement instead of a hidden constant.
+    const int kmax = o.regime ? (o.kmax > 0 ? o.kmax : 24) : o.k0 + o.kw;
     for (int kx = -kmax; kx <= kmax; ++kx)
       for (int ky = 0; ky <= kmax; ++ky) {
         if (kx == 0 && ky == 0) continue;
@@ -458,6 +475,102 @@ static int run(const Opts& o) {
         hbx[at(x, y)] =  0.5 * (apot[at(x, y + 1)] - apot[at(x, y - 1)]);
         hby[at(x, y)] = -0.5 * (apot[at(x + 1, y)] - apot[at(x - 1, y)]);
       }
+    //--------------------------------------------------------------------------
+    // THE CROSS HELICITY IS IMPOSED, NOT DRAWN. Eq. (11).
+    //
+    // A regime is the PAIR (E_u/E_B, H_c). The energy ratio is set below; H_c
+    // used to be whatever the random draw happened to give -- +-0.28 between
+    // seeds -- so regime III, which IS its cross helicity, could not be run at
+    // all, and regime I had to be seed-hunted towards zero. Neffaa's Eq. (11)
+    // builds B as a mixture, B = beta u + (1 - beta) u_perp, and beta then
+    // controls the alignment exactly.
+    //
+    // WITH ONE DEPARTURE, AND IT IS FORCED. Taken literally, u_perp is u rotated
+    // pointwise by pi/2: for u = grad_perp psi that is -grad psi, whose
+    // divergence is -laplacian psi = omega. So the literal construction gives
+    // div B = (1 - beta) omega -- NOT solenoidal, and this code carries B
+    // directly (Dellar) rather than as the curl of a potential, so nothing would
+    // clean it up; the div b diagnostic would start at O(1) instead of 1e-16.
+    // What Eq. (11) actually needs of u_perp is only that it be orthogonal to u,
+    // so the independent solenoidal field this IC already draws is used in its
+    // place. It is orthogonal in the mean rather than pointwise, which is all
+    // the global H_c depends on.
+    //
+    // beta is then solved rather than substituted, because <u.w> is not exactly
+    // zero for a finite draw: bisection on the exact expression for cos(theta)
+    // absorbs whatever correlation the realisation happens to carry, so the
+    // achieved H_c is right for ANY seed. That is what removes the seed hunt.
+    //--------------------------------------------------------------------------
+    if (o.regime && o.hct > 0.0) {
+      auto at2 = [&](Index x, Index y) { return std::size_t(y) * N + x; };
+      double quu = 0, qww = 0, quw = 0;
+      for (Index y = 0; y < N; ++y)
+        for (Index x = 0; x < N; ++x) {
+          if (solid(x, y)) continue;
+          const double ux = hux[at2(x, y)], uy = huy[at2(x, y)];
+          const double wx = hbx[at2(x, y)], wy = hby[at2(x, y)];
+          quu += ux * ux + uy * uy;
+          qww += wx * wx + wy * wy;
+          quw += ux * wx + uy * wy;
+        }
+      // ORTHOGONALISE FIRST, because the second field is not independent enough.
+      // psi and a are drawn with independent phases but share a mode set, an
+      // amplitude and -- the one that dominates -- the (1-(r/R)^2)^2 taper, so
+      // <u.w> comes out at +0.24 on the default seed rather than the ~0.02 a
+      // free draw gives. Left alone that is a FLOOR on the achievable alignment:
+      // beta >= 0 can only raise cos(theta), so regimes I, II and IV, which want
+      // 0.044, 5e-7 and 0.090, would all be unreachable. One Gram-Schmidt step
+      // makes u_perp actually perpendicular, which is what Eq. (11) means by it,
+      // and then beta in [0, 1] covers cos(theta) in [0, 1] monotonically.
+      {
+        const double proj = quw / std::max(quu, 1e-300);
+        qww = 0; quw = 0;
+        for (std::size_t k = 0; k < hux.size(); ++k) {
+          hbx[k] -= proj * hux[k];
+          hby[k] -= proj * huy[k];
+          apot[k] -= proj * psi[k];     // same operation one level up
+        }
+        for (Index y = 0; y < N; ++y)
+          for (Index x = 0; x < N; ++x) {
+            if (solid(x, y)) continue;
+            const double wx = hbx[at2(x, y)], wy = hby[at2(x, y)];
+            qww += wx * wx + wy * wy;
+            quw += hux[at2(x, y)] * wx + huy[at2(x, y)] * wy;
+          }
+      }
+      // unit-r.m.s. both fields so beta alone sets the alignment
+      const double su0 = std::sqrt(std::max(quu, 1e-300));
+      const double sw0 = std::sqrt(std::max(qww, 1e-300));
+      const double Quu = 1.0, Qww = 1.0, Quw = quw / (su0 * sw0);
+      // Table I quotes H_c against Eq. (10)'s normalisation, E_B = 1/2 and
+      // E_u = alf/2, so the relative cross helicity it implies is
+      //     cos(theta) = H_c / sqrt(E_u E_B) = H_c / (0.5 sqrt(alf)).
+      const double ctarget = o.hct / (0.5 * std::sqrt(std::max(o.alf, 1e-300)));
+      auto cos_of = [&](double beta) {
+        const double hc = beta * Quu + (1.0 - beta) * Quw;
+        const double eb = beta * beta * Quu + 2.0 * beta * (1.0 - beta) * Quw
+                        + (1.0 - beta) * (1.0 - beta) * Qww;
+        return hc / std::sqrt(std::max(Quu * eb, 1e-300));
+      };
+      double lo = 0.0, hi = 1.0;
+      if (ctarget > cos_of(hi)) { lo = hi = 1.0; }        // unreachable: clamp
+      for (int it = 0; it < 200; ++it) {                  // cos is monotone on [0,1]
+        const double mid = 0.5 * (lo + hi);
+        (cos_of(mid) < ctarget ? lo : hi) = mid;
+      }
+      const double beta = 0.5 * (lo + hi);
+      for (std::size_t k = 0; k < hux.size(); ++k) {
+        const double ux = hux[k] / su0, uy = huy[k] / su0;
+        const double wx = hbx[k] / sw0, wy = hby[k] / sw0;
+        hbx[k] = beta * ux + (1.0 - beta) * wx;
+        hby[k] = beta * uy + (1.0 - beta) * wy;
+        apot[k] = beta * psi[k] / su0 + (1.0 - beta) * apot[k] / sw0;
+      }
+      std::printf("  Eq. (11) mixing: beta %.6f gives cos(theta) %.6f "
+                  "against Table I's %.6f  (<u.w> = %+.4f)\n",
+                  beta, cos_of(beta), ctarget, Quw);
+    }
+
     // Normalise to the requested r.m.s. velocity and Alfven ratio. Matching the
     // R.M.S. and not the maximum: a random field's maximum is one lucky cell
     // and is not reproducible between streams, so normalising by it would make
@@ -476,6 +589,7 @@ static int run(const Opts& o) {
     const double fb = (o.u0 / std::sqrt(std::max(o.alf, 1e-300))) / std::max(brms, 1e-300);
     for (std::size_t k = 0; k < hux.size(); ++k) {
       hux[k] *= fu; huy[k] *= fu; hbx[k] *= fb; hby[k] *= fb;
+      hapot[k] = apot[k] * fb;          // b = curl a, so a scales with b
     }
   }
 
@@ -634,6 +748,57 @@ static int run(const Opts& o) {
   });
   mag.set_velocity(fl.ux(), fl.uy(), fl.uz());
 
+  //--------------------------------------------------------------------------
+  // THE VECTOR POTENTIAL AS ITS OWN FIELD, so that A = (1/2) int a^2 can be
+  // measured. Eq. (15) is (d/dt - eta laplacian) a = [a, psi] = -u.grad a, i.e.
+  // a is advected at u and diffused at the RESISTIVITY -- the same eta the
+  // magnetic solver uses, not nu. A D2Q5 scalar is exactly that equation.
+  //
+  // TWO THINGS THIS IS NOT. It is not a second copy of the magnetic field: b is
+  // still Dellar's vector distribution and nothing reads a back into it, so the
+  // dynamics are untouched and a rides along as a diagnostic. And it is not
+  // exact -- ScalarBGK recovers the CONSERVATIVE form, d_t a + div(u a), which
+  // equals the advective form only where div u = 0, so it carries a spurious
+  // a div u at O(Ma^2). That is the order of the compressibility error the
+  // scheme already has, and the curl check below is what says whether it bites.
+  //--------------------------------------------------------------------------
+  using AL = D2Q5;
+  ScalarBGK<AL> acoll;
+  acoll.omega = ScalarBGK<AL>::omega_from_diffusivity(eta);
+  acoll.T_ref = Real(0);                       // a is signed and centred on zero
+  ScalarSolver<AL, EsotericPull<AL>, ScalarBGK<AL>> av(d, acoll);
+  av.set_velocity(fl.ux(), fl.uy(), fl.uz());
+  {
+    View1D<Real> a0("a0", d.n_padded);
+    auto ha0 = Kokkos::create_mirror_view(a0);
+    for (Index n = 0; n < d.n_padded; ++n) ha0(n) = Real(0);
+    for (Index y = 0; y < N; ++y)
+      for (Index x = 0; x < N; ++x)
+        ha0(d.id(x, y, 0)) = Real(hapot[std::size_t(y) * N + x]);
+    Kokkos::deep_copy(a0, ha0);
+    av.initialize_field(KOKKOS_LAMBDA(Index n) { return a0(n); });
+  }
+  // IS THE CARRIED POTENTIAL ACTUALLY THE POTENTIAL OF b? curl a must reproduce
+  // the b the run was seeded with. Checked rather than assumed, because the
+  // Eq. (11) mixing rebuilt b from two fields and "a followed it through" is
+  // exactly the kind of claim that is silently wrong.
+  {
+    double num = 0, den = 0;
+    auto A = [&](Index x, Index y) { return hapot[std::size_t(y) * N + x]; };
+    for (Index y = 1; y < N - 1; ++y)
+      for (Index x = 1; x < N - 1; ++x) {
+        if (solid(x, y)) continue;
+        const double cx =  0.5 * (A(x, y + 1) - A(x, y - 1));
+        const double cy = -0.5 * (A(x + 1, y) - A(x - 1, y));
+        const double ex = cx - hbx[std::size_t(y) * N + x];
+        const double ey = cy - hby[std::size_t(y) * N + x];
+        num = std::max(num, std::sqrt(ex * ex + ey * ey));
+        den = std::max(den, std::sqrt(cx * cx + cy * cy));
+      }
+    std::printf("  vector potential: max|curl a - b| / max|b| = %.3e\n",
+                den > 0 ? num / den : 0.0);
+  }
+
   const double T_e = 2.0 * R / o.u0;     // one large-eddy turnover
   std::size_t nfluid = 0;
   for (Index y = 0; y < N; ++y)
@@ -702,8 +867,8 @@ static int run(const Opts& o) {
               (unsigned long long)o.seed);
   std::printf("  one turnover 2R/u0 = %.0f steps; running %zu (%.1f turnovers)\n\n",
               T_e, o.steps, double(o.steps) / T_e);
-  std::printf("  %8s %8s %11s %11s %9s %11s %11s %7s %7s %8s %11s %11s %9s %9s %10s\n",
-              "step", "t/T_e", "E_kin", "E_mag", "E_k/E_m", "enstrophy",
+  std::printf("  %8s %8s %11s %11s %9s %10s %11s %11s %7s %7s %8s %11s %11s %9s %9s %10s\n",
+              "step", "t/T_e", "E_kin", "E_mag", "E_k/E_m", "E/A", "enstrophy",
               "<j^2>", "L_u", "L_b", "H_c", "|<b>|", "max|b|", "dv/cl", "bulk",
               "Bn/B|wall");
   std::printf("  %s\n", std::string(164, '-').c_str());
@@ -745,7 +910,8 @@ static int run(const Opts& o) {
     const bool want_bin   = o.binevery && (t % o.binevery == 0);
     const bool want_vtk   = o.vtkevery && (t % o.vtkevery == 0);
     if (want_probe || want_bin || want_vtk) {
-      fl.compute_macroscopic(); mag.compute_field();
+      fl.compute_macroscopic(); mag.compute_field(); av.compute_field();
+      auto ha = Kokkos::create_mirror_view_and_copy(HostSpace{}, av.temperature());
       auto hu = Kokkos::create_mirror_view_and_copy(HostSpace{}, fl.ux());
       auto hv = Kokkos::create_mirror_view_and_copy(HostSpace{}, fl.uy());
       auto hp = Kokkos::create_mirror_view_and_copy(HostSpace{}, mag.Bx());
@@ -775,7 +941,7 @@ static int run(const Opts& o) {
       // direct statement: the largest normal component of B on the boundary
       // ring, as a fraction of the largest |B| there. It should be small under
       // -wall pen and is not constrained at all without it.
-      double bn_max = 0, bt_max = 0;
+      double bn_max = 0, bt_max = 0, aa = 0, am = 0;
       bool fin = true;
       for (Index y = 0; y < N; ++y)
         for (Index x = 0; x < N; ++x) {
@@ -787,6 +953,8 @@ static int run(const Opts& o) {
               !std::isfinite(q)) { fin = false; continue; }
           ek += 0.5 * (a * a + b * b);
           em += 0.5 * (p * p + q * q);
+          aa += 0.5 * double(ha(n)) * double(ha(n));
+          am += double(ha(n));
           hc += a * p + b * q;
           mbx += p; mby += q;
           bmax = std::max(bmax, std::sqrt(p * p + q * q));
@@ -832,7 +1000,17 @@ static int run(const Opts& o) {
         }
       const double inv = cnt ? 1.0 / double(cnt) : 0.0;
       const double dinv = dcnt ? 1.0 / double(dcnt) : 0.0;
-      ek *= inv; em *= inv; hc *= inv; mbx *= inv; mby *= inv;
+      ek *= inv; em *= inv; hc *= inv; mbx *= inv; mby *= inv; aa *= inv; am *= inv;
+      // A IS GAUGE-DEPENDENT, AND THE PAPER SAYS SO. b = curl a fixes a only up
+      // to a constant, and A = (1/2) int a^2 moves with it -- Neffaa's note added
+      // in proof records exactly this, that their method does NOT impose a = 0 at
+      // the wall and that imposing it "will also change the integral value A".
+      // So A is only comparable once a gauge is named. The one named here is
+      // ZERO MEAN over the fluid disc, which is what a spectral inversion gives
+      // (it cannot set the k = 0 mode) and which is also the gauge that MINIMISES
+      // A, hence the largest E/A any gauge can report. Quoting E/A without this
+      // is quoting an arbitrary constant.
+      aa -= 0.5 * am * am;
       en *= dinv; jj *= dinv; dvb *= dinv;
       const double kinv = kcnt ? 1.0 / double(kcnt) : 0.0;
       dvb2 *= kinv; jj2 *= kinv;
@@ -846,9 +1024,16 @@ static int run(const Opts& o) {
       // do; what the alignment does is only visible after dividing it out.
       const double hcn = (ek + em) > 0 ? hc / (2.0 * std::sqrt(ek * em) + 1e-300) : 0.0;
       if (want_probe) {
-        std::printf("  %8zu %8.2f %11.4e %11.4e %9.4f %11.4e %11.4e %7.2f %7.2f %+8.4f "
+        // E/A IN THE PAPER'S UNITS, so the column can be read straight against
+        // Table I. E/A has dimensions 1/length^2, and one cell is 2 pi / N of
+        // the paper's length unit, so the lattice value scales by (N/2pi)^2 --
+        // 2610 at N = 321. Both E and A are per-cell means over the same cells,
+        // so the ratio is the ratio of the integrals.
+        const double ea_fac = (double(N) / (2.0 * M_PI)) * (double(N) / (2.0 * M_PI));
+        std::printf("  %8zu %8.2f %11.4e %11.4e %9.4f %10.4g %11.4e %11.4e %7.2f %7.2f %+8.4f "
                     "%11.4e %11.4e %9.2e %9.2e %10.3e%s\n",
-                    t, double(t) / T_e, ek, em, em > 0 ? ek / em : 0.0, en, jj, Lu, Lb,
+                    t, double(t) / T_e, ek, em, em > 0 ? ek / em : 0.0,
+                    aa > 0 ? (ek + em) / aa * ea_fac : 0.0, en, jj, Lu, Lb,
                     hcn, std::sqrt(mbx * mbx + mby * mby), bmax,
                     jj > 0 ? std::sqrt(dvb / jj) : 0.0,
                     jj2 > 0 ? std::sqrt(dvb2 / jj2) : 0.0,
@@ -935,7 +1120,7 @@ static int run(const Opts& o) {
             sy(n) = -ch(n) * bn * ny2(n) * iem;
           });
       }
-      mag.compute_field(); fl.step(true); mag.step(true);
+      mag.compute_field(); fl.step(true); mag.step(true); av.step();
     }
   }
   const double mrel = double(fl.total_mass()) / double(m0) - 1.0;
@@ -1045,13 +1230,23 @@ int main(int argc, char** argv) {
         // and the energy ratio together, because they are one case and picking
         // them apart is how a run ends up being of no published thing at all.
         o.regime = std::atoi(argv[++i]);
+        if (o.regime < 1 || o.regime > 4) {
+          std::printf("  -regime must be 1..4 (Neffaa Table I); got %d\n", o.regime);
+          Kokkos::finalize();
+          return 2;
+        }
         o.rfac = 19.0 / 40.0;         // r = (19/20) pi in a box of 2 pi
         o.wall = "pen";               // the reference's method
-        if (o.regime == 1) o.alf = 0.3;
-        if (o.regime == 2) o.alf = 1.9e4;
-        if (o.regime == 3) o.alf = 1.3;
-        if (o.regime == 4) o.alf = 1.0;
+        // BOTH columns of Table I, because a regime is the PAIR (E_u/E_B, H_c)
+        // and setting only the first is how -regime 3 used to produce a
+        // regime-IV variant wearing regime III's label. H_c is imposed by the
+        // mixing below, not hunted for with -seed.
+        if (o.regime == 1) { o.alf = 0.3;   o.hct = 0.012;   }
+        if (o.regime == 2) { o.alf = 1.9e4; o.hct = 3.5e-5;  }
+        if (o.regime == 3) { o.alf = 1.3;   o.hct = 0.27;    }
+        if (o.regime == 4) { o.alf = 1.0;   o.hct = 0.045;   }
       }
+      if (a == "-kmax"  && i + 1 < argc) o.kmax = std::atoi(argv[++i]);
       if (a == "-op"    && i + 1 < argc) op = argv[++i];
       if (a == "-fcheck") fcheck = true;
     }
