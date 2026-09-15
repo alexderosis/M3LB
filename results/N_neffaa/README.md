@@ -52,18 +52,51 @@ commit `Both columns of Table I...`. That is a statement about the setup. **E/A
 is the one initial quantity that can disagree**, being an outcome of the
 spectrum, and it does: low by a factor 1.9 to 4.3.
 
-Two candidate explanations were tested and **both ruled out**:
+**That shortfall is not ours. Eq. (6) itself does not produce Table I's E/A.**
 
-- **Not the spectrum cut.** `-kmax` at 24 / 40 / 60 / 80 / 120 gives E/A =
-  7.6, 8.9, 7.3, 4.8, 9.8 — non-monotonic, because the central-difference curl
-  under-resolves **b** as kmax approaches the Nyquist.
-- **Not the gauge.** A is gauge-dependent and the paper's *note added in proof*
-  says so explicitly. Fixing the zero-mean gauge over the fluid disc — the gauge
-  a spectral inversion gives, and the one that *minimises* A — moves the number
-  by 0.1 %.
+E/A follows from the spectrum analytically, with no run involved. Since
+**b** = ∇×a, the shell spectrum of a is E_b(k)/k², so
 
-**This is open.** It is the sharpest single discrepancy in the comparison and it
-is present at t = 0, before any dynamics.
+    E/A = (1 + alf) · Σ E_b(k) / Σ E_b(k)/k²
+
+— a weighted mean square wavenumber. The paper's box is 2π, so the mode index is
+the wavenumber itself and no unit conversion enters. `spectrum_check.py`
+evaluates it; the result is that Eq. (6) predicts **E/A = 4.76** for regime I,
+against Table I's 16, and the prediction is *converged* in the spectrum cut
+(4.58 at kmax = 24, 4.76 at 170, 4.76 at 400).
+
+Against that prediction our initial condition is faithful:
+
+| regime | ours | Eq. (6) | ours/Eq. (6) | Table I | Eq. (6)/Table I |
+|---|---|---|---|---|---|
+| I | 5.49 | 4.58 | 1.20 | 16 | 0.29 |
+| II | 7.96e4 | 6.69e4 | 1.19 | 3.4e5 | 0.20 |
+| III | 10.6 | 8.10 | 1.31 | 31 | 0.26 |
+| IV | 8.51 | 7.04 | 1.21 | 16 | 0.44 |
+
+We sit **1.2–1.3× above Eq. (6)** — finite-mode realisation scatter, consistent
+across all four regimes. Eq. (6) sits at 0.20–0.44× of Table I. **So the
+disagreement is between Table I and Eq. (6), not between this tree and the
+paper.**
+
+Three further readings of Eq. (6) were tested and none reaches Table I. Taking it
+as the *enstrophy and current* spectrum makes it **worse** (0.07–0.16×), which is
+obvious once E/A is recognised as a mean square wavenumber: moving the spectrum
+onto ω and j removes two powers of k from **b** and smooths the field, where
+raising E/A needs more small-scale magnetic power. Taking it as the spectrum of
+the *potentials* overshoots by 8–18×. The gauge cannot close it either, and for
+the same directional reason — a non-zero mean in a only ever *increases* A, and
+zero mean already minimises it, so no gauge choice raises E/A at all.
+
+Solving instead for the spectrum Table I would need gives E_b(k) = k^0.86 ×
+Eq. (6), i.e. a large-k slope of about **k^−2.1** — against the **k^−3** the
+paper states in the sentence immediately following Eq. (6). The four regimes
+agree on that exponent independently (p = 0.86, 1.06, 0.91, 0.60).
+
+**Conclusion: this is an inconsistency in the reference, not a defect here.** Our
+initial condition implements Eq. (6) as written, and every reading that would
+raise E/A contradicts the stated k^−3 tail. Changing the spectrum to chase
+Table I would mean abandoning the equation the paper gives.
 
 ## 2. E_u/E_B — Fig. 2, top
 
@@ -189,7 +222,9 @@ late-time decay rate α to 12 %.
 
 **Not reproduced.** Dynamic alignment is not sustained: regime III matches to
 1.9 % at the peak near t ≈ 30 and then decays away, with E/|H_c| leaving 2
-rather than settling on it. Absolute E/A is low by 1.4–4.3× *at t = 0*, cause unknown.
+rather than settling on it. Absolute E/A is low by 1.9–4.3× at t = 0 — but that
+is traced to Table I disagreeing with Eq. (6) by the same factor, not to this
+tree; see §1.
 Intermediate-time decay exponents are 2–3× too steep, explained by the clock
 mismatch at Re = 1000.
 
@@ -197,7 +232,27 @@ mismatch at Re = 1000.
 which would be a Poisson solve; Fig. 5's PDF of local cos θ; Fig. 3's periodic
 control.
 
-**The single largest caveat** is Re = 1000 against the paper's 3868–7920. The
+**The Reynolds definition was checked, and it holds.** Eq. (7) writes E as an
+integral over V_f, but `Re = 2r√(2E_u)/ν` is a Reynolds number only if `√(2E_u)`
+is a *velocity*: in 2-D an integral of |u|² over an area has units L⁴/T², whose
+square root is L²/T, and `2r(L²/T)/ν` then has units of length rather than being
+dimensionless. The two cannot both be literal. The mean reading — E_u per unit
+area, so `√(2E_u)` is the rms velocity — gives u_rms ≈ 0.65–1.33 and reproduces
+the quoted Re by construction; the integral reading gives u_rms ≈ 0.12–0.25 and a
+*physical* Reynolds number of only 731–1497, far too low for the k^−3 turbulence
+of their Figs. 7–8. **So E_u is per unit area and this tree's Re means the same
+thing** — the run really is a factor 3.9 below the reference, not above it.
+
+A caution that emerged with it: **Table I's Re column is not derivable from its
+other columns.** Eq. (10) normalises to E_B = ½, so E_u/E_B alone would fix E_u
+and hence Re — but the implied E_B comes out 0.70, 4.6e−5, 0.29, 0.46 rather than
+½, with regime II off by four orders of magnitude. Each regime is its own
+realisation and the absolute amplitude was not held fixed across the four. That
+is the second place Table I does not close against the paper's own equations;
+E/A is the first.
+
+**The single largest caveat** is therefore Re = 1000 against the paper's
+3868–7920. The
 paper's own sentence — *"nontrivial final states are only observed if the initial
 Reynolds number is sufficiently high"* — is about Fig. 9's scatter plots in
 preliminary low-resolution runs, not about Fig. 4, so it should not be quoted as

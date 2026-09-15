@@ -9141,12 +9141,55 @@ IV  & $8.51$            & $16$              & $0.53$ \\
 \end{tabular}
 \end{center}
 
-\noindent Low by $1.9\times$ to $4.3\times$, \emph{at $t=0$}, before any
-dynamics. Two explanations were tested and both fail: it is not the spectrum cut
-(sweeping \code{-kmax} over $24,40,60,80,120$ gives $7.6,8.9,7.3,4.8,9.8$,
-non-monotonic because the central-difference curl under-resolves $b$ near the
-Nyquist) and it is not the gauge (fixing zero mean moves it by $0.1\,\%$). This
-is the sharpest single discrepancy in the comparison and it is \textbf{open}.
+\noindent Low by $1.9\times$ to $4.3\times$ at $t=0$, before any dynamics --- and
+that shortfall is \emph{not ours}. $E/A$ follows from the spectrum analytically:
+since $\mathbf{B}=\nabla\times a$ the shell spectrum of $a$ is $E_b(k)/k^2$, so
+\begin{equation*}
+  E/A \;=\; (1+\mathrm{alf})\,\frac{\sum_k E_b(k)}{\sum_k E_b(k)/k^2},
+\end{equation*}
+a weighted mean square wavenumber, and the paper's $2\pi$ box makes the mode index
+the wavenumber itself so no conversion enters. Eq.~(6) then predicts
+$E/A = 4.76$ for regime~I against Table~I's $16$, converged in the cut ($4.58$ at
+$k_{\max}=24$, $4.76$ at $170$ and at $400$). Measured against that prediction
+this tree is faithful --- $1.20$, $1.19$, $1.31$, $1.21$ across the four regimes,
+which is finite-mode realisation scatter --- while Eq.~(6) itself sits at
+$0.20$--$0.44$ of Table~I. \textbf{The disagreement is between Table~I and
+Eq.~(6), not between this tree and the paper.}
+
+Three other readings of Eq.~(6) were tested and none reaches Table~I. Taking it
+as the enstrophy and current spectrum makes it \emph{worse} ($0.07$--$0.16$),
+which is immediate once $E/A$ is recognised as a mean square wavenumber: moving
+the spectrum onto $\omega$ and $j$ removes two powers of $k$ from $\mathbf{B}$ and
+smooths the field, where raising $E/A$ needs more small-scale magnetic power.
+Taking it as the spectrum of the potentials overshoots by $8$--$18\times$. The
+gauge cannot close it either, for the same directional reason: a non-zero mean in
+$a$ only ever increases $A$, and zero mean already minimises it. Solving instead
+for the spectrum Table~I would need gives $E_b(k) = k^{0.86}\,$Eq.~(6), a large-$k$
+slope near $k^{-2.1}$ against the $k^{-3}$ stated in the sentence following
+Eq.~(6), with the four regimes agreeing on that exponent independently.
+\code{results/N\_neffaa/spectrum\_check.py} carries the arithmetic.
+
+\subsection{The Reynolds definition, and a caution on Table~I}
+
+Eq.~(7) writes $E$ as an integral over $V_f$, but $\mathrm{Re} = 2r\sqrt{2E_u}/\nu$ is a
+Reynolds number only if $\sqrt{2E_u}$ is a \emph{velocity}: in two dimensions an
+integral of $|u|^2$ over an area has units $L^4/T^2$, whose square root is
+$L^2/T$, and $2r(L^2/T)/\nu$ then has units of length. The two cannot both be
+literal. The mean reading --- $E_u$ per unit area --- gives
+$u_{\mathrm{rms}}\approx 0.65$--$1.33$ and reproduces the quoted $\mathrm{Re}$ by
+construction; the integral reading gives $u_{\mathrm{rms}}\approx0.12$--$0.25$ and
+a physical Reynolds number of only $731$--$1497$, far too low for the $k^{-3}$
+turbulence of their Figs.~7--8. So $E_u$ is per unit area, this tree's $\mathrm{Re}$
+means the same thing, and the runs really are a factor $3.9$ below the reference
+rather than above it.
+
+Table~I's $\mathrm{Re}$ column is nonetheless \emph{not} derivable from its other
+columns. Eq.~(10) normalises to $E_B = 1/2$, so $E_u/E_B$ alone would fix $E_u$
+and hence $\mathrm{Re}$; the implied $E_B$ instead comes out $0.70$, $4.6\times10^{-5}$,
+$0.29$, $0.46$, with regime~II off by four orders of magnitude. Each regime is its
+own realisation and the absolute amplitude was not held fixed across the four.
+That is the second place Table~I does not close against the paper's own
+equations.
 
 \subsection{What reproduces}
 
@@ -9189,7 +9232,8 @@ reported as uninterpretable rather than as a discrepancy.
 
 Not attempted: Fig.~9's final-state scatter plots, which need $\psi$ and hence a
 Poisson solve; Fig.~5's PDF of the local $\cos\theta$; and Fig.~3's periodic
-control.
+control. The $E/A$ shortfall is no longer among the open items: it is a property
+of the reference, as \S\ref{sec:neffaa} shows.
 
 %==============================================================================
 \section{Known limitations}
