@@ -9083,6 +9083,114 @@ executable & role \\
 they take minutes and are excluded from \code{ctest}.
 
 %==============================================================================
+\section{Reproducing Neffaa, Bos \& Schneider (2008)}
+\label{sec:neffaa}
+
+Decaying two-dimensional MHD turbulence in a circular domain, \emph{Phys.\
+Plasmas} \textbf{15}, 092304. The reference asks whether the four
+Ting--Matthaeus--Montgomery decay regimes survive confinement, and imposes the
+wall by volume penalisation: $u_0=0$ but $B_0=B_\parallel$, so only $B\cdot n$ is
+driven to zero. \code{demonstrator/mhd\_decay -regime 1..4} is that case.
+Numbers, logs and films are in \code{results/N\_neffaa}.
+
+Run at $N=321$, $r=(19/20)\pi$ in a $2\pi$ box, $\mathrm{Re}=1000$, $\mathrm{Pm}=1$,
+fifty domain crossings --- their $t=450$ on the advective clock.
+
+\subsection{The initial condition is now exact in both columns}
+
+A regime is the \emph{pair} $(E_u/E_B, H_c)$. The energy ratio was always
+imposed; the cross helicity used to be whatever the random draw gave, scattering
+by $\pm0.28$ between seeds, so regime~III --- which \emph{is} its cross helicity
+--- could not be run at all. Eq.~(11) is now implemented, with $\beta$ solved by
+bisection against $\cos\theta = H_c/(0.5\sqrt{E_u/E_B})$. Measured at $t=0$:
+$0.043818$, $0.000001$, $0.473611$, $0.090000$ against Table~I's $0.043818$,
+$0.000001$, $0.473611$, $0.090000$, and the same for seeds $12345$, $99$, $1$ and
+$2026$. The seed now picks the realisation, not the case.
+
+Two departures were forced. Taken literally $u_\perp$ is $u$ rotated pointwise by
+$\pi/2$, which for $u=\nabla_\perp\psi$ is $-\nabla\psi$, whose divergence is
+$\omega$ --- not solenoidal, and this code carries $B$ directly rather than as a
+curl. The independent solenoidal field the initial condition already draws is
+used instead; $\nabla\cdot b$ starts at $4\times10^{-16}$. And that field is not
+independent enough --- $\psi$ and $a$ share a mode set, an amplitude and the
+taper, giving $\langle u\cdot w\rangle=+0.24$, a \emph{floor} on the achievable
+alignment --- so one Gram--Schmidt step precedes the mixing.
+
+\subsection{$A=\tfrac12\int a^2$, and what it says}
+
+$A$ is Table~I's first column, the centre panel of Fig.~2, and regime~II's only
+published signature; it was never computed. The vector potential is now carried
+through the initial condition rather than recovered by inverting a curl
+($\max|\nabla\times a - b|/\max|b| = 1.9\times10^{-15}$) and then advected as its
+own D2Q5 scalar at the resistivity, which is the reference's Eq.~(15).
+
+$A$ is gauge dependent and the paper's own note added in proof says so. The gauge
+used is zero mean over the fluid disc, the one a spectral inversion gives and the
+one that minimises $A$; naming it is not optional.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+regime & $E/A$ ours & $E/A$ paper & ratio \\
+\midrule
+I   & $5.49$            & $16$              & $0.34$ \\
+II  & $7.96\times10^4$  & $3.4\times10^5$   & $0.23$ \\
+III & $10.6$            & $31$              & $0.34$ \\
+IV  & $8.51$            & $16$              & $0.53$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Low by $1.9\times$ to $4.3\times$, \emph{at $t=0$}, before any
+dynamics. Two explanations were tested and both fail: it is not the spectrum cut
+(sweeping \code{-kmax} over $24,40,60,80,120$ gives $7.6,8.9,7.3,4.8,9.8$,
+non-monotonic because the central-difference curl under-resolves $b$ near the
+Nyquist) and it is not the gauge (fixing zero mean moves it by $0.1\,\%$). This
+is the sharpest single discrepancy in the comparison and it is \textbf{open}.
+
+\subsection{What reproduces}
+
+The structural progression of Figs.~7--8 for all four regimes, including two
+regime-specific claims: case~II is the only one forming pronounced circular
+vortices that roll up the current sheets, and case~III shows almost identical
+velocity and magnetic fields. Both are plainly visible in the films.
+
+Selective decay in regime~I is reproduced in rate if not in magnitude: $E/A$
+falls by a factor $11.6$ against the reference's $12.4$, agreeing to $6\,\%$
+while the absolute values differ threefold. The disagreement is in the initial
+length scale, not in the decay.
+
+Regime~II's late-time decay rate gives $\alpha=1.76$ against the paper's $2$ and
+the circle's largest Stokes eigenvalue $1.64$ --- the best quantitative agreement
+in the comparison.
+
+\subsection{What does not, and why}
+
+Dynamic alignment is not sustained. Regime~III reaches $\cos\theta = 0.866$ at
+$t=40$ against the reference's $0.864$ at $t=30$ --- essentially exact --- and
+then decays to $0.029$ where theirs climbs to $0.847$. The corroborating
+diagnostic is $E/|H_c|$, whose value $2$ is the paper's own signature of
+alignment: ours leaves it, $3.45 \to 9.89 \to 48.7 \to 119$, where theirs holds
+$2.04$ throughout. So the mechanism is captured and not held --- a sharper
+statement than ``alignment not reproduced'', and one that only became available
+when regime~III became runnable.
+
+The intermediate-time decay exponents are two to three times too steep, and that
+is structural rather than a defect: fifty crossings is $t=450$ on the
+\emph{advective} clock, but at $\mathrm{Re}=1000$ against their $3868$--$7920$ it is
+$\nu t/R^2 \approx 0.20$ against their $0.0505$, four times further into
+diffusive decay. Both clocks cannot be matched at mismatched Reynolds number.
+
+Regime~II's $E_u/E_B$ disagrees qualitatively --- theirs rises four decades,
+ours falls --- but $E_{\mathrm{mag}}$ there is $2\times10^{-11}$, four decades
+below the seeded field, so the late ratio is plausibly a numerical floor. It is
+reported as uninterpretable rather than as a discrepancy.
+
+Not attempted: Fig.~9's final-state scatter plots, which need $\psi$ and hence a
+Poisson solve; Fig.~5's PDF of the local $\cos\theta$; and Fig.~3's periodic
+control.
+
+%==============================================================================
 \section{Known limitations}
 \label{sec:known}
 
