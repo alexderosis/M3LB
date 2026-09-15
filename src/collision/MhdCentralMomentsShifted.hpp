@@ -179,4 +179,142 @@ struct MhdCentralMomentsShifted<D2Q9, Forcing> {
   }
 };
 
+//------------------------------------------------------------------------------
+//  D3Q27 -- the three-dimensional case, on the same schedule.
+//
+//  WHY THIS IS SHORT WHERE THE MONOMIAL ONE IS NOT. In the shifted basis the
+//  force occupies the FIRST-ORDER slots alone, so three lines carry it and there
+//  are no third-order entries to derive -- which in 3-D would have meant the
+//  D3Q27 analogue of cs^2 F/2 across six slots. That is not assumed here:
+//  validation/forcing_cm.cpp already tests D3Q27 in BOTH representations and its
+//  Hermite row passes at 3.75e-13, which IS the statement that K_F is first
+//  order only in this basis.
+//
+//  THE EQUILIBRIUM IS TRANSFORMED, NOT WRITTEN OUT, exactly as the monomial
+//  D3Q27 operator does it: orders 4 to 6 do not factorise compactly and k222
+//  alone runs to two dozen terms. That costs one extra population evaluation and
+//  one forward transform per node and removes any chance of a transcription
+//  error in the part nobody checks.
+//
+//  ProductBasis<D3Q27>::to_moments / to_populations ARE the shifted transform in
+//  3-D, so they are reused rather than rewritten -- the monomial operator's own
+//  fwd/inv differ from them by exactly the cs^2 subtraction, which is the whole
+//  difference between the two schemes.
+//
+//  NOTE THE TRACE IS NOT ZERO HERE, unlike 2-D. In two dimensions the Maxwell
+//  stress is traceless, so k_3^eq vanished in the shifted basis; in three its
+//  trace is |b|^2/2 and it does not. Nothing in the code depends on that --
+//  the equilibrium is transformed rather than assumed -- but a reader carrying
+//  the 2-D result across would be wrong.
+//------------------------------------------------------------------------------
+template <class Forcing>
+struct MhdCentralMomentsShifted<D3Q27, Forcing> {
+  using Lattice       = D3Q27;
+  using ForcingPolicy = Forcing;
+  using Equilibrium   = ProductFormEquilibrium<D3Q27>;
+  using Storage       = RawPopulations;
+  static constexpr const char* name = "MhdCMS3D";
+
+  Real omega      = Real(1);
+  Real omega_bulk = Real(1);
+  View1D<Real> Bx, By, Bz;
+  Forcing forcing{};
+
+  static Real omega_from_viscosity(Real nu) {
+    return Real(1) / (nu * inv_cs2<D3Q27, Real>() + Real(0.5));
+  }
+  static Real viscosity_from_omega(Real w) {
+    return (Real(1) / w - Real(0.5)) * cs2<D3Q27, Real>();
+  }
+  KOKKOS_INLINE_FUNCTION static Real density(const Macro& m) { return m.dens; }
+
+  KOKKOS_INLINE_FUNCTION
+  Macro macroscopic(const Real f[27], Index n = 0) const {
+    Real s = Real(0), mx = Real(0), my = Real(0), mz = Real(0);
+    for (int i = 0; i < 27; ++i) {
+      s  += f[i];
+      mx += f[i] * Real(D3Q27::cx(i));
+      my += f[i] * Real(D3Q27::cy(i));
+      mz += f[i] * Real(D3Q27::cz(i));
+    }
+    const Real ir = Real(1) / s;
+    Macro m{s, mx * ir, my * ir, mz * ir};
+    forcing.shift_velocity(n, s, m.ux, m.uy, m.uz);
+    return m;
+  }
+
+  // Equilibrium populations: the product form plus the Maxwell stress, the same
+  // pair the monomial D3Q27 operator uses.
+  KOKKOS_INLINE_FUNCTION
+  void equilibrium(Real fe[27], Real rho, const Real u[3], const Real b[3]) const {
+    constexpr Real cs2v = cs2<D3Q27, Real>();
+    constexpr Real cs4v = cs2v * cs2v;
+    const Real b2 = b[0] * b[0] + b[1] * b[1] + b[2] * b[2];
+    for (int i = 0; i < 27; ++i) {
+      const Real c[3] = {Real(D3Q27::cx(i)), Real(D3Q27::cy(i)), Real(D3Q27::cz(i))};
+      const Real c2 = c[0] * c[0] + c[1] * c[1] + c[2] * c[2];
+      const Real cb = c[0] * b[0] + c[1] * b[1] + c[2] * b[2];
+      const Real acc = Real(0.5) * b2 * c2 - cb * cb - b2 / Real(6);
+      fe[i] = Equilibrium::eq(i, rho, u[0], u[1], u[2]) +
+              weight<D3Q27, Real>(i) * acc / (Real(2) * cs4v);
+    }
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void collide(Real f[27], const Macro& mac, Index n = 0) const {
+    using B = ProductBasis<D3Q27>;
+    const Real rho = mac.dens;
+    const Real u[3] = {mac.ux, mac.uy, mac.uz};
+    const Real b[3] = {Bx(n), By(n), Bz(n)};
+
+    Real k[27], ke[27], fe[27];
+    B::template to_moments<true>(f, u, k);          // <true> = SHIFTED
+    equilibrium(fe, rho, u, b);
+    B::template to_moments<true>(fe, u, ke);
+
+    // orders 0 and 1 are collision invariants; the force lands in order 1 alone
+    k[B::mi(0, 0, 0)] = rho;
+    if constexpr (Forcing::active) {
+      Real a[3]; accel_of(forcing, n, rho, a);
+      k[B::mi(1, 0, 0)] = Real(0.5) * a[0];
+      k[B::mi(0, 1, 0)] = Real(0.5) * a[1];
+      k[B::mi(0, 0, 1)] = Real(0.5) * a[2];
+    } else {
+      k[B::mi(1, 0, 0)] = Real(0);
+      k[B::mi(0, 1, 0)] = Real(0);
+      k[B::mi(0, 0, 1)] = Real(0);
+    }
+
+    // order 2: trace at omega_bulk, the five deviatoric components at omega
+    {
+      const int d[3] = {B::mi(2, 0, 0), B::mi(0, 2, 0), B::mi(0, 0, 2)};
+      Real tr = Real(0), tre = Real(0);
+      for (int a = 0; a < 3; ++a) { tr += k[d[a]]; tre += ke[d[a]]; }
+      const Real third = Real(1) / Real(3);
+      const Real tr_post = (Real(1) - omega_bulk) * tr + omega_bulk * tre;
+      for (int a = 0; a < 3; ++a)
+        k[d[a]] = (Real(1) - omega) * (k[d[a]] - tr * third)
+                + omega * (ke[d[a]] - tre * third) + tr_post * third;
+      const int sh[3] = {B::mi(1, 1, 0), B::mi(1, 0, 1), B::mi(0, 1, 1)};
+      for (int a = 0; a < 3; ++a)
+        k[sh[a]] = (Real(1) - omega) * k[sh[a]] + omega * ke[sh[a]];
+    }
+
+    // order >= 3 straight to equilibrium. No force term: K_F is first order in
+    // this basis, and the cs^2 a / 2 a monomial operator writes by hand arrives
+    // through the basis function instead.
+    for (int p = 0; p < 3; ++p)
+      for (int q = 0; q < 3; ++q)
+        for (int r = 0; r < 3; ++r)
+          if (p + q + r >= 3) k[B::mi(p, q, r)] = ke[B::mi(p, q, r)];
+
+    B::template to_populations<true>(k, u, f);
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  static Real seed_value(int i, Real rho, Real ux, Real uy, Real uz) {
+    return Equilibrium::eq(i, rho, ux, uy, uz);
+  }
+};
+
 }  // namespace lbm
