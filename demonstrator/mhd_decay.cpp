@@ -242,6 +242,7 @@
 #include "Campaign.hpp"
 #include "collision/MhdBGK.hpp"
 #include "collision/MhdCentralMoments.hpp"
+#include "collision/MhdCentralMomentsShifted.hpp"
 #include "solver/MagneticSolver.hpp"
 #include "solver/ScalarSolver.hpp"
 
@@ -254,18 +255,32 @@ using FL = D2Q9;
 using ML = D2Q5;
 using CollB = MhdBGK<FL, SecondOrderEquilibrium<FL>, ShiftedPopulations>;
 using CollC = MhdCentralMoments<FL, true>;
-// PENALISATION NEEDS A FORCING POLICY, AND ONLY MhdBGK HAS ONE.
-// MhdCentralMoments carries a hard-coded NoForcing, so -wall pen forces BGK --
-// which is why the comparison below runs BGK on BOTH sides. Comparing a
-// penalised BGK run against a central-moment wall run would vary the collision
-// operator and the boundary together, and this tree's first rule of measurement
-// is to change one thing.
+// PENALISATION NEEDS A FORCING POLICY. It once needed BGK too -- MhdCentralMoments
+// carried a hard-coded NoForcing, so -wall pen forced BGK and the wall comparison
+// had to run BGK on BOTH sides to avoid varying the operator and the boundary at
+// once. That has not been true since MhdCentralMoments gained its forcing term,
+// and both central-moment operators now take one.
 using CollP = MhdBGK<FL, SecondOrderEquilibrium<FL>, ShiftedPopulations, FieldGuo>;
 // The central-moment operator gained a forcing term precisely so that
 // penalisation would not be stuck with BGK's stability floor. It is the default
 // for -wall pen, and it is what lifts the reachable Reynolds number: BGK dies
 // above tau ~ 0.55, central moments do not.
 using CollCP = MhdCentralMoments<FL, true, FieldGuo>;
+// THE SHIFTED BASIS, and the default since 2026-09-15. Same relaxation schedule,
+// same fourth-order equilibrium, but phi_2 = C^2 - cs^2 rather than C^2, so the
+// force occupies the first-order slots ALONE and the cs^2 F / 2 that the monomial
+// operator must write by hand at third order falls out of the basis function --
+// the bug fixed in f6af63c made structurally impossible. See its banner, and
+// MATLAB/d2q9_shifted_force4.py for the algebra.
+//
+// SWITCHING THE DEFAULT DOES NOT MOVE ANY PUBLISHED NUMBER. The two operators'
+// post-collision states differ by exactly cs^2 (1 - omega_bulk)(k_3 - k_3^eq) at
+// fourth order and by nothing at all below it, and this case never sets
+// omega_bulk, so it runs at the operator default of 1 and that difference is
+// identically zero. Verified rather than argued: -op cm and -op cms agree to the
+// printed digits on every diagnostic. The gap opens only at omega_bulk != 1.
+using CollS  = MhdCentralMomentsShifted<FL>;
+using CollSP = MhdCentralMomentsShifted<FL, FieldGuo>;
 
 // Both operators expose a `forcing` member but only MhdBGK names its policy, so
 // the trait is written on the member rather than on a typedef.
@@ -1201,7 +1216,7 @@ int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   int status = 0;
   {
-    Opts o; std::string op = "cm"; bool fcheck = false;
+    Opts o; std::string op = "cms"; bool fcheck = false;   // shifted basis by default
     for (int i = 1; i < argc; ++i) {
       const std::string a = argv[i];
       if (a == "-n"     && i + 1 < argc) o.N = Index(std::atol(argv[++i]));
@@ -1264,13 +1279,17 @@ int main(int argc, char** argv) {
                 "Schneider (2008)   DEMONSTRATOR\n");
     std::printf("backend %s   precision %s   %s fluid + %s magnetic   operator %s\n\n",
                 ExecSpace::name(), precision_name(), FL::name, ML::name,
-                op == "cm" ? "MhdCM" : "MhdBGK");
+                op == "bgk" ? "MhdBGK" : op == "cm" ? "MhdCM" : "MhdCMS");
     // -wall pen selects the forcing-capable operator regardless of -op, and
     // says so rather than silently overriding.
     if (o.wall == "pen") {
-      status = (op == "bgk") ? run<CollP>(o) : run<CollCP>(o);
+      status = (op == "bgk") ? run<CollP>(o)
+             : (op == "cm")  ? run<CollCP>(o)
+                             : run<CollSP>(o);
     } else {
-      status = (op == "bgk") ? run<CollB>(o) : run<CollC>(o);
+      status = (op == "bgk") ? run<CollB>(o)
+             : (op == "cm")  ? run<CollC>(o)
+                             : run<CollS>(o);
     }
   }
   Kokkos::finalize();
