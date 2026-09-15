@@ -9919,6 +9919,36 @@ the fitted rate is blamed on the scheme.
   outlets agree on $C_d$ to $0.008\,\%$. Use \code{NrmOutXp} for a steady
   outlet; it conserves mass unaided and is the more accurate closure.
 
+\item \textbf{The BGK family's body force is second order, the moment operators'
+  is complete, and nothing measured the gap until 2026-09-15.}
+  \code{guo\_source\_raw} is \emph{exactly} the second-order Hermite expansion of
+  $-\bm{F}\!\cdot\!\nabla_{\bm\xi}f^{\rm eq}$ --- proved symbolically in
+  \code{MATLAB/d3q27\_shifted\_force6.py} and asserted numerically at
+  $1.0\times10^{-16}$ in \code{validation/forcing\_cm.cpp}. So BGK and TRT, in
+  \emph{both} codebases, leave a residue in the third-order central moments of
+  about $2u^{2}|\bm{F}|$: $5.2\times10^{-3}$ at $|\bm{u}|=0.05$ and
+  $2.1\times10^{-2}$ at $0.10$. That is Guo (2002) working as intended rather
+  than a defect. What was a defect is that the choice of operator therefore
+  changes the force's fidelity with no diagnostic, and that a driver selecting
+  BGK where it might have selected central moments drops silently from the
+  complete expansion to the second-order one.
+
+  The complete order is $2D$ in $D$ dimensions --- four on D2Q9, \emph{six} on
+  D3Q27 --- because the product index set closes at exponent two per axis
+  ($H_3\equiv0$ and $H_4\equiv-H_2$ on $\{-1,0,1\}$). Carrying the
+  two-dimensional ``fourth order'' across leaves $k_{212}$, $k_{221}$, $k_{122}$
+  wrong at $O(u^4)$ and $k_{222}$ at $O(u^5)$, measured at $2.10\times10^{-4}$
+  and $1.53\times10^{-5}$ of $|\bm{F}|$ at $|\bm{u}|\le0.10$. \code{HermiteForce4}
+  is named for the two-dimensional case and neither builds nor needs a source;
+  the shifted operators write $K_F$ into the first-order slot, which \emph{is}
+  the complete expansion, exactly.
+
+  \emph{Untested:} what the second-order residue costs a \emph{run}. Every
+  measurement above is per-node algebra. The residue sits in ghost moments and
+  leaves $\sum_i\bm{c}_if_i$ exact, so the momentum balance is untouched and the
+  hydrodynamic force cases (\code{forcing\_3d}, \code{forcing\_transverse})
+  cannot see it even in principle --- a steady balance has no $k_{222}$ in it.
+
 \end{enumerate}
 
 %==============================================================================

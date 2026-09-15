@@ -199,8 +199,14 @@ struct FieldGuo {
 // fraction of a percent. `accel()` is the single place that division happens,
 // and shift_velocity is paired to it: u = (sum c f + a/2) / rho with a = F/rho,
 // i.e. the half shift is a/(2 rho) = F/(2 rho^2), one power of rho more than
-// Guo's. Getting that pairing wrong is silent, so it is asserted in
-// validation/forcing_cm.cpp rather than left to inspection.
+// Guo's. Getting that pairing wrong is silent, so it is asserted rather than
+// left to inspection -- in validation/mhd_cm_shifted.cpp, check 6 (D2Q9) and
+// check 9 (D3Q27), both of which run at rho != 1 because that is the only place
+// the factor is visible. NOT in validation/forcing_cm.cpp, which this comment
+// named until 2026-09-15: that case never instantiates this policy, and every
+// row of it forces with `Guo` at rho = 1, where a stray power of rho is exactly
+// 1. A cross-reference to a case that cannot see the property is worse than
+// none, because it reads as coverage.
 //
 // `at()` keeps Guo's meaning -- the force DENSITY -- so that code reading it for
 // other purposes (FluidSolver's open boundary) sees the same quantity from every

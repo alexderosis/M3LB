@@ -80,6 +80,49 @@
 //  the equilibrium cancels and only the force term remains. Going through
 //  macroscopic() instead would also pick up the F/(2 rho) velocity shift and
 //  measure the wrong thing.
+//
+//  WHAT THE OPERATOR ROWS CANNOT SEE, and the source rows added on 2026-09-15.
+//  The four rows above are DIFFERENCES of two operator calls, and for every
+//  operator that writes moment slots the difference is [0, F, 0, ...] BY
+//  CONSTRUCTION: both calls share a seed and a Macro, hence the same ub; the
+//  transforms are linear at fixed ub; orders >= 3 come from eq_moment, which has
+//  no F dependence; and the order-2 force terms vanish because Central implies
+//  du = 0. Replayed in exact rational arithmetic the D3Q27 rows come out
+//  IDENTICALLY ZERO, so the 3.75e-13 they print is fwd1d/inv1d round-off and
+//  nothing else. The Hermite row is a round-trip identity of ProductBasis; the
+//  monomial row is the identity phi_2 = C^2 - cs^2. NEITHER CAN MEASURE THE
+//  HERMITE ORDER OF ANYTHING. Only the MhdCentralMoments rows are non-trivial,
+//  because that operator transcribes cs^2 F / 2 by hand -- which is why they
+//  caught the missing term in f6af63c and why they are kept.
+//
+//  So until those rows existed, NOTHING in either codebase built a Hermite source
+//  above order 2 and checked its moments, and orders 5 and 6 had no coverage
+//  anywhere. The hydrodynamic cases (forcing_3d, forcing_transverse) constrain
+//  the force through a STEADY momentum balance, in which k_222 does not appear;
+//  tests/test_collision.cpp, tests/test_moments.cpp and GPU/test/* check the
+//  FIRST moment only. The source rows close that: they construct S_i at each
+//  truncation order and transform it, so the numbers move.
+//
+//  AND THE LADDER IS THE POINT, not the last line of it. A row that passed at
+//  every order would be measuring the transform's round trip again, so the
+//  truncations are asserted to MISS, by a margin (1e-8) a thousand times the
+//  tolerance the complete order must meet. That is what makes the complete-order
+//  entry evidence rather than decoration -- the same discipline that 4102b6b's
+//  check 10 had to add after checks 7-9 turned out to be blind.
+//
+//  FOURTH ORDER IS A TWO-DIMENSIONAL STATEMENT. The complete order is 2D in D
+//  dimensions: 4 on D2Q9, SIX on D3Q27. Truncating at four in 3-D leaves k_212,
+//  k_221, k_122 at O(u^4) and k_222 at O(u^5) -- measured here at 2.10e-04 and
+//  1.53e-05 of |F| at |u| <= 0.10. MATLAB/d3q27_shifted_force6.py derives all of
+//  it as an exact polynomial identity and prints the residues in closed form.
+//
+//  WHAT THE LADDER SAYS ABOUT RUNNING CODE. guo_source_raw is asserted here to
+//  BE the N = 2 truncation (1.0e-16), symbolically confirmed in that script. So
+//  BGK and TRT -- in both codebases -- carry the order-2 residue, about 2 u^2 |F|
+//  in the third-order slots: 5.2e-3 at |u| = 0.05 and 2.1e-2 at 0.10. That is
+//  Guo (2002) working as intended, not a defect, and the moment operators do not
+//  share it because they never build a source. It is recorded because the choice
+//  of operator therefore changes the force's fidelity, with no diagnostic.
 //==============================================================================
 #include "collision/MhdCentralMoments.hpp"
 #include "collision/MomentCollision.hpp"
@@ -113,6 +156,134 @@ static void cmoments(const Real f[], const Real u[3], int basis,
     }
     k[m] = s;
   }
+}
+
+//------------------------------------------------------------------------------
+// THE SOURCE ITSELF, at a chosen truncation order -- see "WHAT THE OPERATOR ROWS
+// CANNOT SEE" in the banner.
+//
+//     S_i = w_i sum_pqr  B_pqr / (p! q! r! cs2^n)  H_p(cx) H_q(cy) H_r(cz)
+//     B_pqr = p Fx ux^(p-1) uy^q uz^r + q Fy ... + r Fz ...,   n = p+q+r
+//
+// with H_0 = 1, H_1 = c, H_2 = c^2 - cs2 and every exponent in {0,1,2}, which is
+// the product index set rather than a truncation choice: on {-1,0,1} the lattice
+// has H_3 == 0 and H_4 == -H_2, so an exponent of 3 or more either vanishes or
+// ALIASES into a lower moment. `N` truncates on the TOTAL order p+q+r.
+// MATLAB/d3q27_shifted_force6.py derives this and proves the identity exactly.
+//------------------------------------------------------------------------------
+template <class L>
+static void hermite_source(int N, const double F[3], const double u[3], double S[]) {
+  constexpr int D = L::D;
+  const double cs2v = double(cs2<L, Real>());
+  const int fact[3] = {1, 1, 2};
+  auto Hp = [&](int p, double c) { return p == 0 ? 1.0 : (p == 1 ? c : c * c - cs2v); };
+
+  for (int i = 0; i < L::Q; ++i) S[i] = 0.0;
+  for (int p = 0; p < 3; ++p)
+    for (int q = 0; q < 3; ++q)
+      for (int r = 0; r < (D == 3 ? 3 : 1); ++r) {
+        const int e[3] = {p, q, r};
+        const int n = p + q + r;
+        if (n == 0 || n > N) continue;
+        double B = 0.0;
+        for (int a = 0; a < D; ++a) {
+          if (e[a] == 0) continue;
+          double t = double(e[a]) * F[a];
+          for (int b = 0; b < 3; ++b)
+            for (int k = e[b] - (b == a ? 1 : 0); k > 0; --k) t *= u[b];
+          B += t;
+        }
+        double den = double(fact[p] * fact[q] * fact[r]);
+        for (int k = 0; k < n; ++k) den *= cs2v;
+        for (int i = 0; i < L::Q; ++i)
+          S[i] += double(weight<L, Real>(i)) * (B / den)
+                * Hp(p, double(cvel<L>(i, 0))) * Hp(q, double(cvel<L>(i, 1)))
+                * Hp(r, double(cvel<L>(i, 2)));
+      }
+}
+
+// The ladder, and the negative control that makes the row mean something. Returns
+// the number of failures.
+template <class L>
+static int check_source(const char* name, const int (*E)[3], int NM) {
+  constexpr int D = L::D;
+  const int Nfull = 2 * D;                 // 4 on D2Q9, 6 on D3Q27
+  const double cs2v = double(cs2<L, Real>());
+
+  std::mt19937 rng(2024);
+  std::uniform_real_distribution<double> U(-0.10, 0.10), Fd(-2e-3, 2e-3);
+
+  double worst[7] = {0, 0, 0, 0, 0, 0, 0};
+  int wslot[7] = {0, 0, 0, 0, 0, 0, 0};
+  double worst_mono = 0, worst_guo = 0;
+
+  for (int t = 0; t < 200; ++t) {
+    const Real u[3] = {Real(U(rng)), Real(U(rng)), D == 3 ? Real(U(rng)) : Real(0)};
+    const double ud[3] = {double(u[0]), double(u[1]), double(u[2])};
+    const double F[3] = {Fd(rng), Fd(rng), D == 3 ? Fd(rng) : 0.0};
+    const Real Fr[3] = {Real(F[0]), Real(F[1]), Real(F[2])};
+    const double sc = std::max({std::abs(F[0]), std::abs(F[1]), std::abs(F[2])});
+
+    std::vector<double> S(static_cast<std::size_t>(L::Q));
+    std::vector<Real> Sr(static_cast<std::size_t>(L::Q));
+    std::vector<double> k(static_cast<std::size_t>(NM));
+
+    for (int N = 1; N <= Nfull; ++N) {
+      hermite_source<L>(N, F, ud, S.data());
+      for (int i = 0; i < L::Q; ++i) Sr[i] = Real(S[i]);
+
+      cmoments<L>(Sr.data(), u, /*basis=*/1, E, NM, k.data());
+      for (int j = 0; j < NM; ++j) {
+        int ones = 0, twos = 0, axis = -1;
+        for (int a = 0; a < D; ++a) {
+          if (E[j][a] == 1) { ++ones; axis = a; } else if (E[j][a] == 2) ++twos;
+        }
+        const double want = (ones == 1 && twos == 0) ? F[axis] : 0.0;
+        const double e = std::abs(k[j] - want) / sc;
+        if (e > worst[N]) { worst[N] = e; wslot[N] = j; }
+      }
+
+      if (N == Nfull) {                    // the monomial reading of the same S
+        cmoments<L>(Sr.data(), u, /*basis=*/0, E, NM, k.data());
+        for (int j = 0; j < NM; ++j) {
+          int ones = 0, twos = 0, axis = -1;
+          for (int a = 0; a < D; ++a) {
+            if (E[j][a] == 1) { ++ones; axis = a; } else if (E[j][a] == 2) ++twos;
+          }
+          const double want = (ones == 1) ? std::pow(cs2v, twos) * F[axis] : 0.0;
+          worst_mono = std::max(worst_mono, std::abs(k[j] - want) / sc);
+        }
+      }
+      if (N == 2) {                        // and the tree's own Guo IS this
+        for (int i = 0; i < L::Q; ++i)
+          worst_guo = std::max(worst_guo,
+              std::abs(double(guo_source_raw<L>(i, Fr, u[0], u[1], u[2])) - S[i]) / sc);
+      }
+    }
+  }
+
+  int bad = 0;
+  std::printf("  %-8s truncation ladder, shifted basis   (complete order = %d)\n", name, Nfull);
+  for (int N = 1; N <= Nfull; ++N) {
+    const bool complete = (N == Nfull);
+    // The complete order must match; every truncation must MISS, by a margin far
+    // above the tolerance. Without the second half this row would pass on a
+    // source that was not the expansion at all.
+    const bool ok = complete ? (worst[N] < 1e-11) : (worst[N] > 1e-8);
+    if (!ok) ++bad;
+    std::printf("      N = %d   |K_F - K_force| / |F| = %.2e   at k_%d%d%d   %s\n",
+                N, worst[N], E[wslot[N]][0], E[wslot[N]][1], E[wslot[N]][2],
+                complete ? (ok ? "EXACT" : "*** SHOULD BE EXACT ***")
+                         : (ok ? "misses, as it must" : "*** SHOULD MISS ***"));
+  }
+  const bool mok = worst_mono < 1e-11, gok = worst_guo < 1e-13;
+  if (!mok) ++bad;
+  if (!gok) ++bad;
+  std::printf("      monomial reading of the complete source = cs^(2m) F_a : %.2e   %s\n",
+              worst_mono, mok ? "OK" : "MISMATCH");
+  std::printf("      guo_source_raw IS the N = 2 truncation                : %.2e   %s\n",
+              worst_guo, gok ? "OK" : "MISMATCH");
+  return bad;
 }
 
 // `scale` is the factor described under THE SCALE COLUMN in the banner: 1 for an
@@ -234,8 +405,19 @@ int main(int argc, char** argv) {
                        MhdCentralMoments<D2Q9, false, NoForcing>>
                 ("MhdCM2", E2, n2, 0.5, mhd);
 
+    // THE SOURCE ROWS. Everything above differences two operator calls and can
+    // therefore not see Hermite order at all (banner). These build the source
+    // and measure it, which is the only way orders 3 to 6 get checked anywhere.
+    std::printf("\n  The SOURCE, built and transformed rather than differenced.\n"
+                "  The truncations must MISS -- a row that passes at every order\n"
+                "  is measuring the transform's round trip, not the expansion.\n\n");
+    bad += check_source<D2Q9>("D2Q9", E2, n2);
+    bad += check_source<D3Q27>("D3Q27", E3, n3);
+
     std::printf("\n  %s\n", bad == 0
-      ? "CONFIRMED: every central-moment operator delivers the Hermite K_force"
+      ? "CONFIRMED: every central-moment operator delivers the Hermite K_force,\n"
+        "  and the complete expansion -- 4 on D2Q9, 6 on D3Q27 -- is the only\n"
+        "  truncation that does. Guo is the second-order one, exactly."
       : "*** MISMATCH ***");
   }
   Kokkos::finalize();
