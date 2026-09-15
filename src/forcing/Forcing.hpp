@@ -167,4 +167,90 @@ struct FieldGuo {
   }
 };
 
+//------------------------------------------------------------------------------
+// FOURTH-ORDER HERMITE FORCE, DIVIDED BY THE DENSITY.
+//
+// The companion of MATLAB/d2q9_shifted_force4.py, which derives what this is and
+// asserts it. Two things distinguish it from `Guo`, and the second is the one
+// that bites.
+//
+// THE EXPANSION. Guo's source is the SECOND-order Hermite expansion. Carried to
+// FOURTH order the monomial central moments of the source become exactly
+//     K_F = [0, F_x, F_y, 0, 0, 0, cs^2 F_y, cs^2 F_x, 0] / rho,
+// u-INDEPENDENT, where the second-order source leaves behind
+//     dk_21 = -2 ux uy Fx,  dk_12 = -uy^2 Fx,  dk_22 = +4 ux uy^2 Fx.
+// That residue is 4.2e-3 of max|S| at |u| = 0.058 and 7.7e-2 at |u| = 0.25,
+// growing as |u|^2. In the SHIFTED basis the fourth-order K_F collapses further,
+// to [0, F_x, F_y, 0, ..., 0] -- first order only -- which is why the operator
+// that consumes this policy writes the force into k_1 and nowhere else.
+//
+// THIS POLICY DOES NOT BUILD SOURCE POPULATIONS, and so cannot be used with BGK
+// or TRT: it has no source_raw / source. That is deliberate rather than missing.
+// A moment operator never needs them -- it writes K_F into the moment slots
+// directly -- and supplying a second-order `source()` here would hand the BGK
+// family something that is NOT the expansion this policy is named for. Pair it
+// with MhdCentralMomentsShifted; anything else is a compile error.
+//
+// THE DENSITY. The reference expansion divides by R = rho, so the source's own
+// first moment is F/rho and NOT F. The force therefore enters as an
+// ACCELERATION: the momentum increment is F/rho per step, where `Guo` gives F.
+// At fixed F the two policies differ by a factor rho -- which is 1 + O(Ma^2)
+// here, so a run with the wrong one converges, looks healthy, and is wrong by a
+// fraction of a percent. `accel()` is the single place that division happens,
+// and shift_velocity is paired to it: u = (sum c f + a/2) / rho with a = F/rho,
+// i.e. the half shift is a/(2 rho) = F/(2 rho^2), one power of rho more than
+// Guo's. Getting that pairing wrong is silent, so it is asserted in
+// validation/forcing_cm.cpp rather than left to inspection.
+//
+// `at()` keeps Guo's meaning -- the force DENSITY -- so that code reading it for
+// other purposes (FluidSolver's open boundary) sees the same quantity from every
+// policy. Only `accel()` carries the convention.
+//------------------------------------------------------------------------------
+struct HermiteForce4 {
+  static constexpr const char* name = "Hermite4";
+  static constexpr bool active = true;
+  static constexpr bool per_density = true;   // first moment is F/rho, not F
+
+  View1D<Real> Ex, Ey, Ez;                          // per-node force, optional
+  Real fx = Real(0), fy = Real(0), fz = Real(0);    // uniform part
+
+  KOKKOS_INLINE_FUNCTION
+  void at(Index n, Real F[3]) const {               // force DENSITY, as in Guo
+    F[0] = fx + (Ex.data() ? Ex(n) : Real(0));
+    F[1] = fy + (Ey.data() ? Ey(n) : Real(0));
+    F[2] = fz + (Ez.data() ? Ez(n) : Real(0));
+  }
+
+  // The source's own first moment: what the operator must write as 2 * k_1, and
+  // what the momentum gains per step.
+  KOKKOS_INLINE_FUNCTION
+  void accel(Index n, Real rho, Real a[3]) const {
+    Real F[3]; at(n, F);
+    const Real ir = Real(1) / rho;
+    a[0] = F[0] * ir;  a[1] = F[1] * ir;  a[2] = F[2] * ir;
+  }
+
+  KOKKOS_INLINE_FUNCTION
+  void shift_velocity(Index n, Real rho, Real& ux, Real& uy, Real& uz) const {
+    Real a[3]; accel(n, rho, a);
+    const Real h = Real(0.5) / rho;                 // = F / (2 rho^2)
+    ux += h * a[0];  uy += h * a[1];  uz += h * a[2];
+  }
+};
+
+// accel_of() is the ONE place a policy's force convention is read, so that an
+// operator can take any policy without knowing which convention it carries.
+//
+// Default: the policy's first moment is the force density itself, so there is no
+// division -- true of Guo, BoussinesqGuo, FieldGuo and (trivially) NoForcing.
+// HermiteForce4 overrides it, and the non-template overload wins on exact match.
+template <class P>
+KOKKOS_INLINE_FUNCTION void accel_of(const P& p, Index n, Real, Real a[3]) {
+  p.at(n, a);
+}
+KOKKOS_INLINE_FUNCTION
+void accel_of(const HermiteForce4& p, Index n, Real rho, Real a[3]) {
+  p.accel(n, rho, a);
+}
+
 }  // namespace lbm
