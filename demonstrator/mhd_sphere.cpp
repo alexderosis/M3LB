@@ -689,9 +689,15 @@ static int run(const Opts& o) {
                 spts.size() / 3, stris.size() / 3, R);
   }
 
+  // THE WALL GOES IN THE FILENAME. It was not, and the consequence was
+  // immediate: an insulating run at the same N and Re silently OVERWROTE the
+  // conducting run's tracked .dat, and the only reason it was noticed is that
+  // git showed the file as modified. Two runs that differ in physics must not
+  // differ only in a flag the output does not record.
   std::FILE* f = campaign::open_out("N_mhd_sphere",
                           "sphere_n" + std::to_string(int(N)) + "_re" +
-                          std::to_string(int(o.Re)), "d3q27", o.op.c_str());
+                          std::to_string(int(o.Re)) + "_" + o.mwall,
+                          "d3q27", o.op.c_str());
   if (f) std::fprintf(f, "# step t/Te E_u E_b ratio H_c enstrophy j2 cosJB bmean bmax divb BnB Bshell dmass\n");
 
   double mass0 = 0;
