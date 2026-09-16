@@ -145,6 +145,7 @@
 #include "collision/MhdBGK.hpp"
 #include "collision/MhdCentralMomentsShifted.hpp"
 #include "io/VtiWriter.hpp"
+#include "io/VtpWriter.hpp"
 #include "solver/MagneticSolver.hpp"
 
 #include <cmath>
@@ -637,7 +638,18 @@ static int run(const Opts& o) {
   }
   int frame = 0, vframe = 0;
   std::vector<std::pair<double, std::string>> pvd;
-  if (o.vtievery) std::filesystem::create_directories("results/N_mhd_sphere/vti", ec);
+  if (o.vtievery) {
+    std::filesystem::create_directories("results/N_mhd_sphere/vti", ec);
+    // The container surface, once: the geometry does not move, and a per-frame
+    // copy would be N identical files inviting someone to animate it.
+    std::vector<float> spts; std::vector<std::int32_t> stris;
+    const double c = 0.5 * double(N - 1);
+    icosphere(3, c, c, c, R, spts, stris);
+    write_vtp_triangles("results/N_mhd_sphere/vti/sphere_surface.vtp", spts, stris);
+    std::printf("  wrote results/N_mhd_sphere/vti/sphere_surface.vtp"
+                "  (%zu points, %zu triangles, r = %.3f)\n",
+                spts.size() / 3, stris.size() / 3, R);
+  }
 
   std::FILE* f = campaign::open_out("N_mhd_sphere",
                           "sphere_n" + std::to_string(int(N)) + "_re" +
