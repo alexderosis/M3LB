@@ -448,7 +448,13 @@ class MagneticSolver {
       LBM_CUDA_CHECK(cudaMalloc(&mface_, sizeof(std::uint8_t) * N_));
     }
     {
-      std::vector<std::uint8_t> hf(std::size_t(N_), std::uint8_t(MFaceNone));
+      // static_cast, NOT std::size_t(N_): the latter is the most vexing parse
+      // -- `hf` becomes a FUNCTION declaration taking (size_t, uint8_t) -- and
+      // this tree has now hit that five times. nvcc caught it; the host build
+      // structurally could not, because MagneticSolver::set_walls in this file
+      // is only instantiated on the device path.
+      std::vector<std::uint8_t> hf(static_cast<std::size_t>(N_),
+                                   static_cast<std::uint8_t>(MFaceNone));
       if (!face.empty()) hf = face;
       LBM_CUDA_CHECK(cudaMemcpy(mface_, hf.data(), sizeof(std::uint8_t) * N_,
                                 cudaMemcpyHostToDevice));
