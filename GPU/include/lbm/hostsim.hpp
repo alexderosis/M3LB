@@ -454,8 +454,13 @@ class Magnetic {
   void set_walls(const std::vector<std::uint8_t>& kind,
                  const std::vector<Real>& wall_bx,
                  const std::vector<Real>& wall_by,
-                 const std::vector<Real>& wall_bz) {
+                 const std::vector<Real>& wall_bz,
+                 const std::vector<std::uint8_t>& face = {}) {
+    validate_magnetic_faces(kind, face, long(kind.size()));
     mwall_ = kind;  wBx_ = wall_bx;  wBy_ = wall_by;  wBz_ = wall_bz;
+    mface_ = face.empty()
+           ? std::vector<std::uint8_t>(kind.size(), std::uint8_t(MFaceNone))
+           : face;
     long blind = 0;
     has_walls_ = build_magnetic_walls(kind, has_geometry_ ? flags_
                                                           : std::vector<std::uint8_t>(),
@@ -553,6 +558,7 @@ class Magnetic {
     p.Bx = Bx_.data(); p.By = By_.data(); p.Bz = Bz_.data();
     if (has_walls_) {
       p.mwall = mwall_.data();  p.unknown = unk_.data();
+      p.mface = mface_.data();
       p.wBx = wBx_.data();  p.wBy = wBy_.data();  p.wBz = wBz_.data();
     }
     p.nx = nx_; p.ny = ny_; p.nz = nz_;
@@ -565,7 +571,7 @@ class Magnetic {
   Real omega_;
   std::vector<Real> g_, Bx_, By_, Bz_;
   std::vector<Real> wBx_, wBy_, wBz_;
-  std::vector<std::uint8_t> flags_, mwall_, unk_;
+  std::vector<std::uint8_t> flags_, mwall_, unk_, mface_;
   const Real *ux_ = nullptr, *uy_ = nullptr, *uz_ = nullptr;
   const Real *sx_ = nullptr, *sy_ = nullptr, *sz_ = nullptr;
   bool has_geometry_ = false;

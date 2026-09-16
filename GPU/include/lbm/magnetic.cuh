@@ -46,11 +46,29 @@ using MagneticLattice = D3Q7;
 //                 moment condition (core.cuh) -- attained AT the node
 //   MagOutflow    zero gradient: the node takes B from its upstream neighbour
 //
-// TWO KINDS, AND NEITHER IS A CONDUCTING OR INSULATING WALL. A real conducting
-// wall couples the interior field to a wall current and an insulating one
-// matches onto an exterior vacuum field; both are a separate piece of work and
-// are NOT faked here. What these give is the wall-bounded MHD that a Hartmann
-// channel actually needs, where the external field is prescribed.
+//   MagNeumann    dB/dn = 0, the PERFECTLY CONDUCTING wall
+//
+// MagNeumann IS MagOutflow WITH A DIRECTION. Mechanically both take the field
+// from inward neighbours; the difference is that outflow is hard-coded to -x
+// while Neumann reads its face's outward normal, which is what lets it sit on
+// any face of a duct. Physically they are not the same thing at all: at an
+// INSULATING wall the induced field has nowhere to go and vanishes, which is
+// Dirichlet on the total field; at a PERFECTLY CONDUCTING wall the tangential
+// electric field vanishes instead, and in the induced-field formulation that is
+// a zero NORMAL DERIVATIVE. Shercliff's duct against Hunt's -- measurably
+// different flows, not a refinement of one another.
+//
+// IT NEEDS A DIRICHLET BOUNDARY SOMEWHERE, and that is a restriction rather
+// than a caution. The parent measured a CLOSED domain that is Neumann on every
+// face going non-finite inside sixty steps at the grid scale -- magnetic energy
+// up 263x in twenty steps, max|b| 0.14 -> 19.2 -- and ruled out both the
+// staircase and omega -> 2 as causes. A pure Neumann problem does not determine
+// the field LEVEL. Use it for a conducting wall PAIR whose remaining boundary
+// is Dirichlet, which is what Hunt's duct is; do not close a domain with it.
+//
+// WHAT IS STILL NOT HERE: a real conducting wall that couples the interior
+// field to a wall current, and an insulating one that matches onto an exterior
+// vacuum field. Both are a separate piece of work and are NOT faked.
 //
 // MagOutflow IS NOT VALIDATED AND HAS A MEASURED DEFECT, inherited from the
 // parent along with the condition: on an inlet-driven Hartmann flow whose exact
@@ -65,11 +83,21 @@ enum MagCell : std::uint8_t {
   MagBulk      = 0,
   MagDirichlet = 1,
   MagOutflow   = 2,
+  MagNeumann   = 3,
+};
+
+// The OUTWARD normal of a Neumann node's face. The node reads its field one and
+// two steps INWARD from it, so the face is what turns a hard-coded -x outflow
+// into a condition that can sit on any face of a duct.
+enum MagFace : std::uint8_t {
+  MFaceXm = 0, MFaceXp = 1, MFaceYm = 2, MFaceYp = 3, MFaceZm = 4, MFaceZp = 5,
+  MFaceNone = 255,
 };
 
 struct MagneticParams {
   Real* g = nullptr;                         // 3 * Q * N
   const std::uint8_t* flags = nullptr;       // the fluid's geometry
+  const std::uint8_t* mface = nullptr;      // outward face of a Neumann node
   const Real* ux = nullptr;
   const Real* uy = nullptr;
   const Real* uz = nullptr;
@@ -191,6 +219,40 @@ LBM_HD LBM_INLINE void magnetic_field_node(const MagneticParams& p, long N, long
     // so nothing it reads is written here. Reading B(upstream) instead would
     // race against whoever writes it.
     if (code == MagOutflow) x = wrap(x - 1, p.nx);
+
+    // dB/dn = 0, to SECOND order, from TWO neighbours: B_wall = (4 B_1 - B_2)/3.
+    //
+    // Copying one neighbour imposes the condition only to FIRST order, and the
+    // parent measured that as not a detail: on Hunt's duct the velocity error
+    // grew with Hartmann number -- 3.0e-3 / 6.6e-2 / 1.7e-1 at Ha = 1/5/10 --
+    // and the side jets came out at 1.579 against an analytic 1.853, because a
+    // conducting wall carries the return current and the whole solution leans
+    // on it. The field LEVEL was never the problem there (mean offset
+    // -1.4e-18); the error was always SHAPE.
+    //
+    // Populations are read, never a neighbour's B, for the same reason as the
+    // outflow branch above: B is being written by another thread right now.
+    if (code == MagNeumann) {
+      const std::uint8_t f = p.mface ? p.mface[n] : std::uint8_t(MFaceNone);
+      const int ex = (f == MFaceXm) ? 1 : (f == MFaceXp) ? -1 : 0;
+      const int ey = (f == MFaceYm) ? 1 : (f == MFaceYp) ? -1 : 0;
+      const int ez = (f == MFaceZm) ? 1 : (f == MFaceZp) ? -1 : 0;
+      Real gm[MagneticLattice::Q], Bn[3];
+      for (int a = 0; a < 3; ++a) {
+        Real bb[2];
+        for (int m = 1; m <= 2; ++m) {
+          gather<Parity, MagneticLattice>(
+              p.g + magnetic_offset(a, N), N,
+              wrap(x + m * ex, p.nx), wrap(y + m * ey, p.ny),
+              wrap(z + m * ez, p.nz), p.nx, p.ny, p.nz, gm);
+          bb[m - 1] = Real(0);
+          for (int i = 0; i < MagneticLattice::Q; ++i) bb[m - 1] += gm[i];
+        }
+        Bn[a] = (Real(4) * bb[0] - bb[1]) / Real(3);
+      }
+      p.Bx[n] = Bn[0]; p.By[n] = Bn[1]; p.Bz[n] = Bn[2];
+      return;
+    }
   }
 
   Real g[MagneticLattice::Q], B[3];
@@ -201,6 +263,32 @@ LBM_HD LBM_INLINE void magnetic_field_node(const MagneticParams& p, long N, long
     for (int i = 0; i < MagneticLattice::Q; ++i) B[a] += g[i];
   }
   p.Bx[n] = B[0]; p.By[n] = B[1]; p.Bz[n] = B[2];
+}
+
+//------------------------------------------------------------------------------
+// Every MagNeumann node must carry a face. Shared by the device solver and the
+// host reference so the two cannot drift -- the whole value of having both is
+// that they are the same rules twice, not two sets of rules.
+//
+// e = 0 is the failure worth refusing: with no inward direction the
+// reconstruction (4 B - B)/3 collapses to B at the node itself, which is a
+// plausible number and not a boundary condition.
+//------------------------------------------------------------------------------
+inline void validate_magnetic_faces(const std::vector<std::uint8_t>& kind,
+                                    const std::vector<std::uint8_t>& face,
+                                    long N) {
+  for (long i = 0; i < N; ++i) {
+    if (kind[std::size_t(i)] != MagNeumann) continue;
+    const std::uint8_t f = face.empty() ? std::uint8_t(MFaceNone)
+                                        : face[std::size_t(i)];
+    if (f > MFaceZp) {
+      std::fprintf(stderr,
+          "set_walls: node %ld is MagNeumann with no face (got %u). A Neumann "
+          "node reads its field one and two steps along its INWARD normal, so "
+          "it cannot be placed without one.\n", i, unsigned(f));
+      std::exit(1);
+    }
+  }
 }
 
 //------------------------------------------------------------------------------
@@ -307,6 +395,7 @@ class MagneticSolver {
   ~MagneticSolver() {
     cudaFree(g_); cudaFree(flags_); cudaFree(Bx_); cudaFree(By_); cudaFree(Bz_);
     cudaFree(mwall_); cudaFree(unk_); cudaFree(wBx_); cudaFree(wBy_); cudaFree(wBz_);
+    cudaFree(mface_);
   }
 
   MagneticSolver(const MagneticSolver&) = delete;
@@ -329,14 +418,23 @@ class MagneticSolver {
   // the second. With no geometry set, every node is fluid and only the domain
   // edge counts -- which is right for a channel bounded by the array itself.
   //--------------------------------------------------------------------------
+  // `face` is required only where `kind` is MagNeumann, and carries that node's
+  // OUTWARD normal (MFaceXm..MFaceZp). Passing it empty is allowed and means
+  // "no Neumann nodes"; a MagNeumann node with no face is refused rather than
+  // silently reading its own cell, because e = 0 would make the reconstruction
+  // (4B - B)/3 = B at the node itself -- a plausible number and not a boundary
+  // condition.
   void set_walls(const std::vector<std::uint8_t>& kind,
                  const std::vector<Real>& wall_bx,
                  const std::vector<Real>& wall_by,
-                 const std::vector<Real>& wall_bz) {
+                 const std::vector<Real>& wall_bz,
+                 const std::vector<std::uint8_t>& face = {}) {
     if (long(kind.size()) != N_) {
       std::fprintf(stderr, "set_walls: %zu flags for %ld nodes\n", kind.size(), N_);
       std::exit(1);
     }
+    validate_magnetic_faces(kind, face, N_);
+
     std::vector<std::uint8_t> unk;
     long blind = 0;
     const long nwall = build_magnetic_walls(kind, geom_, nx_, ny_, nz_, unk, blind);
@@ -347,6 +445,13 @@ class MagneticSolver {
       LBM_CUDA_CHECK(cudaMalloc(&wBx_,   sizeof(Real) * N_));
       LBM_CUDA_CHECK(cudaMalloc(&wBy_,   sizeof(Real) * N_));
       LBM_CUDA_CHECK(cudaMalloc(&wBz_,   sizeof(Real) * N_));
+      LBM_CUDA_CHECK(cudaMalloc(&mface_, sizeof(std::uint8_t) * N_));
+    }
+    {
+      std::vector<std::uint8_t> hf(std::size_t(N_), std::uint8_t(MFaceNone));
+      if (!face.empty()) hf = face;
+      LBM_CUDA_CHECK(cudaMemcpy(mface_, hf.data(), sizeof(std::uint8_t) * N_,
+                                cudaMemcpyHostToDevice));
     }
     LBM_CUDA_CHECK(cudaMemcpy(mwall_, kind.data(), sizeof(std::uint8_t) * N_,
                               cudaMemcpyHostToDevice));
@@ -439,7 +544,7 @@ class MagneticSolver {
     p.ux = ux_; p.uy = uy_; p.uz = uz_;
     p.sx = sx_; p.sy = sy_; p.sz = sz_;
     p.Bx = Bx_; p.By = By_; p.Bz = Bz_;
-    p.mwall = mwall_; p.unknown = unk_;
+    p.mwall = mwall_; p.unknown = unk_; p.mface = mface_;
     p.wBx = wBx_; p.wBy = wBy_; p.wBz = wBz_;
     p.nx = nx_; p.ny = ny_; p.nz = nz_;
     p.omega = omega_;
@@ -452,7 +557,7 @@ class MagneticSolver {
   Real* g_ = nullptr;
   std::uint8_t* flags_ = nullptr;
   Real *Bx_ = nullptr, *By_ = nullptr, *Bz_ = nullptr;
-  std::uint8_t *mwall_ = nullptr, *unk_ = nullptr;
+  std::uint8_t *mwall_ = nullptr, *unk_ = nullptr, *mface_ = nullptr;
   Real *wBx_ = nullptr, *wBy_ = nullptr, *wBz_ = nullptr;
   std::vector<std::uint8_t> geom_;            // host copy, for the unknown mask
   const Real *ux_ = nullptr, *uy_ = nullptr, *uz_ = nullptr;

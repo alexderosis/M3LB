@@ -46,6 +46,7 @@
 #include "lbm/hostsim.hpp"
 
 #include <cmath>
+#include <functional>
 #include <cstdio>
 #include <vector>
 
@@ -1750,6 +1751,84 @@ static void magnetic_source() {
 // know how deep the box is, so nz = 1 and nz = 4 must agree to round-off at
 // every node -- through resistive decay AND through advection by a velocity.
 //------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+// MagNeumann: dB/dn = 0 at a chosen face, to SECOND order.
+//
+// Two checks, and the second is the one that matters.
+//
+// EXACTNESS. B_w = (4 B_1 - B_2)/3 is the value that makes the second-order
+// one-sided derivative (-3 B_w + 4 B_1 - B_2)/2 vanish. So on a field that is
+// QUADRATIC in the wall-normal coordinate with zero slope at the wall,
+// B(s) = a + c s^2, the reconstruction must return `a` EXACTLY -- and the
+// first-order alternative, copying the nearest neighbour, returns a + c. The
+// test drives c hard enough that the two cannot be confused: at c = 1 the
+// first-order answer is off by 100 % of the offset.
+//
+// IT IS APPLIED AT ALL. A condition that is coded and never reached is this
+// tree's recurring failure -- the driver next door read four uninitialised
+// pointers and penalised nothing while looking healthy. So the same field is
+// run with the node marked MagBulk instead, and the wall value must then come
+// out DIFFERENT. A test that passes either way measures nothing.
+//------------------------------------------------------------------------------
+static void magnetic_neumann() {
+  const int L = 12, ny = 4, nz = 4;
+  const std::size_t N = std::size_t(L) * ny * nz;
+  const double a0 = 0.02, c2 = 1.0e-3, m1 = 1.5e-3;
+
+  // `By` is the profile along x; the wall sits at x = 0 with outward normal -x.
+  auto wall_value = [&](std::uint8_t kind_at_wall, bool give_face,
+                        const std::function<double(int)>& By) {
+    host::Magnetic mg(L, ny, nz, Real(0.02));
+    std::vector<std::uint8_t> kind(N, std::uint8_t(MagBulk)), face(N, std::uint8_t(MFaceNone));
+    std::vector<Real> wx(N, Real(0)), wy(N, Real(0)), wz(N, Real(0));
+    for (int z = 0; z < nz; ++z)
+      for (int y = 0; y < ny; ++y) {
+        const std::size_t n0 = std::size_t((z * ny + y) * L + 0);
+        kind[n0] = kind_at_wall;
+        if (give_face) face[n0] = std::uint8_t(MFaceXm);   // outward normal is -x
+        const std::size_t nL = std::size_t((z * ny + y) * L + (L - 1));
+        kind[nL] = std::uint8_t(MagDirichlet);             // the level Neumann cannot fix
+        wy[nL] = Real(By(L - 1));
+      }
+    mg.set_walls(kind, wx, wy, wz, face);
+    mg.initialise_with(
+        [&By](int x, int, int, Real B[3]) {
+          B[0] = Real(0); B[1] = Real(By(x)); B[2] = Real(0);
+        },
+        [](int, int, int, Real u[3]) { u[0] = u[1] = u[2] = Real(0); });
+    mg.compute_field();
+    return double(mg.by()[std::size_t((1 * ny + 1) * L + 0)]);
+  };
+
+  // (a) EXACTNESS, on a quadratic with zero slope at the wall: B = a0 + c2 x^2.
+  //     (4 B_1 - B_2)/3 = a0 exactly; copying the nearest neighbour gives a0+c2.
+  const std::function<double(int)> quad =
+      [a0, c2](int x) { return a0 + c2 * double(x) * double(x); };
+  const double got_q = wall_value(std::uint8_t(MagNeumann), true, quad);
+  check(std::fabs(got_q - a0) < (fp64 ? 1e-12 : 2e-6),
+        "MagNeumann: (4B1-B2)/3 is EXACT on a zero-slope quadratic", got_q, a0);
+  check(std::fabs(got_q - (a0 + c2)) > 0.5 * c2,
+        "MagNeumann: and it is NOT the first-order neighbour copy", got_q, a0 + c2);
+
+  // (b) IS IT APPLIED AT ALL? The quadratic above cannot answer that: its slope
+  //     at the wall is zero, so the node's OWN value already equals what Neumann
+  //     reconstructs and MagBulk agrees with it by construction. That is exactly
+  //     the blind control this tree keeps rediscovering, and it failed here
+  //     before being noticed. A LINEAR profile separates all three: the node's
+  //     own value is a0, the second-order reconstruction is a0 + 2m/3, and the
+  //     first-order copy is a0 + m.
+  const std::function<double(int)> lin =
+      [a0, m1](int x) { return a0 + m1 * double(x); };
+  const double neu  = wall_value(std::uint8_t(MagNeumann), true,  lin);
+  const double bulk = wall_value(std::uint8_t(MagBulk),    false, lin);
+  check(std::fabs(neu - (a0 + 2.0 * m1 / 3.0)) < (fp64 ? 1e-12 : 2e-6),
+        "MagNeumann: linear profile gives a0 + 2m/3", neu, a0 + 2.0 * m1 / 3.0);
+  check(std::fabs(bulk - a0) < (fp64 ? 1e-12 : 2e-6),
+        "MagNeumann: the MagBulk control reads the node's own value", bulk, a0);
+  check(std::fabs(neu - bulk) > 0.3 * m1,
+        "MagNeumann: so marking the node MagBulk DOES change the answer", neu, bulk);
+}
+
 static void magnetic_thin() {
   const int L = 32;
   const double eta = 0.02, k = 2.0 * M_PI / L, B0 = 0.02, U = 0.01;
@@ -1897,6 +1976,7 @@ int main() {
   mhd_field_force();
   magnetic_source();
   magnetic_thin();
+  magnetic_neumann();
   alfven(Op::BGK, "BGK");
   alfven(Op::CentralMoments, "CM");
 
