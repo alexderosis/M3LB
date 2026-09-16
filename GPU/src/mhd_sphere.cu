@@ -66,6 +66,7 @@
 #include "lbm/vti.cuh"
 
 #include <cmath>
+#include <fstream>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -113,7 +114,7 @@ struct Opts {
   // mhd_decay shipped with 99 here and 12345 there and compared unrelated
   // realisations for it.
   std::uint64_t seed = 99;
-  std::size_t steps = 4096, probe = 256, vti = 0;
+  std::size_t steps = 4096, probe = 256, vti = 0, dump = 0, dumpvol = 0;
   Op op = Op::CentralMoments;
   std::string mwall = "cond";
 };
@@ -244,6 +245,41 @@ static void penalise(const PenParams& p) {
 }
 
 //------------------------------------------------------------------------------
+// Field dumps for the animation pipeline, in the format validation/FieldDump.hpp
+// writes and results/N_mhd_sphere/render_*.py reads: a slice is int32 nx, int32
+// ny then nx*ny float32; a volume is int32 nx, ny, nz then the floats, x fastest.
+//
+// WRITTEN OUT HERE rather than including FieldDump.hpp, for the same reason
+// vti.cuh is: GPU/ shares no headers with the Kokkos side. The FORMAT is shared
+// on purpose, though -- it is what lets one renderer read both codebases, and a
+// format agreed by two independent writers is worth more than one they inherit.
+//
+// THE SLICES ARE TINY AND THE VOLUME IS NOT: at N = 256 a slice is 256 kB and
+// jvol is 67 MB. A hundred-frame animation is 26 MB of slices against 6.7 GB of
+// volume, so dump the volume on a coarser cadence than the slices when the run
+// is large -- -dumpvol takes its own interval for that.
+//------------------------------------------------------------------------------
+static void write_raw2(const std::string& path, int nx, int ny,
+                       const std::vector<float>& v) {
+  std::ofstream o(path, std::ios::binary);
+  const std::int32_t a = nx, b = ny;
+  o.write(reinterpret_cast<const char*>(&a), sizeof a);
+  o.write(reinterpret_cast<const char*>(&b), sizeof b);
+  o.write(reinterpret_cast<const char*>(v.data()),
+          std::streamsize(v.size() * sizeof(float)));
+}
+static void write_raw3(const std::string& path, int nx, int ny, int nz,
+                       const std::vector<float>& v) {
+  std::ofstream o(path, std::ios::binary);
+  const std::int32_t a = nx, b = ny, c = nz;
+  o.write(reinterpret_cast<const char*>(&a), sizeof a);
+  o.write(reinterpret_cast<const char*>(&b), sizeof b);
+  o.write(reinterpret_cast<const char*>(&c), sizeof c);
+  o.write(reinterpret_cast<const char*>(v.data()),
+          std::streamsize(v.size() * sizeof(float)));
+}
+
+//------------------------------------------------------------------------------
 struct Diag {
   double eu = 0, eb = 0, ratio = 0, hc = 0, ens = 0, j2 = 0, cosjb = 0;
   double bmean = 0, bmax = 0, divb = 0, bn = 0, bshell = 0, mass = 0;
@@ -271,6 +307,8 @@ int main(int argc, char** argv) {
     else if (a == "-steps")  o.steps = std::size_t(std::atoll(next(i)));
     else if (a == "-probe")  o.probe = std::size_t(std::atoll(next(i)));
     else if (a == "-vti")    o.vti = std::size_t(std::atoll(next(i)));
+    else if (a == "-dump")   o.dump = std::size_t(std::atoll(next(i)));
+    else if (a == "-dumpvol") o.dumpvol = std::size_t(std::atoll(next(i)));
     else if (a == "-mwall")  o.mwall = next(i);
     else if (a == "-op") {
       const std::string s = next(i);
@@ -287,7 +325,11 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "-mwall must be cond or insul, not '%s'\n", o.mwall.c_str());
     return 2;
   }
-  if (o.vti) o.probe = o.vti;      // the .pvd carries the probe's own time
+  // The frame cadences drive the probe, because meta.txt and the .pvd carry that
+  // probe's energies and time. -dump wins over -vti when both are given.
+  if (o.dump) o.probe = o.dump;
+  else if (o.vti) o.probe = o.vti;
+  if (!o.dumpvol) o.dumpvol = o.dump;
 
   const int N = o.N;
   const long NT = long(N) * N * N;
@@ -426,6 +468,17 @@ int main(int argc, char** argv) {
               "     <j^2>    cos(J,B)  |<b>|    max|b|   dv/cl    Bn/B   B_sh   dmass\n");
 
   std::vector<std::pair<double, std::string>> pvd;
+  std::FILE* meta = nullptr;
+  int dframe = 0;
+  if (o.dump) {
+    meta = std::fopen("anim_frames/meta.txt", "w");
+    if (!meta) {
+      std::fprintf(stderr, "cannot open anim_frames/meta.txt -- does the "
+                           "directory exist?\n");
+      return 1;
+    }
+    std::fprintf(meta, "N %d\nR %.6f\nTe %.6f\n", N, R, T_e);
+  }
   std::vector<Real> hr, hux, huy, huz, hbx, hby, hbz;
   double mass0 = 0;
   int vframe = 0;
@@ -509,6 +562,51 @@ int main(int argc, char** argv) {
                   mass0 != 0 ? (g.mass - mass0) / mass0 : 0.0);
       std::fflush(stdout);
 
+      if (o.dump) {
+        const int zc = N / 2;
+        std::vector<float> su(std::size_t(N) * N), sb(std::size_t(N) * N),
+                           sj(std::size_t(N) * N);
+        std::vector<float> vol;
+        const bool wantvol = (t % o.dumpvol == 0);
+        if (wantvol) vol.resize(std::size_t(NT));
+        for (int z = 0; z < N; ++z)
+          for (int y = 0; y < N; ++y)
+            for (int x = 0; x < N; ++x) {
+              const std::size_t n = std::size_t(id(x, y, z));
+              const std::size_t xp = std::size_t(id(w(x + 1), y, z)), xm = std::size_t(id(w(x - 1), y, z));
+              const std::size_t yp = std::size_t(id(x, w(y + 1), z)), ym = std::size_t(id(x, w(y - 1), z));
+              const std::size_t zp = std::size_t(id(x, y, w(z + 1))), zm = std::size_t(id(x, y, w(z - 1)));
+              const double jx = 0.5 * (hbz[yp] - hbz[ym]) - 0.5 * (hby[zp] - hby[zm]);
+              const double jy = 0.5 * (hbx[zp] - hbx[zm]) - 0.5 * (hbz[xp] - hbz[xm]);
+              const double jz = 0.5 * (hby[xp] - hby[xm]) - 0.5 * (hbx[yp] - hbx[ym]);
+              const double jm = std::sqrt(jx * jx + jy * jy + jz * jz);
+              if (wantvol) vol[n] = float(jm);
+              if (z == zc) {
+                const std::size_t k = std::size_t(y) * N + x;
+                su[k] = float(std::sqrt(hux[n] * hux[n] + huy[n] * huy[n] + huz[n] * huz[n]));
+                sb[k] = float(std::sqrt(hbx[n] * hbx[n] + hby[n] * hby[n] + hbz[n] * hbz[n]));
+                sj[k] = float(jm);
+              }
+            }
+        char nm[96];
+        std::snprintf(nm, sizeof nm, "anim_frames/umag_%04d.raw", dframe);
+        write_raw2(nm, N, N, su);
+        std::snprintf(nm, sizeof nm, "anim_frames/bmag_%04d.raw", dframe);
+        write_raw2(nm, N, N, sb);
+        std::snprintf(nm, sizeof nm, "anim_frames/jmag_%04d.raw", dframe);
+        write_raw2(nm, N, N, sj);
+        if (wantvol) {
+          std::snprintf(nm, sizeof nm, "anim_frames/jvol_%04d.raw", dframe);
+          write_raw3(nm, N, N, N, vol);
+        }
+        if (meta) {
+          std::fprintf(meta, "frame %d %.6f %.8e %.8e\n", dframe,
+                       double(t) / T_e, g.eu, g.eb);
+          std::fflush(meta);
+        }
+        ++dframe;
+      }
+
       if (o.vti) {
         const std::size_t np = std::size_t(NT);
         VtiArray am{"Jmag", 1, {}}, ar{"rho", 1, {}}, ac{"chi", 1, {}};
@@ -555,6 +653,11 @@ int main(int argc, char** argv) {
       mag.step();
     }
   }
+  if (meta) { std::fprintf(meta, "frames %d\n", dframe); std::fclose(meta); }
+  if (o.dump)
+    std::printf("\n  wrote %d frames to anim_frames/  (render with "
+                "results/N_mhd_sphere/render_slices.py and render_volume.py)\n",
+                dframe);
   if (!pvd.empty()) {
     write_pvd("vti/sphere.pvd", pvd);
     std::printf("\n  ParaView: open vti/sphere.pvd  (%zu frames, t/Te 0 to %.2f)\n"
