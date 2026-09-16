@@ -52,6 +52,10 @@ doc/video/
 results/*/png/
 results/*/*.mp4
 results/*/*.gif
+# ParaView output. Same rule again: 12.6 MB per frame at N = 64 for six arrays,
+# so a 129-frame run is 1.6 GB. The CASE writes it (-vti) and check_vti.py
+# validates it; neither the .vti nor the .pvd is reference data.
+results/*/vti/
 # Bytecode cache. results/ now holds Python renderers, and importing one writes
 # a .pyc beside it.
 __pycache__/

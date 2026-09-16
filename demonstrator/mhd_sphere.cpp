@@ -144,6 +144,7 @@
 #include "FieldDump.hpp"
 #include "collision/MhdBGK.hpp"
 #include "collision/MhdCentralMomentsShifted.hpp"
+#include "io/VtiWriter.hpp"
 #include "solver/MagneticSolver.hpp"
 
 #include <cmath>
@@ -151,6 +152,7 @@
 #include <filesystem>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace lbm;
@@ -170,7 +172,7 @@ struct Opts {
   double eps = 2.0, epsm = 2.0, smooth = 1.0, k0 = 3.0;
   int kmax = 4;
   unsigned seed = 99;
-  std::size_t steps = 20000, probe = 500, dumpevery = 0;
+  std::size_t steps = 20000, probe = 500, dumpevery = 0, vtievery = 0;
   std::string op = "cms";
 };
 
@@ -308,6 +310,77 @@ static void dump(FS& fl, MS& mag, const Domain& d, Index N, int frame) {
   figdump::scalar_slice(p, N, N, [&](Index x, Index y) { return jmag(x, y, zc); });
   std::snprintf(p, sizeof p, "results/N_mhd_sphere/anim_frames/jvol_%04d.raw", frame);
   figdump::scalar_volume(p, N, N, N, jmag);
+}
+
+
+//------------------------------------------------------------------------------
+// ParaView output: one .vti per frame plus a .pvd carrying the real times.
+//
+// SIX ARRAYS, and chi is not padding. Without the penalisation indicator there
+// is no way to clip to the sphere inside ParaView, and every rendering would
+// include the dead exterior -- which is 73 % of the box at rfac = 0.40, so it
+// would dominate any volume rendering or isosurface. Threshold on chi < 0.5 and
+// everything downstream sees the fluid only.
+//
+// J is written as a VECTOR as well as its magnitude: |J| is what you colour by,
+// but the vector is what streamlines and the J.B alignment need, and
+// recomputing a curl inside ParaView on data that already has a divergence
+// problem would only add to it.
+//
+// 12.6 MB per frame at N = 64. That is the reason -vti has its own interval
+// rather than following -dump: 129 frames would be 1.6 GB.
+//------------------------------------------------------------------------------
+template <class FS, class MS>
+static std::string write_frame_vti(FS& fl, MS& mag, View1D<Real> chi,
+                                   const Domain& d, Index N, int frame) {
+  fl.compute_macroscopic();
+  mag.compute_field();
+  auto ux = Kokkos::create_mirror_view_and_copy(HostSpace{}, fl.ux());
+  auto uy = Kokkos::create_mirror_view_and_copy(HostSpace{}, fl.uy());
+  auto uz = Kokkos::create_mirror_view_and_copy(HostSpace{}, fl.uz());
+  auto rh = Kokkos::create_mirror_view_and_copy(HostSpace{}, fl.rho());
+  auto bx = Kokkos::create_mirror_view_and_copy(HostSpace{}, mag.Bx());
+  auto by = Kokkos::create_mirror_view_and_copy(HostSpace{}, mag.By());
+  auto bz = Kokkos::create_mirror_view_and_copy(HostSpace{}, mag.Bz());
+  auto ch = Kokkos::create_mirror_view_and_copy(HostSpace{}, chi);
+
+  const std::size_t np = std::size_t(N) * N * N;
+  VtiArray au{"u", 3, {}}, ab{"b", 3, {}}, aj{"J", 3, {}};
+  VtiArray am{"Jmag", 1, {}}, ar{"rho", 1, {}}, ac{"chi", 1, {}};
+  au.data.reserve(3 * np); ab.data.reserve(3 * np); aj.data.reserve(3 * np);
+  am.data.reserve(np); ar.data.reserve(np); ac.data.reserve(np);
+
+  auto w = [N](Index i) { return (i % N + N) % N; };
+  for (Index z = 0; z < N; ++z)
+    for (Index y = 0; y < N; ++y)
+      for (Index x = 0; x < N; ++x) {
+        const Index n = d.id(x, y, z);
+        au.data.push_back(float(ux(n))); au.data.push_back(float(uy(n)));
+        au.data.push_back(float(uz(n)));
+        ab.data.push_back(float(bx(n))); ab.data.push_back(float(by(n)));
+        ab.data.push_back(float(bz(n)));
+        const Index xp = d.id(w(x + 1), y, z), xm = d.id(w(x - 1), y, z);
+        const Index yp = d.id(x, w(y + 1), z), ym = d.id(x, w(y - 1), z);
+        const Index zp = d.id(x, y, w(z + 1)), zm = d.id(x, y, w(z - 1));
+        const double jx = 0.5 * (double(bz(yp)) - double(bz(ym)))
+                        - 0.5 * (double(by(zp)) - double(by(zm)));
+        const double jy = 0.5 * (double(bx(zp)) - double(bx(zm)))
+                        - 0.5 * (double(bz(xp)) - double(bz(xm)));
+        const double jz = 0.5 * (double(by(xp)) - double(by(xm)))
+                        - 0.5 * (double(bx(yp)) - double(bx(ym)));
+        aj.data.push_back(float(jx)); aj.data.push_back(float(jy));
+        aj.data.push_back(float(jz));
+        am.data.push_back(float(std::sqrt(jx * jx + jy * jy + jz * jz)));
+        ar.data.push_back(float(rh(n)));
+        ac.data.push_back(float(ch(n)));
+      }
+
+  char nm[64];
+  std::snprintf(nm, sizeof nm, "sphere_%04d.vti", frame);
+  write_vti_bin(std::string("results/N_mhd_sphere/vti/") + nm, N, N, N,
+                {am, ar, ac, au, ab, aj});
+  std::printf("  wrote results/N_mhd_sphere/vti/%s\n", nm);
+  return nm;
 }
 
 //------------------------------------------------------------------------------
@@ -562,7 +635,9 @@ static int run(const Opts& o) {
     mf = std::fopen("results/N_mhd_sphere/anim_frames/meta.txt", "w");
     if (mf) std::fprintf(mf, "N %d\nR %.6f\nTe %.6f\n", int(N), R, Te);
   }
-  int frame = 0;
+  int frame = 0, vframe = 0;
+  std::vector<std::pair<double, std::string>> pvd;
+  if (o.vtievery) std::filesystem::create_directories("results/N_mhd_sphere/vti", ec);
 
   std::FILE* f = campaign::open_out("N_mhd_sphere",
                           "sphere_n" + std::to_string(int(N)) + "_re" +
@@ -592,6 +667,9 @@ static int run(const Opts& o) {
                                frame, double(t) / Te, g.eu, g.eb); std::fflush(mf); }
         ++frame;
       }
+      if (o.vtievery && t % o.vtievery == 0)
+        pvd.emplace_back(double(t) / Te,
+                         write_frame_vti(fl, mag, chi, d, N, vframe++));
       if (!g.finite) { std::printf("\n  *** NON-FINITE at step %zu ***\n", t); break; }
     }
     if (t < o.steps) {
@@ -624,6 +702,13 @@ static int run(const Opts& o) {
   }
   if (f) std::fclose(f);
   if (mf) { std::fprintf(mf, "frames %d\n", frame); std::fclose(mf); }
+  if (!pvd.empty()) {
+    write_pvd("results/N_mhd_sphere/vti/sphere.pvd", pvd);
+    std::printf("\n  ParaView: open results/N_mhd_sphere/vti/sphere.pvd"
+                "  (%zu frames, t/Te 0 to %.2f)\n"
+                "  Threshold on chi < 0.5 to clip to the sphere; colour by Jmag.\n",
+                pvd.size(), pvd.back().first);
+  }
   return 0;
 }
 
@@ -651,6 +736,7 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(argv[i], "-steps"))  { if (i + 1 < argc) o.steps = std::size_t(std::atoll(argv[++i])); }
       else if (!std::strcmp(argv[i], "-probe"))  { if (i + 1 < argc) o.probe = std::size_t(std::atoll(argv[++i])); }
       else if (!std::strcmp(argv[i], "-dump"))   { if (i + 1 < argc) o.dumpevery = std::size_t(std::atoll(argv[++i])); }
+      else if (!std::strcmp(argv[i], "-vti"))    { if (i + 1 < argc) o.vtievery = std::size_t(std::atoll(argv[++i])); }
       else if (!std::strcmp(argv[i], "-op"))     { if (i + 1 < argc) o.op = argv[++i]; }
     }
     // The dump lives inside the probe block because meta.txt carries that
@@ -658,6 +744,7 @@ int main(int argc, char** argv) {
     // silently. Snapped rather than documented, because "-dump must divide
     // -probe" is exactly the kind of rule nobody reads.
     if (o.dumpevery) o.probe = o.dumpevery;
+    if (o.vtievery && !o.dumpevery) o.probe = o.vtievery;
     if (o.op == "bgk") rc = run<CollB>(o);
     else               rc = run<CollS>(o);
   }
