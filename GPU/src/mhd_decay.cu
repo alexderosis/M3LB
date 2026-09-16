@@ -24,37 +24,48 @@
 //  third is real and is not a defect of either side. Orders 0 to 2 of the two
 //  lattices agree by construction; the fourth-order ghosts do not.
 //
-//  THE CROSS-CHECK AGAINST THE PARENT HAS BEEN RUN, AND IT DOES NOT FULLY PASS.
-//  Measured 2026-09-16, -regime 1, N = 129, Re = 200, penalised, 600 steps
-//  (t/T_e = 0.24), parent = demonstrator/mhd_decay.cpp -wall pen:
+//  THE CROSS-CHECK AGAINST THE PARENT PASSES, AND FINDING THAT IT DID NOT IS
+//  WHAT THIS DRIVER WAS FOR. Measured at -regime 1, N = 129, Re = 200,
+//  penalised, 600 steps (t/T_e = 0.24), matched seed, parent =
+//  demonstrator/mhd_decay.cpp -wall pen:
 //
 //                      parent      this      gap
-//      E_kin        3.2853e-04  3.0758e-04    6 %
-//      E_mag        1.3191e-03  1.2941e-03    2 %
-//      enstrophy    1.7078e-05  1.4423e-05   16 %
-//      H_c            +0.3055     -0.1164   SIGN
-//      Bn/B|wall     4.755e-02   5.309e-01    11x
+//      E_kin        3.2853e-04  3.2870e-04   0.05 %
+//      E_mag        1.3191e-03  1.3185e-03   0.05 %
+//      enstrophy    1.7078e-05  1.7030e-05   0.28 %
+//      <j^2>        4.2069e-05  4.2082e-05   0.03 %
+//      L_u / L_b      6.20/7.92   6.21/7.92   0.2 %
+//      H_c            +0.3055     +0.3064    0.3 %
+//      Bn/B|wall     4.755e-02   4.818e-02   1.3 %
 //
-//  The energies agree to a few percent, which is the port working. The last two
-//  rows are not explained. Bn/B starts COMPARABLE (8.554e-02 against 6.758e-02
-//  at t = 0) and then the parent IMPROVES to 0.048 while this degrades to 0.53 --
-//  so the magnetic penalisation is not holding B.n = 0 the way the parent's does,
-//  and H_c, which is identical at t = 0 (+0.0438 both), has changed sign by
-//  t/T_e = 0.24.
+//  Two codebases sharing no headers, D2Q9 + D2Q5 against D3Q27 + D3Q7 in one
+//  cell, agreeing to about one percent on every column including the wall.
 //
-//  PRECISION IS ELIMINATED. Rebuilt with -DLBM_DOUBLE, the FP64 run reproduces
-//  the FP32 one to EVERY PRINTED DIGIT on all ten columns, so a 32-bit residual
-//  is not the cause of either gap. The three candidates left are a port bug, the
-//  D3Q27-in-one-cell against D2Q9 difference named above (the fourth-order
-//  ghosts differ, and Bn/B is a wall-layer quantity), and a differing definition
-//  of the Bn/B shell between the two diagnostics. None has been tested.
+//  IT DID NOT, UNTIL 2026-09-16, AND THE CAUSE WAS FOUR MISSING ASSIGNMENTS.
+//  PenParams declared ux, uy, bx, by and the call site never set them, so
+//  penalise_node read four uninitialised pointers every step and the
+//  penalisation -- FLUID AND MAGNETIC BOTH -- was a silent no-op. Nothing
+//  crashed. The bulk energies stayed within a few percent of the parent because
+//  a decaying flow decays with or without a wall, so the ONLY symptom was
+//  Bn/B|wall an order of magnitude high: the one thing this case exists to
+//  impose was the one thing not being imposed. Every member of PenParams now
+//  defaults to nullptr and the driver refuses to run if any input is null, so
+//  the next omission is a refusal at step 0 rather than a plausible run.
 //
-//  AND A COMPARISON AT DEFAULT FLAGS IS MEANINGLESS, which cost a wrong reading
-//  before this one. Without -regime the two build DIFFERENT SPECTRA: this file
-//  hard-codes kmax = 5 while the parent uses its own k0 + kw band, so the
-//  initial fields differ in enstrophy by 2.1x and in integral scale by 1.45x at
-//  equal energy, and the CUDA run then decays 2.4x more slowly for a reason that
-//  has nothing to do with the port. Compare under -regime or not at all.
+//  AND A COMPARISON AT DEFAULT FLAGS WAS MEANINGLESS TWICE OVER, which sent the
+//  first two readings of this defect wrong. Without -regime the two build
+//  different spectra (this file hard-coded kmax = 5, the parent uses its own
+//  k0 + kw band), giving initial fields 2.1x apart in enstrophy at equal energy.
+//  And the two shipped with different default SEEDS -- 99 here, 12345 there --
+//  so even under -regime they compared unrelated realisations: node-by-node at
+//  t = 0 the fields were uncorrelated, rms(parent - this)/rms(parent) = 1.3-1.4.
+//  The seeds are now matched, and at a matched seed the initial fields agree to
+//  FP32 round-off (3.1e-07 on u, 6.4e-08 on b). Compare under -regime, at a
+//  matched seed, or not at all.
+//
+//  PRECISION WAS ELIMINATED ALONG THE WAY and the note is worth keeping: rebuilt
+//  with -DLBM_DOUBLE the FP64 run reproduced the FP32 one to EVERY PRINTED DIGIT
+//  on all ten columns, so none of the above was ever a 32-bit residual.
 //
 //  THE WALL IS VOLUME PENALISATION, the reference's own method, and it replaces
 //  both boundaries at once. There is no solid cell and no magnetic wall
@@ -110,7 +121,13 @@ struct Opts {
   int N = 321, nz = 1, regime = 0, kmax = 0;
   double rfac = 19.0 / 40.0, u0 = 0.05, Re = 1000.0, prm = 1.0, alf = 1.0;
   double hct = 0.0, eps = 2.0, epsm = 2.0, smooth = 1.0;
-  std::uint64_t seed = 99;
+  // 12345 to MATCH THE PARENT. The two shipped with different defaults (99
+  // here, 12345 there) and the two codes share the RNG and the IC
+  // construction exactly, so a matched seed makes the initial fields agree to
+  // FP32 round-off and turns the twin comparison into a real one. With the
+  // defaults unmatched it compared two unrelated realisations and every
+  // column looked wrong by tens of percent for no reason.
+  std::uint64_t seed = 12345;
   std::size_t steps = 0, probe = 0;
   Op op = Op::CentralMoments;
 };
@@ -142,11 +159,22 @@ struct ZeroU {
 // builds share it; on a device this is one kernel's worth of work per step and is
 // the price penalisation charges over a sharp wall.
 //------------------------------------------------------------------------------
+// EVERY MEMBER IS INITIALISED HERE, and that is not tidiness. This struct was
+// declared with none, four of the seven input pointers (ux, uy, bx, by) were
+// never assigned at the call site, and penalise_node then read them every step:
+// the fluid AND magnetic penalisation were a silent no-op for the life of the
+// driver. It did not crash and the bulk energies stayed within a few percent of
+// the parent, so the only symptom was Bn/B|wall sitting an order of magnitude
+// high -- i.e. the wall the case exists to impose was the one thing not being
+// imposed. A nullptr default turns the next omission into a segfault at the
+// first step instead of a plausible run.
 struct PenParams {
-  const Real *chi, *nx_, *ny_, *ux, *uy, *bx, *by;
-  Real *Fx, *Fy, *Fz, *Sx, *Sy, *Sz;
-  Real ie, iem;
-  long N;
+  const Real *chi = nullptr, *nx_ = nullptr, *ny_ = nullptr;
+  const Real *ux = nullptr, *uy = nullptr, *bx = nullptr, *by = nullptr;
+  Real *Fx = nullptr, *Fy = nullptr, *Fz = nullptr;
+  Real *Sx = nullptr, *Sy = nullptr, *Sz = nullptr;
+  Real ie = Real(0), iem = Real(0);
+  long N = 0;
 };
 
 LBM_HD LBM_INLINE void penalise_node(const PenParams& p, long n) {
@@ -417,9 +445,17 @@ int main(int argc, char** argv) {
 
   PenParams pp;
   pp.chi = chi.data(); pp.nx_ = pnx.data(); pp.ny_ = pny.data();
+  // The fields the penalisation reads. These were MISSING, which is the whole
+  // of the Bn/B defect; see the struct's banner.
+  pp.ux = fl.ux_device(); pp.uy = fl.uy_device();
+  pp.bx = mag.Bx_device(); pp.by = mag.By_device();
   pp.Fx = Fx.data(); pp.Fy = Fy.data(); pp.Fz = Fz.data();
   pp.Sx = Sx.data(); pp.Sy = Sy.data(); pp.Sz = Sz.data();
   pp.ie = Real(1.0 / o.eps); pp.iem = Real(1.0 / o.epsm); pp.N = NT;
+  if (!pp.ux || !pp.uy || !pp.bx || !pp.by) {
+    std::fprintf(stderr, "penalisation has no field to read -- refusing to run\n");
+    return 1;
+  }
 
   std::vector<Real> hr, hu, hv, hw, bx, by, bz;
   for (std::size_t t = 0; t <= o.steps; ++t) {
