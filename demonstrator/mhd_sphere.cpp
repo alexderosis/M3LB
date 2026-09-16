@@ -117,12 +117,35 @@
 //  now reproduced in three dimensions, which at least rules out anything
 //  peculiar to two.
 //
-//  THE CONDITION IS B.n = 0, NOT B = 0 -- a perfect conductor coated in
-//  insulant, the reference's Eq. (2). The source is -chi (B.n) n / eps_m and it
-//  damps the NORMAL component alone; writing -chi B / eps_m instead would impose
-//  the insulating wall, which is a different physical problem. `Bn/B` on the
-//  shell is printed so the condition can be seen to be enforced rather than
-//  assumed.
+//  BOTH MAGNETIC WALLS ARE AVAILABLE, and they are different physics rather
+//  than different numerics. -mwall cond (the default) is the PERFECT CONDUCTOR
+//  of the reference's Eq. (2) -- a conductor coated inside with a thin layer of
+//  insulant -- whose source -chi (B.n) n / eps_m damps the NORMAL component
+//  alone and leaves the tangential field free. -mwall insul is the INSULATOR,
+//  -chi B / eps_m, which damps every component and drives B to zero at the wall.
+//
+//  MEASURED CONTRAST (N = 48, Re = 200, t/T_e = 1.56, everything else equal):
+//
+//                          cond      insul
+//      B_sh                1.216     0.004      |B| on the shell / interior rms
+//      E_b             4.51e-05   1.32e-05
+//      E_u/E_B             0.160     0.389
+//
+//  The insulator is a SINK FOR MAGNETIC ENERGY: flux leaves through the wall, so
+//  E_b falls 3.4x further and the selective decay largely disappears -- E_u/E_B
+//  ends at 0.39 rather than 0.16, i.e. the magnetic field no longer outlives the
+//  velocity field by much. The conductor removes only the normal component and
+//  the tangential flux stays in the volume. If you are looking for the
+//  selective-decay story, it is the conducting wall that has it.
+//
+//  Bn/B IS THE WRONG DIAGNOSTIC FOR THE INSULATOR AND THE NUMBERS SHOW IT. It
+//  reads 0.0013 for the conductor, which is the condition being enforced, and
+//  0.32 for the insulator -- not because the normal component survives but
+//  because |B| itself has gone to zero there and the ratio is 0/0, reporting
+//  whatever round-off is left. That is why B_sh was added: it is O(1) for a
+//  conductor and collapses by a factor 300 for an insulator, so it separates the
+//  two where Bn/B cannot. A diagnostic that is ill-conditioned in one of the two
+//  cases it is meant to compare is worse than none.
 //
 //  WHAT THIS CASE IS NOT. There is no published reference for a sphere, so
 //  nothing here is a validation -- this is a demonstrator and it prints no
@@ -174,7 +197,7 @@ struct Opts {
   int kmax = 4;
   unsigned seed = 99;
   std::size_t steps = 20000, probe = 500, dumpevery = 0, vtievery = 0;
-  std::string op = "cms";
+  std::string op = "cms", mwall = "cond";
 };
 
 // xorshift, so the initial condition does not depend on the host's RNG
@@ -386,7 +409,7 @@ static std::string write_frame_vti(FS& fl, MS& mag, View1D<Real> chi,
 
 //------------------------------------------------------------------------------
 struct Diag {
-  double eu, eb, ratio, hc, ens, j2, cosjb, bmean, bmax, divb, bn, mass;
+  double eu, eb, ratio, hc, ens, j2, cosjb, bmean, bmax, divb, bn, bshell, mass;
   bool finite;
 };
 
@@ -464,6 +487,7 @@ static Diag measure(FS& fl, MS& mag, const Domain& d, Index N, double R) {
           const double bm = std::sqrt(bxv * bxv + byv * byv + bzv * bzv);
           if (bm > 1e-30) {
             g.bn += std::abs((bxv * dx + byv * dy + bzv * dz) / r) / bm;
+            g.bshell += bm;
             nshell += 1;
           }
         }
@@ -475,7 +499,17 @@ static Diag measure(FS& fl, MS& mag, const Domain& d, Index N, double R) {
   }
   if (nbulk > 0) { g.ens /= nbulk; g.j2 /= nbulk; g.divb /= nbulk; }
   g.divb = (g.j2 > 1e-300) ? std::sqrt(g.divb / g.j2) : 0.0;
-  if (nshell > 0) g.bn /= nshell;
+  if (nshell > 0) {
+    g.bn /= nshell;
+    // |B| on the shell against the interior r.m.s. THE CONDUCTING AND
+    // INSULATING WALLS ARE NOT DISTINGUISHABLE BY Bn/B ALONE: an insulating
+    // wall drives |B| itself to zero there, so Bn/B becomes 0/0 and the guard
+    // below reports whatever the round-off happens to be. This ratio is what
+    // separates them -- it stays O(1) for a conductor, which only removes the
+    // NORMAL component, and collapses for an insulator.
+    const double brms = (g.eb > 0) ? std::sqrt(2.0 * g.eb) : 0.0;
+    g.bshell = (brms > 1e-30) ? g.bshell / nshell / brms : 0.0;
+  }
   g.ratio = (g.eb > 0) ? g.eu / g.eb : 0.0;
   const double hnorm = std::sqrt(4.0 * g.eu * g.eb);
   g.hc = (hnorm > 1e-30) ? g.hc / hnorm : 0.0;
@@ -620,13 +654,17 @@ static int run(const Opts& o) {
               int(N), R, o.rfac, o.Re, o.prm, o.u0);
   std::printf("  nu = %.6e   eta = %.6e   tau = %.6f   tau_mag = %.6f\n",
               nu, eta, 1.0 / double(fc.omega), 1.0 / double(mc.omega));
+  std::printf("  magnetic wall: %s  (%s)\n",
+              o.mwall == "insul" ? "INSULATING" : "perfectly conducting",
+              o.mwall == "insul" ? "B = 0, S = -chi B / eps_m"
+                                 : "B.n = 0, S = -chi (B.n) n / eps_m");
   std::printf("  penalisation eps = %.2f  eps_m = %.2f  smooth = %.2f;"
               "  IC kmax = %d  k0 = %.1f  seed %u\n", o.eps, o.epsm, o.smooth,
               o.kmax, o.k0, o.seed);
   std::printf("  one turnover 2R/u0 = %.0f steps; running %zu (%.1f turnovers)\n\n",
               Te, o.steps, double(o.steps) / Te);
   std::printf("   step   t/Te      E_u        E_b      E_u/E_b   H_c    enstr"
-              "     <j^2>    cos(J,B)  |<b>|    max|b|   dv/cl    Bn/B   dmass\n");
+              "     <j^2>    cos(J,B)  |<b>|    max|b|   dv/cl    Bn/B   B_sh   dmass\n");
 
   std::error_code ec;
   std::filesystem::create_directories("results/N_mhd_sphere", ec);
@@ -654,7 +692,7 @@ static int run(const Opts& o) {
   std::FILE* f = campaign::open_out("N_mhd_sphere",
                           "sphere_n" + std::to_string(int(N)) + "_re" +
                           std::to_string(int(o.Re)), "d3q27", o.op.c_str());
-  if (f) std::fprintf(f, "# step t/Te E_u E_b ratio H_c enstrophy j2 cosJB bmean bmax divb BnB dmass\n");
+  if (f) std::fprintf(f, "# step t/Te E_u E_b ratio H_c enstrophy j2 cosJB bmean bmax divb BnB Bshell dmass\n");
 
   double mass0 = 0;
   for (std::size_t t = 0; t <= o.steps; ++t) {
@@ -663,14 +701,14 @@ static int run(const Opts& o) {
       if (t == 0) mass0 = g.mass;
       const double dm = (mass0 != 0) ? (g.mass - mass0) / mass0 : 0.0;
       std::printf("  %6zu %6.3f %10.3e %10.3e %8.3f %7.4f %9.3e %9.3e %8.4f"
-                  " %8.2e %8.2e %8.2e %7.4f %9.2e\n",
+                  " %8.2e %8.2e %8.2e %7.4f %6.3f %9.2e\n",
                   t, double(t) / Te, g.eu, g.eb, g.ratio, g.hc, g.ens, g.j2,
-                  g.cosjb, g.bmean, g.bmax, g.divb, g.bn, dm);
+                  g.cosjb, g.bmean, g.bmax, g.divb, g.bn, g.bshell, dm);
       std::fflush(stdout);
       if (f) {
-        std::fprintf(f, "%zu %.6f %.8e %.8e %.6f %.6f %.6e %.6e %.6f %.6e %.6e %.6e %.6f %.6e\n",
+        std::fprintf(f, "%zu %.6f %.8e %.8e %.6f %.6f %.6e %.6e %.6f %.6e %.6e %.6e %.6f %.6f %.6e\n",
                      t, double(t) / Te, g.eu, g.eb, g.ratio, g.hc, g.ens, g.j2,
-                     g.cosjb, g.bmean, g.bmax, g.divb, g.bn, dm);
+                     g.cosjb, g.bmean, g.bmax, g.divb, g.bn, g.bshell, dm);
         std::fflush(f);
       }
       if (o.dumpevery && t % o.dumpevery == 0) {
@@ -696,16 +734,26 @@ static int run(const Opts& o) {
       auto mx = nx; auto my = ny; auto mz = nz;
       auto qx = sx; auto qy = sy; auto qz = sz;
       const Real ie = Real(1.0 / o.eps), iem = Real(1.0 / o.epsm);
+      const bool insul = (o.mwall == "insul");
       Kokkos::parallel_for("pen", Kokkos::RangePolicy<ExecSpace>(0, d.n_padded),
         KOKKOS_LAMBDA(Index n) {
           const Real c = ch(n);
           ax(n) = -c * ux(n) * ie;
           ay(n) = -c * uy(n) * ie;
           az(n) = -c * uz(n) * ie;
-          const Real bn = bx(n) * mx(n) + by(n) * my(n) + bz(n) * mz(n);
-          qx(n) = -c * bn * mx(n) * iem;
-          qy(n) = -c * bn * my(n) * iem;
-          qz(n) = -c * bn * mz(n) * iem;
+          if (insul) {
+            // B = 0: damp EVERY component. The insulating wall.
+            qx(n) = -c * bx(n) * iem;
+            qy(n) = -c * by(n) * iem;
+            qz(n) = -c * bz(n) * iem;
+          } else {
+            // B.n = 0: damp the NORMAL component only, leaving the tangential
+            // field free. The perfect conductor, and the reference's Eq. (2).
+            const Real bn = bx(n) * mx(n) + by(n) * my(n) + bz(n) * mz(n);
+            qx(n) = -c * bn * mx(n) * iem;
+            qy(n) = -c * bn * my(n) * iem;
+            qz(n) = -c * bn * mz(n) * iem;
+          }
         });
       mag.compute_field();
       fl.step(true);
@@ -750,15 +798,21 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(argv[i], "-dump"))   { if (i + 1 < argc) o.dumpevery = std::size_t(std::atoll(argv[++i])); }
       else if (!std::strcmp(argv[i], "-vti"))    { if (i + 1 < argc) o.vtievery = std::size_t(std::atoll(argv[++i])); }
       else if (!std::strcmp(argv[i], "-op"))     { if (i + 1 < argc) o.op = argv[++i]; }
+      else if (!std::strcmp(argv[i], "-mwall"))  { if (i + 1 < argc) o.mwall = argv[++i]; }
     }
     // The dump lives inside the probe block because meta.txt carries that
     // probe's energies, so the two cadences must coincide or frames go missing
     // silently. Snapped rather than documented, because "-dump must divide
     // -probe" is exactly the kind of rule nobody reads.
+      if (o.mwall != "cond" && o.mwall != "insul") {
+      std::printf("-mwall must be cond or insul, not '%s'\n", o.mwall.c_str());
+      rc = 2;
+    } else {
     if (o.dumpevery) o.probe = o.dumpevery;
     if (o.vtievery && !o.dumpevery) o.probe = o.vtievery;
     if (o.op == "bgk") rc = run<CollB>(o);
     else               rc = run<CollS>(o);
+    }
   }
   Kokkos::finalize();
   return rc;
