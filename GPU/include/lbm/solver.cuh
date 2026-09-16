@@ -780,10 +780,34 @@ class Solver {
   // instantiated -- MHD with buoyancy, for instance, is never launched and
   // therefore never compiled.
   //--------------------------------------------------------------------------
+  // LBM_OP_ONLY / LBM_FORCE_ONLY TRADE FLEXIBILITY FOR COMPILE TIME, and the
+  // trade is real rather than a micro-optimisation. This dispatch instantiates
+  // 2 parities x 3 operators x 4 force kinds x 2 MHD = 48 D3Q27 collision
+  // kernels per driver, each unrolled over 27 directions, and ptxas allocates
+  // registers for every one. MEASURED on a Colab T4 with 2 vCPUs: ONE source
+  // file, one target, still compiling at 12 min 49 s when it was interrupted.
+  // A driver that uses one operator and one force kind pays for eleven twelfths
+  // of that and can never call any of it.
+  //
+  // Defining either narrows the dispatch at COMPILE time. The cost is that the
+  // corresponding runtime flag stops working -- -op bgk under LBM_OP_ONLY=1
+  // aborts rather than silently running central moments, because a build that
+  // quietly ignores the flag it was given is the worse failure.
   template <int P> void launch_op() {
+#if defined(LBM_OP_ONLY)
+    if (int(op_) != LBM_OP_ONLY) {
+      std::fprintf(stderr,
+          "this binary was built with -DLBM_ONLY_OP, so operator %d is the only "
+          "one compiled in; %d was requested. Rebuild without it, or ask for the "
+          "one that is here.\n", LBM_OP_ONLY, int(op_));
+      std::exit(2);
+    }
+    launch_force<P, LBM_OP_ONLY>();
+#else
     if      (op_ == Op::BGK) launch_force<P, 0>();
     else if (op_ == Op::TRT) launch_force<P, 2>();
     else                     launch_force<P, 1>();
+#endif
   }
   template <int P, int O> void launch_force() {
     // EVERY FORCE KIND THE NON-MHD BRANCH TAKES, THE MHD BRANCH MUST TAKE TOO.
@@ -796,6 +820,16 @@ class Solver {
     // every diagnostic and doing nothing to the dynamics. Held by
     // test/host_physics.cpp mhd_field_force(), which measured exactly F/2 --
     // the shift alone -- before this line existed.
+#if defined(LBM_FORCE_ONLY)
+    if (int(fkind_) != LBM_FORCE_ONLY) {
+      std::fprintf(stderr,
+          "this binary was built with -DLBM_ONLY_FORCE, so force kind %d is the "
+          "only one compiled in; %d was requested.\n", LBM_FORCE_ONLY, int(fkind_));
+      std::exit(2);
+    }
+    if (mhd_) run<P, O, LBM_FORCE_ONLY, true>();
+    else      run<P, O, LBM_FORCE_ONLY, false>();
+#else
     if (mhd_) {
       if      (fkind_ == ForceUniform)    run<P, O, ForceUniform,    true>();
       else if (fkind_ == ForceField)      run<P, O, ForceField,      true>();
@@ -810,6 +844,7 @@ class Solver {
     } else {
       run<P, O, ForceNone, false>();
     }
+#endif
   }
   template <int P, int O, int F, bool M> void run() {
     if (has_walls_)         launch<P, O, F, M, true, true>();

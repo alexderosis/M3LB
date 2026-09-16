@@ -45,6 +45,57 @@ option(LBM_DOUBLE "Build in FP64 (slow on consumer cards)" OFF)
 # before implementing it -- see the banner in include/lbm/streaming.cuh.
 option(LBM_STORE16_EMULATE "Emulate FP16 population storage (accuracy probe)" OFF)
 option(LBM_PTXAS_VERBOSE "Report registers and spills per kernel" OFF)
+
+#-------------------------------------------------------------------------------
+# NARROW THE DISPATCH, AND WITH IT THE COMPILE TIME.
+#
+# solver.cuh instantiates 2 parities x 3 operators x 4 force kinds x 2 MHD = 48
+# D3Q27 collision kernels per driver, whatever the driver actually calls. Each is
+# unrolled over 27 directions and ptxas allocates registers for every one.
+# MEASURED on a Colab T4 with 2 vCPUs: ONE target, one source file, interrupted
+# still compiling at 12 min 49 s.
+#
+# A case that uses one operator and one force kind -- mhd_sphere uses central
+# moments and ForceField -- pays for eleven twelfths of that and can never call
+# any of it. These two narrow it at compile time:
+#
+#   cmake -S . -B build -DLBM_ONLY_OP=cm -DLBM_ONLY_FORCE=field
+#
+# THE COST IS THAT THE RUNTIME FLAG STOPS WORKING, and deliberately loudly: a
+# binary built with -DLBM_ONLY_OP=cm ABORTS on -op bgk rather than silently
+# running central moments. A build that quietly ignores the flag it was handed
+# is the worse failure, and this tree has the scars to say so.
+#
+# Leave both empty for a general binary, which is what every existing case and
+# every test expects.
+#-------------------------------------------------------------------------------
+set(LBM_ONLY_OP "" CACHE STRING "Compile only one operator: bgk | cm | trt (empty = all)")
+set(LBM_ONLY_FORCE "" CACHE STRING "Compile only one force kind: none | uniform | boussinesq | field (empty = all)")
+
+if(LBM_ONLY_OP)
+  if(LBM_ONLY_OP STREQUAL "bgk")
+    set(_op 0)
+  elseif(LBM_ONLY_OP STREQUAL "cm")
+    set(_op 1)
+  elseif(LBM_ONLY_OP STREQUAL "trt")
+    set(_op 2)
+  else()
+    message(FATAL_ERROR "LBM_ONLY_OP must be bgk, cm or trt, not '${LBM_ONLY_OP}'")
+  endif()
+endif()
+if(LBM_ONLY_FORCE)
+  if(LBM_ONLY_FORCE STREQUAL "none")
+    set(_fk 0)
+  elseif(LBM_ONLY_FORCE STREQUAL "uniform")
+    set(_fk 1)
+  elseif(LBM_ONLY_FORCE STREQUAL "boussinesq")
+    set(_fk 2)
+  elseif(LBM_ONLY_FORCE STREQUAL "field")
+    set(_fk 3)
+  else()
+    message(FATAL_ERROR "LBM_ONLY_FORCE must be none, uniform, boussinesq or field, not '${LBM_ONLY_FORCE}'")
+  endif()
+endif()
 # OFF BY DEFAULT, ON PRECAUTIONARY GROUNDS -- AND THE MEASUREMENT SAYS SO
 # EXPLICITLY, BECAUSE THE FIRST VERSION OF THIS NOTE CLAIMED MORE THAN IT COULD.
 #
@@ -77,6 +128,16 @@ if(NOT LBM_HOST_ONLY)
 endif()
 
 add_library(lbm_cuda_core INTERFACE)
+# The narrowing definitions, here rather than beside their option() because the
+# target has to exist first.
+if(LBM_ONLY_OP)
+  target_compile_definitions(lbm_cuda_core INTERFACE LBM_OP_ONLY=${_op})
+  message(STATUS "LBM: compiling ONLY operator ${LBM_ONLY_OP} (${_op})")
+endif()
+if(LBM_ONLY_FORCE)
+  target_compile_definitions(lbm_cuda_core INTERFACE LBM_FORCE_ONLY=${_fk})
+  message(STATUS "LBM: compiling ONLY force kind ${LBM_ONLY_FORCE} (${_fk})")
+endif()
 target_include_directories(lbm_cuda_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(LBM_STORE16_EMULATE)
   target_compile_definitions(lbm_cuda_core INTERFACE LBM_STORE16_EMULATE)

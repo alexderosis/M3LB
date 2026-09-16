@@ -212,10 +212,26 @@ class Fluid {
     return p;
   }
 
+  // LBM_OP_ONLY / LBM_FORCE_ONLY are honoured HERE TOO, and that is the point
+  // rather than tidiness: the host reference and the device solver must behave
+  // the same or the host build stops being a check on the device one. Narrowed
+  // the same way, refusing the same requests. Without this the host binary
+  // silently ran the operator the device build would have ABORTED on, which is
+  // the divergence the whole host/device pairing exists to prevent.
   template <int P> void dispatch_op() {
+#if defined(LBM_OP_ONLY)
+    if (int(op_) != LBM_OP_ONLY) {
+      std::fprintf(stderr,
+          "this binary was built with -DLBM_ONLY_OP, so operator %d is the only "
+          "one compiled in; %d was requested.\n", LBM_OP_ONLY, int(op_));
+      std::exit(2);
+    }
+    dispatch_force<P, LBM_OP_ONLY>();
+#else
     if      (op_ == Op::BGK) dispatch_force<P, 0>();
     else if (op_ == Op::TRT) dispatch_force<P, 2>();
     else                     dispatch_force<P, 1>();
+#endif
   }
   template <int P, int O> void dispatch_force() {
     // EVERY FORCE KIND THE NON-MHD BRANCH TAKES, THE MHD BRANCH MUST TAKE TOO.
@@ -228,6 +244,16 @@ class Fluid {
     // every diagnostic and doing nothing to the dynamics. Held by
     // test/host_physics.cpp mhd_field_force(), which measured exactly F/2 --
     // the shift alone -- before this line existed.
+#if defined(LBM_FORCE_ONLY)
+    if (int(fkind_) != LBM_FORCE_ONLY) {
+      std::fprintf(stderr,
+          "this binary was built with -DLBM_ONLY_FORCE, so force kind %d is the "
+          "only one compiled in; %d was requested.\n", LBM_FORCE_ONLY, int(fkind_));
+      std::exit(2);
+    }
+    if (mhd_) run<P, O, LBM_FORCE_ONLY, true>();
+    else      run<P, O, LBM_FORCE_ONLY, false>();
+#else
     if (mhd_) {
       if      (fkind_ == ForceUniform)    run<P, O, ForceUniform,    true>();
       else if (fkind_ == ForceField)      run<P, O, ForceField,      true>();
@@ -242,6 +268,7 @@ class Fluid {
     } else {
       run<P, O, ForceNone, false>();
     }
+#endif
   }
   template <int P, int O, int F, bool M> void run() {
     const FluidParams p = params();
