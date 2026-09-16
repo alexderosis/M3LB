@@ -141,12 +141,14 @@
 //  measurement, exactly as the disc's banner does for the circle.
 //==============================================================================
 #include "Campaign.hpp"
+#include "FieldDump.hpp"
 #include "collision/MhdBGK.hpp"
 #include "collision/MhdCentralMomentsShifted.hpp"
 #include "solver/MagneticSolver.hpp"
 
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -168,7 +170,7 @@ struct Opts {
   double eps = 2.0, epsm = 2.0, smooth = 1.0, k0 = 3.0;
   int kmax = 4;
   unsigned seed = 99;
-  std::size_t steps = 20000, probe = 500;
+  std::size_t steps = 20000, probe = 500, dumpevery = 0;
   std::string op = "cms";
 };
 
@@ -251,6 +253,61 @@ static void solenoidal(Index N, int kmax, double k0, Rng& rng,
         v[1][n] = 0.5 * (A[0][zp] - A[0][zm]) - 0.5 * (A[2][xp] - A[2][xm]);
         v[2][n] = 0.5 * (A[1][xp] - A[1][xm]) - 0.5 * (A[0][yp] - A[0][ym]);
       }
+}
+
+//------------------------------------------------------------------------------
+// Field dumps for the animation. Three mid-plane slices and the |J| volume --
+// the slices because they are cheap and readable, the volume because current
+// SHEETS are the thing worth seeing in 3-D MHD and a single plane cuts through
+// them at an arbitrary angle.
+//
+// The exterior is dumped as-is rather than masked: the renderer knows R and is
+// the right place to decide what to show, and a file that has already thrown
+// the penalised region away cannot be used to check that it really is at rest.
+//------------------------------------------------------------------------------
+template <class FS, class MS>
+static void dump(FS& fl, MS& mag, const Domain& d, Index N, int frame) {
+  fl.compute_macroscopic();
+  mag.compute_field();
+  auto ux = Kokkos::create_mirror_view_and_copy(HostSpace{}, fl.ux());
+  auto uy = Kokkos::create_mirror_view_and_copy(HostSpace{}, fl.uy());
+  auto uz = Kokkos::create_mirror_view_and_copy(HostSpace{}, fl.uz());
+  auto bx = Kokkos::create_mirror_view_and_copy(HostSpace{}, mag.Bx());
+  auto by = Kokkos::create_mirror_view_and_copy(HostSpace{}, mag.By());
+  auto bz = Kokkos::create_mirror_view_and_copy(HostSpace{}, mag.Bz());
+
+  auto w = [N](Index i) { return (i % N + N) % N; };
+  auto jmag = [&](Index x, Index y, Index z) {
+    const Index xp = d.id(w(x + 1), y, z), xm = d.id(w(x - 1), y, z);
+    const Index yp = d.id(x, w(y + 1), z), ym = d.id(x, w(y - 1), z);
+    const Index zp = d.id(x, y, w(z + 1)), zm = d.id(x, y, w(z - 1));
+    const double jx = 0.5 * (double(bz(yp)) - double(bz(ym)))
+                    - 0.5 * (double(by(zp)) - double(by(zm)));
+    const double jy = 0.5 * (double(bx(zp)) - double(bx(zm)))
+                    - 0.5 * (double(bz(xp)) - double(bz(xm)));
+    const double jz = 0.5 * (double(by(xp)) - double(by(xm)))
+                    - 0.5 * (double(bx(yp)) - double(bx(ym)));
+    return std::sqrt(jx * jx + jy * jy + jz * jz);
+  };
+
+  char p[256];
+  const Index zc = N / 2;
+  std::snprintf(p, sizeof p, "results/N_mhd_sphere/anim_frames/umag_%04d.raw", frame);
+  figdump::scalar_slice(p, N, N, [&](Index x, Index y) {
+    const Index n = d.id(x, y, zc);
+    return std::sqrt(double(ux(n)) * double(ux(n)) + double(uy(n)) * double(uy(n))
+                   + double(uz(n)) * double(uz(n)));
+  });
+  std::snprintf(p, sizeof p, "results/N_mhd_sphere/anim_frames/bmag_%04d.raw", frame);
+  figdump::scalar_slice(p, N, N, [&](Index x, Index y) {
+    const Index n = d.id(x, y, zc);
+    return std::sqrt(double(bx(n)) * double(bx(n)) + double(by(n)) * double(by(n))
+                   + double(bz(n)) * double(bz(n)));
+  });
+  std::snprintf(p, sizeof p, "results/N_mhd_sphere/anim_frames/jmag_%04d.raw", frame);
+  figdump::scalar_slice(p, N, N, [&](Index x, Index y) { return jmag(x, y, zc); });
+  std::snprintf(p, sizeof p, "results/N_mhd_sphere/anim_frames/jvol_%04d.raw", frame);
+  figdump::scalar_volume(p, N, N, N, jmag);
 }
 
 //------------------------------------------------------------------------------
@@ -497,6 +554,16 @@ static int run(const Opts& o) {
   std::printf("   step   t/Te      E_u        E_b      E_u/E_b   H_c    enstr"
               "     <j^2>    cos(J,B)  |<b>|    max|b|   dv/cl    Bn/B   dmass\n");
 
+  std::error_code ec;
+  std::filesystem::create_directories("results/N_mhd_sphere", ec);
+  std::FILE* mf = nullptr;
+  if (o.dumpevery) {
+    std::filesystem::create_directories("results/N_mhd_sphere/anim_frames", ec);
+    mf = std::fopen("results/N_mhd_sphere/anim_frames/meta.txt", "w");
+    if (mf) std::fprintf(mf, "N %d\nR %.6f\nTe %.6f\n", int(N), R, Te);
+  }
+  int frame = 0;
+
   std::FILE* f = campaign::open_out("N_mhd_sphere",
                           "sphere_n" + std::to_string(int(N)) + "_re" +
                           std::to_string(int(o.Re)), "d3q27", o.op.c_str());
@@ -518,6 +585,12 @@ static int run(const Opts& o) {
                      t, double(t) / Te, g.eu, g.eb, g.ratio, g.hc, g.ens, g.j2,
                      g.cosjb, g.bmean, g.bmax, g.divb, g.bn, dm);
         std::fflush(f);
+      }
+      if (o.dumpevery && t % o.dumpevery == 0) {
+        dump(fl, mag, d, N, frame);
+        if (mf) { std::fprintf(mf, "frame %d %.6f %.8e %.8e\n",
+                               frame, double(t) / Te, g.eu, g.eb); std::fflush(mf); }
+        ++frame;
       }
       if (!g.finite) { std::printf("\n  *** NON-FINITE at step %zu ***\n", t); break; }
     }
@@ -550,6 +623,7 @@ static int run(const Opts& o) {
     }
   }
   if (f) std::fclose(f);
+  if (mf) { std::fprintf(mf, "frames %d\n", frame); std::fclose(mf); }
   return 0;
 }
 
@@ -576,8 +650,14 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(argv[i], "-seed"))   { if (i + 1 < argc) o.seed = unsigned(std::atoi(argv[++i])); }
       else if (!std::strcmp(argv[i], "-steps"))  { if (i + 1 < argc) o.steps = std::size_t(std::atoll(argv[++i])); }
       else if (!std::strcmp(argv[i], "-probe"))  { if (i + 1 < argc) o.probe = std::size_t(std::atoll(argv[++i])); }
+      else if (!std::strcmp(argv[i], "-dump"))   { if (i + 1 < argc) o.dumpevery = std::size_t(std::atoll(argv[++i])); }
       else if (!std::strcmp(argv[i], "-op"))     { if (i + 1 < argc) o.op = argv[++i]; }
     }
+    // The dump lives inside the probe block because meta.txt carries that
+    // probe's energies, so the two cadences must coincide or frames go missing
+    // silently. Snapped rather than documented, because "-dump must divide
+    // -probe" is exactly the kind of rule nobody reads.
+    if (o.dumpevery) o.probe = o.dumpevery;
     if (o.op == "bgk") rc = run<CollB>(o);
     else               rc = run<CollS>(o);
   }

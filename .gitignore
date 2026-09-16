@@ -46,6 +46,15 @@ results/J_zhou_thermal/*_uy.dat
 # is the tracked binary here because it is the deliverable; a video of a
 # demonstrator is not.
 doc/video/
+# Same rule one directory down: results/*/png/ is what results/*/render_*.py
+# writes from an (already ignored) results/*/anim_* dump. 129 frames of
+# mhd_sphere came to 4.9 MB of PNG. The SCRIPT is tracked, its output is not.
+results/*/png/
+results/*/*.mp4
+results/*/*.gif
+# Bytecode cache. results/ now holds Python renderers, and importing one writes
+# a .pyc beside it.
+__pycache__/
 GPU/build*/
 
 # CSF3 job output. GPU/csf3/*.sub write field planes under runs/ and SLURM
