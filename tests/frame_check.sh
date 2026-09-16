@@ -83,12 +83,16 @@ cat > "$TMP/probe.cpp" <<'CPP'
 #include "collision/MultiphaseCentralMoments.hpp"
 #include "collision/PhaseFieldCentralMoments.hpp"
 #include "collision/ColourGradient.hpp"
+#include "collision/MhdCentralMoments.hpp"
+#include "collision/MhdCentralMomentsShifted.hpp"
 using namespace lbm;
 using Bgk  = BGK<D3Q27, SecondOrderEquilibrium<D3Q27>, NoForcing, RawPopulations>;
 using CM   = MomentCollision<D3Q27, NoForcing, RawPopulations, true>;
 using MpCM = MultiphaseCentralMoments<D3Q27>;
 using PfCM = PhaseFieldCentralMoments<D3Q27>;
 using CG   = ColourGradient<D3Q27>;
+using MhdS = MhdCentralMomentsShifted<D3Q27>;
+using MhdM = MhdCentralMoments<D2Q9, true>;
 extern "C" void probe_bgk (Real* f, const Macro* m, const Bgk*  c) { c->collide(f, *m, 0); }
 extern "C" void probe_cm  (Real* f, const Macro* m, const CM*   c) { c->collide(f, *m, 0); }
 extern "C" void probe_mpcm(Real* f, const Macro* m, const MpCM* c) { c->collide(f, *m, 0); }
@@ -98,6 +102,8 @@ extern "C" void probe_pfcm(Real* h, Real phi, const Real* u, const Real* A, cons
 extern "C" void probe_cg(Real* f, Real rr, Real rb, const Real* u, Real p, const CG* c) {
   c->collide(f, rr, rb, u, p, 0);
 }
+extern "C" void probe_mhds(Real* f, const Macro* m, const MhdS* c) { c->collide(f, *m, 0); }
+extern "C" void probe_mhdm(Real* f, const Macro* m, const MhdM* c) { c->collide(f, *m, 0); }
 CPP
 
 for PREC in double float; do
@@ -116,7 +122,7 @@ for PREC in double float; do
   echo
   echo "  precision $PREC"
   printf "  %-28s %7s %8s %7s %8s\n" operator frame instrs loops regidx
-  for FN in probe_bgk probe_cm probe_mpcm probe_pfcm probe_cg; do
+  for FN in probe_bgk probe_cm probe_mpcm probe_pfcm probe_cg probe_mhds probe_mhdm; do
     LN=$(awk -v f="_$FN:" '$0 ~ "^"f {print NR; exit}' "$TMP/probe.s")
     awk -v s="$LN" 'NR>=s{print} NR>s && /\.cfi_endproc/{exit}' "$TMP/probe.s" > "$TMP/b.s"
     # A tail call means the body was not inlined into the probe; follow it,

@@ -1,5 +1,6 @@
 #pragma once
 #include <type_traits>
+#include <utility>
 //==============================================================================
 //  D2Q9 MHD central moments in the SHIFTED basis, with the force and the
 //  equilibrium both at FOURTH Hermite order.
@@ -285,28 +286,56 @@ struct MhdCentralMomentsShifted<D3Q27, Forcing> {
       k[B::mi(0, 0, 1)] = Real(0);
     }
 
-    // order 2: trace at omega_bulk, the five deviatoric components at omega
+    // order 2: trace at omega_bulk, the five deviatoric components at omega.
+    //
+    // Every moment index here is a COMPILE-TIME constant. An index table walked
+    // at run time -- `const int d[3] = {...}; for (a) k[d[a]]` -- means the
+    // compiler cannot prove the subscript constant, so the array cannot live in
+    // registers at any budget, which is the rule in CLAUDE.md.
+    //
+    // IT DOES NOT FIX THIS OPERATOR'S FRAME, AND THE MEASUREMENT SAYS SO.
+    // tests/frame_check.sh reads 752 bytes / 1 loop / 4 register-indexed arrays
+    // at FP64 both before and after this block was unrolled -- second only to
+    // ColourGradient, against MomentCollision's clean 368 / 0 / 0. The cause is
+    // not the indices: it is that this operator keeps THREE live 27-element
+    // arrays -- k, ke and fe -- because it TRANSFORMS the equilibrium instead of
+    // writing it out, while MomentCollision computes eq_moment<N> analytically
+    // and carries only k. ProductBasis::to_moments itself also indexes k[mi(a,b,c)]
+    // with runtime a, b, c, and is shared by four operators.
+    //
+    // SO THIS OPERATOR IS NOT FIT FOR A DEVICE AS IT STANDS. On a CPU a 752-byte
+    // frame is L1-resident and costs little; in device code it is per-thread
+    // LOCAL memory, off-chip and uncoalesced, and this tree has measured that
+    // mechanism at 47x in ColourGradient. The fix available is the closed form
+    // for K_eq -- derived and verified against this file's own equilibrium() to
+    // 6.7e-16, see the note above order 2 -- which would remove fe and the second
+    // transform. NOT DONE: it would re-open a validated operator, and nothing has
+    // yet needed it on a GPU.
     {
-      const int d[3] = {B::mi(2, 0, 0), B::mi(0, 2, 0), B::mi(0, 0, 2)};
-      Real tr = Real(0), tre = Real(0);
-      for (int a = 0; a < 3; ++a) { tr += k[d[a]]; tre += ke[d[a]]; }
+      constexpr int D0 = B::mi(2, 0, 0), D1 = B::mi(0, 2, 0), D2 = B::mi(0, 0, 2);
+      constexpr int S0 = B::mi(1, 1, 0), S1 = B::mi(1, 0, 1), S2 = B::mi(0, 1, 1);
+      const Real tr  = k[D0] + k[D1] + k[D2];
+      const Real tre = ke[D0] + ke[D1] + ke[D2];
       const Real third = Real(1) / Real(3);
       const Real tr_post = (Real(1) - omega_bulk) * tr + omega_bulk * tre;
-      for (int a = 0; a < 3; ++a)
-        k[d[a]] = (Real(1) - omega) * (k[d[a]] - tr * third)
-                + omega * (ke[d[a]] - tre * third) + tr_post * third;
-      const int sh[3] = {B::mi(1, 1, 0), B::mi(1, 0, 1), B::mi(0, 1, 1)};
-      for (int a = 0; a < 3; ++a)
-        k[sh[a]] = (Real(1) - omega) * k[sh[a]] + omega * ke[sh[a]];
+      const Real om1 = Real(1) - omega;
+      k[D0] = om1 * (k[D0] - tr * third) + omega * (ke[D0] - tre * third) + tr_post * third;
+      k[D1] = om1 * (k[D1] - tr * third) + omega * (ke[D1] - tre * third) + tr_post * third;
+      k[D2] = om1 * (k[D2] - tr * third) + omega * (ke[D2] - tre * third) + tr_post * third;
+      k[S0] = om1 * k[S0] + omega * ke[S0];
+      k[S1] = om1 * k[S1] + omega * ke[S1];
+      k[S2] = om1 * k[S2] + omega * ke[S2];
     }
 
     // order >= 3 straight to equilibrium. No force term: K_F is first order in
     // this basis, and the cs^2 a / 2 a monomial operator writes by hand arrives
     // through the basis function instead.
-    for (int p = 0; p < 3; ++p)
-      for (int q = 0; q < 3; ++q)
-        for (int r = 0; r < 3; ++r)
-          if (p + q + r >= 3) k[B::mi(p, q, r)] = ke[B::mi(p, q, r)];
+    //
+    // Unrolled over a compile-time index sequence for the reason above: the
+    // triple loop this replaces called B::mi(p, q, r) with RUNTIME p, q, r.
+    [&]<int... Ns>(std::integer_sequence<int, Ns...>) {
+      ((B::order(Ns) >= 3 ? (void)(k[Ns] = ke[Ns]) : (void)0), ...);
+    }(std::make_integer_sequence<int, 27>{});
 
     B::template to_populations<true>(k, u, f);
   }
