@@ -50,6 +50,13 @@ Then, on CSF3 — build in scratch, because the field dumps are GB-scale and hom
 has a quota. Scratch is **not backed up** and files unused for three months can
 be deleted, so copy anything that matters back to home or RDS.
 
+**That purge is not hypothetical: it took the whole checkout on 2026-09-17.**
+Nothing was lost, because the tree lives on GitHub and the results that mattered
+had already been pulled down — which is the actual rule. Treat `~/scratch/M3LB`
+as a build directory that happens to contain a git clone, never as the only copy
+of anything. Re-setup is the block below, verbatim, and takes about four
+minutes: three of them are the build.
+
 ```bash
 ssh csf3
 cd ~/scratch && git clone https://github.com/alexderosis/M3LB.git && cd M3LB
@@ -68,7 +75,7 @@ project — see the header of `cmbench.sub`.
 
 ---
 
-## The two jobs here
+## The jobs here
 
 **Submit from the repo root.** `sbatch` copies the script, so it cannot locate
 itself and the submit directory is the only handle it has. Either submit from
@@ -81,7 +88,23 @@ sbatch --array=0 GPU/csf3/rb_cold.sub                # H = 498,  ~5 min
 sbatch --array=1 GPU/csf3/rb_cold.sub                # H = 998,  ~45 min
 sbatch --array=2 --time=12:00:00 GPU/csf3/rb_cold.sub  # H = 1998, ~6 h
 sbatch GPU/csf3/ot3d_re3040.sub                      # OT 3-D, M=288, ~10 min
+sbatch GPU/csf3/mhd_jet.sub                          # MHD jet, nx=512 fp32, ~12 h
 ```
+
+`mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
+compile-time typedef and one tree cannot hold both — a stale binary would run at
+the other precision and say so nowhere but its own header line:
+
+```bash
+cd ~/scratch/M3LB/GPU
+cmake -S . -B build_fp32 -DCMAKE_BUILD_TYPE=Release -DLBM_GPU_ARCH=80 \
+      -DLBM_DOUBLE=OFF -DLBM_ONLY_OP=cm
+cmake --build build_fp32 --target mhd_jet -j8
+```
+
+`NX` and `PREC` override the defaults: `NX=256 PREC=fp64 sbatch ...`, with a
+matching `build_fp64`. The job's own header carries the cost table and the two
+numbers to read in the log first.
 
 `ot3d_re3040.sub` is the odd one out: it builds **`GPU/`**, not the Kokkos
 tree, and it exists because the run does not fit a free Colab session --
