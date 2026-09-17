@@ -947,7 +947,12 @@ def main(argv):
     # ---- layout
     sc = opt['vscale']
     ns = max(1, int(math.ceil(sc - 1e-9)))   # splat width must cover the spacing
-    W0, H0 = mip_size(R, sc, ns)
+    # mip_size and the depth cue need the radius the volume actually PROJECTS to,
+    # which for a box is the circumscribing sphere -- a cube of side N reaches
+    # sqrt(3) N / 2 from its centre, and at some yaw a corner sits there. R itself
+    # is 0 in box mode, which would size the canvas to nothing.
+    R_draw = R if not box else 0.5 * math.sqrt(3.0) * nx
+    W0, H0 = mip_size(R_draw, sc, ns)
     mag = max(1, int(round(opt['size'] / float(W0))))
     P = W0 * mag
     M = 14
@@ -988,7 +993,7 @@ def main(argv):
         if not box:
             draw_ring(buf, W, H, px + 0.5 * P - 0.5, py + 0.5 * P - 0.5,
                       R * sc * mag, RING, 0.85)
-        blit_panel(buf, W, H, px, py, val, dep, W0, H0, tf, R, mag,
+        blit_panel(buf, W, H, px, py, val, dep, W0, H0, tf, R_draw, mag,
                    not opt['nodepth'])
         if not box:
             draw_ring(buf, W, H, px + 0.5 * P - 0.5, py + 0.5 * P - 0.5,
@@ -1001,8 +1006,12 @@ def main(argv):
                    'MHD DECAY IN A PENALISED SPHERE   |J| MAX-INTENSITY PROJECTION'),
                   FG, 1)
         draw_text(buf, W, H, M, 18,
-                  '%s   frame %03d/%03d   N %d  R %.1f   yaw %03d deg  elev %02d deg'
-                  % (tstr, k + 1, len(files), nx, R, int(yaw) % 360, int(opt['elev'])),
+                  ('%s   frame %03d/%03d   N %d  periodic box   '
+                   'yaw %03d deg  elev %02d deg'
+                   % (tstr, k + 1, len(files), nx, int(yaw) % 360, int(opt['elev'])))
+                  if box else
+                  ('%s   frame %03d/%03d   N %d  R %.1f   yaw %03d deg  elev %02d deg'
+                   % (tstr, k + 1, len(files), nx, R, int(yaw) % 360, int(opt['elev']))),
                   DIM, 1)
         draw_text(buf, W, H, M, 30, slab, DIM, 1)
 
@@ -1011,8 +1020,10 @@ def main(argv):
                   'frame |J| peak %.3e  P99.5 %.3e  = %.3f x vref'
                   % (peaks[k], p995[k], (p995[k] / vref) if vref else 0.0), FG, 1)
         draw_text(buf, W, H, M, y + 11,
-                  'ring = sphere r=R (exact under orthographic); outside it is'
-                  ' penalised, not physics', DIM, 1)
+                  ('whole cube shown; the box is periodic, so the faces are not'
+                   ' boundaries' if box else
+                   'ring = sphere r=R (exact under orthographic); outside it is'
+                   ' penalised, not physics'), DIM, 1)
 
         draw_strip(buf, W, H, M, TOP + P + GAP + 12, W - 2 * M - 2, STRIP - 24,
                    series, k)
