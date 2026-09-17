@@ -76,6 +76,7 @@
 //
 //    usage: orszag_tang [-m M] [-re RE] [-ma MA] [-tmax T] [-op bgk|cm]
 //                       [-probes N] [-vti K] [-dump K] [-dumpvol K]
+//                       [-volstride S]
 //
 //  -vti K writes a ParaView .vti every K-th PROBE, plus a .pvd time series, into
 //  ./vti/. Tying frames to probes rather than to steps is deliberate: a frame
@@ -91,6 +92,7 @@
 #include "lbm/backend.cuh"
 #include "lbm/vti.cuh"
 
+#include <algorithm>
 #include <fstream>
 #include <cstdint>
 
@@ -272,7 +274,19 @@ static bool write_frame(int M, int idx, const std::vector<Real>& rho,
 
 // One animation frame: the three mid-plane slices the renderers expect, and
 // optionally the |J| volume. Mid-plane is z = M/2, matching mhd_sphere.
-static void dump_frame(int M, int idx, bool withvol,
+// vstride > 1 reduces the |J| volume by BLOCK MAXIMUM to (M/vstride)^3 before
+// writing. Necessary rather than decorative: at M = 288 a full volume frame is
+// 95.6 MB, so 244 of them is 23 GB on disk and about three hours in
+// render_volume.py, which is pure Python. At vstride 3 it is 3.5 MB and seven
+// minutes.
+//
+// MAXIMUM, NOT MEAN, and the choice is the whole point. The renderer draws a
+// MAX-intensity projection, so a block max is the same operator applied earlier
+// and the current sheets survive it; a block mean would average a one-cell sheet
+// against its neighbours and dim exactly the structure the picture is of. The
+// last block on each axis is clipped rather than wrapped, so M need not divide
+// by vstride.
+static void dump_frame(int M, int idx, bool withvol, int vstride,
                        const std::vector<Real>& ux, const std::vector<Real>& uy,
                        const std::vector<Real>& uz, const std::vector<Real>& bx,
                        const std::vector<Real>& by, const std::vector<Real>& bz) {
@@ -295,7 +309,30 @@ static void dump_frame(int M, int idx, bool withvol,
   std::snprintf(nm, sizeof nm, "anim_frames/jmag_%04d.raw", idx); write_raw2(nm, M, M, sj);
   if (withvol) {
     std::snprintf(nm, sizeof nm, "anim_frames/jvol_%04d.raw", idx);
-    write_raw3(nm, M, M, M, jm);
+    if (vstride <= 1) {
+      write_raw3(nm, M, M, M, jm);
+    } else {
+      const int Mr = (M + vstride - 1) / vstride;
+      std::vector<float> red(std::size_t(Mr) * Mr * Mr, 0.0f);
+      for (int z = 0; z < Mr; ++z)
+        for (int y = 0; y < Mr; ++y)
+          for (int x = 0; x < Mr; ++x) {
+            float m = 0.0f;
+            for (int dz = 0; dz < vstride; ++dz) {
+              const int zz = z * vstride + dz; if (zz >= M) break;
+              for (int dy = 0; dy < vstride; ++dy) {
+                const int yy = y * vstride + dy; if (yy >= M) break;
+                for (int dx = 0; dx < vstride; ++dx) {
+                  const int xx = x * vstride + dx; if (xx >= M) break;
+                  const float v = jm[std::size_t(node_id(xx, yy, zz, M, M))];
+                  if (v > m) m = v;
+                }
+              }
+            }
+            red[(std::size_t(z) * Mr + y) * Mr + x] = m;
+          }
+      write_raw3(nm, Mr, Mr, Mr, red);
+    }
   }
   (void)np;
 }
@@ -303,7 +340,7 @@ static void dump_frame(int M, int idx, bool withvol,
 int main(int argc, char** argv) {
   int M = 64, nprobe = 20;
   double Re = 100.0, Ma = 0.034, tmax = 4.0;
-  int vti = 0, dump = 0, dvol = 0;
+  int vti = 0, dump = 0, dvol = 0, vstride = 1;
   std::string op = "cm";
 
   for (int i = 1; i < argc; ++i) {
@@ -317,6 +354,7 @@ int main(int argc, char** argv) {
     if (a == "-vti"    && i + 1 < argc) vti    = std::atoi(argv[++i]);
     if (a == "-dump"   && i + 1 < argc) dump   = std::atoi(argv[++i]);
     if (a == "-dumpvol"&& i + 1 < argc) dvol   = std::atoi(argv[++i]);
+    if (a == "-volstride" && i + 1 < argc) vstride = std::max(1, std::atoi(argv[++i]));
   }
 
   // Ma on the PEAK initial speed, 2 sqrt(2) v0 -- an assumption, not a reading.
@@ -388,7 +426,7 @@ int main(int argc, char** argv) {
     // boundary ring. Te is the eddy time the frame clock is quoted in; here the
     // paper's own t IS that clock, so Te = 1 and t/Te = t.
     std::fprintf(meta, "N %d\nR 0\nTe 1.0\n", M);
-    dump_frame(M, dframe, dvol > 0, ux, uy, uz, bx, by, bz);
+    dump_frame(M, dframe, dvol > 0, vstride, ux, uy, uz, bx, by, bz);
     std::fprintf(meta, "frame %d %.6f %.8e %.8e\n", dframe, 0.0, d0.eu / e0, d0.eb / e0);
     std::fflush(meta);
     ++dframe;
@@ -426,7 +464,7 @@ int main(int argc, char** argv) {
         }
       }
       if (dump > 0 && probe_no % dump == 0) {
-        dump_frame(M, dframe, dvol > 0 && (probe_no % dvol == 0),
+        dump_frame(M, dframe, dvol > 0 && (probe_no % dvol == 0), vstride,
                    ux, uy, uz, bx, by, bz);
         if (meta) {
           std::fprintf(meta, "frame %d %.6f %.8e %.8e\n", dframe,
