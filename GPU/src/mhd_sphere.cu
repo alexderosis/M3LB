@@ -60,6 +60,45 @@
 //  0.19-0.28 at N = 96 and found it identical for both walls, so it is not a
 //  property of the B.n projection and reshaping the source will not fix it.
 //  Read |J| magnitude; do not read J direction.
+//
+//  -mwall cond HAS A RESOLUTION CEILING BETWEEN N = 96 AND N = 128, AND THE TWO
+//  PARAMETERS THAT POSTPONE IT DO NOT CURE IT. Measured 2026-09-17 on a T4, at
+//  Re = 500, kmax 6, k0 4, matched seed, two turnovers (32N steps), one flag
+//  apart from an insulating run that survives every N:
+//
+//      N     omega    outcome                blow-up
+//      96    1.912    survives 2 T_e         --
+//      128   1.884    non-finite             step 448   t/Te 0.219
+//      160   1.857    non-finite             step 460   t/Te 0.180
+//      192   1.831    non-finite             step 432   t/Te 0.141
+//      224   1.806    non-finite             step 420   t/Te 0.117
+//
+//  THE BLOW-UP STEP IS FIXED AND THE BLOW-UP TIME IS NOT -- 440 +- 20 steps at
+//  every N while t/Te falls monotonically. The timescale belongs to the lattice,
+//  not to the flow. It is NOT omega -> 2, and the ladder runs the wrong way to
+//  read it that way: nu = u0 2R/Re grows with N, so omega FALLS from 1.912 to
+//  1.806 across it and a relaxation instability would have taken the coarse
+//  grids first. And it is not a defect of this port: at N = 96 this file agrees
+//  with ../demonstrator/mhd_sphere.cpp -- no shared headers -- to -0.008 % on
+//  E_u and -1.6 % on E_b at t/Te = 2, with Bn/B equal to four decimals at every
+//  sampled point.
+//
+//  epsm IS THE STIFFNESS KNOB AND smooth IS NOT A CONTROL. At N = 128, epsm =
+//  0.5/1/2 fail at step 208/288/448 and epsm = 4/8 survive -- monotonic, and the
+//  epsilon >~ dt bound of the penalisation, with the threshold no longer O(1).
+//  smooth = 1/1.333/2/2.667 gives fail/fail/survive/fail, which is not monotonic
+//  and must not be read as one. NEITHER TRANSFERS: at N = 224, smooth = 2,
+//  smooth = 2.5 and epsm = 4 still go non-finite at steps 448, 544 and 672, and
+//  by then epsm = 4 has degraded Bn/B from 0.0005 to 0.0141 -- it is no longer
+//  the boundary condition being asked for. Matching the layer as a FRACTION of R
+//  does not help either (smooth = 1.333 at N = 128 is the same 2.6 % of R as
+//  smooth = 1 at N = 96, and dies at step 480), so what matters is an absolute
+//  number of cells. THE MECHANISM IS NOT DIAGNOSED. Series and the full sweep in
+//  results/N_mhd_sphere/cond_ladder/.
+//
+//  So: -mwall insul is the wall to use above N = 96, and it is the one the
+//  N = 224 series was run with. A conducting run above the ceiling is not a
+//  result no matter how good its first two hundred steps look.
 //==============================================================================
 #include "lbm/backend.cuh"
 #include "lbm/ehd.cuh"          // Field: the host/device-neutral N-element array

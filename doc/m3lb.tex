@@ -9309,6 +9309,57 @@ Stated plainly, because each has been measured.
   exchange is that $\bm{u}$ and $\bm{B}$ are penalised through one indicator and
   are therefore co-located by construction, with no half-cell mismatch to price.
 
+\item \textbf{The penalised perfectly conducting wall has a resolution ceiling
+  between $N=96$ and $N=128$, and the two parameters that postpone the failure
+  do not cure it.} Distinct from the sharp \code{MagNeumann} entry above: this
+  is the \emph{volume-penalised} $\bm{S}=-\chi(\bm{B}\!\cdot\!\hat{\bm{n}})
+  \hat{\bm{n}}/\epsilon_m$ on a confined sphere, which does close a domain ---
+  but only up to a resolution. Measured in \code{GPU/src/mhd\_sphere.cu} at
+  $Re=500$, $Pm=1$, $k_{\max}=6$, $k_0=4$, matched seed, two turnovers
+  ($32N$ steps), one flag apart from an insulating run that survives every $N$:
+
+  \begin{center}\small
+  \begin{tabular}{rccl}
+  \hline
+  $N$ & $\omega$ & outcome & blow-up \\
+  \hline
+  96  & 1.912 & survives $2\,T_e$ & --- \\
+  128 & 1.884 & non-finite & step 448 ($t/T_e=0.219$) \\
+  160 & 1.857 & non-finite & step 460 ($t/T_e=0.180$) \\
+  192 & 1.831 & non-finite & step 432 ($t/T_e=0.141$) \\
+  224 & 1.806 & non-finite & step 420 ($t/T_e=0.117$) \\
+  \hline
+  \end{tabular}
+  \end{center}
+
+  Three things make this a measurement rather than an anecdote. The blow-up
+  step is $440\pm20$ \emph{independent of $N$} while $t/T_e$ falls monotonically,
+  so the timescale is fixed in lattice units and not convective. It is not
+  $\omega\to2$, and the ladder runs the wrong way for that reading: $\nu=u_0
+  2R/Re$ grows with $N$, so $\omega$ moves \emph{away} from 2 as the failure
+  sets in. And it is not a port defect --- at $N=96$ the CUDA run agrees with
+  its Kokkos parent (\code{demonstrator/mhd\_sphere.cpp}, no shared headers) to
+  $-0.008\,\%$ on $E_u$ and $-1.6\,\%$ on $E_b$ at $t/T_e=2$, with $Bn/B$
+  identical to four decimals at every sampled point.
+
+  The stiffness bound of the entry above is visible directly, and it moves with
+  $N$. At $N=128$, sweeping the magnetic penalisation time gives non-finite at
+  step 208, 288 and 448 for $\epsilon_m=0.5$, $1$, $2$ and survival at
+  $\epsilon_m=4$ and $8$ --- monotonic, and exactly the $\epsilon\gtrsim\Delta t$
+  rule with the threshold no longer $O(1)$. The layer width is \emph{not} a
+  clean control: \code{smooth} $=1$, $1.333$, $2$, $2.667$ gives fail, fail,
+  survive, fail. Neither knob transfers. At $N=224$, \code{smooth}$=2$,
+  \code{smooth}$=2.5$ and $\epsilon_m=4$ all still go non-finite, at steps 448,
+  544 and 672: they buy delay proportional to the softening and nothing else,
+  and $\epsilon_m=4$ has by then degraded $Bn/B$ from $0.0005$ to $0.0141$,
+  i.e. it is no longer the boundary condition asked for. Matching the layer as a
+  \emph{fraction} of $R$ fails too --- \code{smooth}$=1.333$ at $N=128$ is the
+  same $2.6\,\%$ of $R$ as \code{smooth}$=1$ at $N=96$ and dies at step 480 ---
+  so what matters is an absolute number of cells, which is the signature of a
+  grid-scale mechanism rather than an under-resolved wall layer. The mechanism
+  is \emph{not} diagnosed. Series in
+  \code{results/N\_mhd\_sphere/cond\_ladder/}.
+
 \item \textbf{The on-node zero-flux scalar wall is about twice the halfway
   one's error, and the mechanism is not diagnosed.} With the fluid frozen, where
   the charge/potential solution is exactly one-dimensional and any lateral
