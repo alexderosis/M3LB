@@ -848,6 +848,27 @@ template <bool Mhd>
 // src/collision/MhdCentralMomentsShifted.hpp reaches the same expressions from
 // the other codebase without sharing a line; test/host_check.cpp asserts this
 // form against the transform it replaced.
+//
+// AND ON THE DEVICE IT BUYS NOTHING, WHICH IS WORTH SAYING PLAINLY. Measured on
+// a T4 (sm_75, -DLBM_ONLY_OP=cm -DLBM_ONLY_FORCE=field), before and after:
+//
+//                       frame  spills   s/step    MLUPS
+//     transform           216       0  0.04520    248.7
+//     closed form         216       0  0.04551    247.0
+//
+// Identical frame, no spills either way, and the 0.7 % on throughput is noise on
+// a shared T4 -- if anything it is the wrong sign. nvcc was ALREADY unrolling
+// df[27] and folding the transform, so the work this removes was work the
+// compiler had removed. Contrast the Kokkos twin, where the same change took the
+// frame 752 -> 416 and the instruction count 289 -> 121: that operator built its
+// equilibrium through a shared ProductBasis::to_moments the compiler could not
+// see through, and this one does not.
+//
+// It is kept because it is provably the same (host_check, all 27 slots), it is
+// less code, and it makes the two codebases structurally parallel. It is NOT a
+// speedup and must not be quoted as one. What DOES hold here is correctness: at
+// N = 96 conducting, t/Te = 2, E_u = 5.556e-06 and E_b = 2.501e-05 against the
+// tracked series' 5.556e-06 and 2.501e-05, every printed digit.
 struct MaxwellMoments {
   Real k[27];
   LBM_HD LBM_INLINE MaxwellMoments(const Real B[3], const Real ub[3]) {
