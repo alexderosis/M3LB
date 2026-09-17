@@ -421,7 +421,11 @@ int main(int argc, char** argv) {
     // N for render_slices.py, which wants that key; nx/ny beside it because
     // this box is NOT square and the renderer was written for one that is.
     // The .raw headers carry the true dimensions and the loader reads them.
-    if (m) { std::fprintf(m, "N %d\nnx %d\nny %d\nR 0\nTe 1.0\n", nx, nx, ny);
+    // dt is here so a renderer can put the slices into the reference's units
+    // without re-deriving u0 and dl: the .raw values are LATTICE |J|, and the
+    // conversion is the same J(lat)/dt the J_max column uses.
+    if (m) { std::fprintf(m, "N %d\nnx %d\nny %d\nR 0\nTe 1.0\ndt %.8e\n",
+                          nx, nx, ny, dt);
              std::fclose(m); }
   }
 
