@@ -258,6 +258,72 @@ and files unused for three months can be deleted.
 
 ---
 
+## Getting results back
+
+**Render on CSF3 and download the movies, not the frames.** The renderers in
+`results/N_mhd_sphere/` are deliberately pure stdlib — no numpy, no PIL, no
+matplotlib — and need no GPU, so they run on a login node. For the Re = 3040
+Orszag-Tang that is 20 MB instead of 1.11 GB, a factor of 55.
+
+What `ot3d_re3040.sub` leaves behind, at M = 288 with 244 frames:
+
+| | each | 244 frames |
+|---|---|---|
+| `umag`/`bmag`/`jmag` slices, 288² float32 | 332 kB ×3 | 243 MB |
+| `jvol_*.raw`, 96³ after `-volstride 3` | 3.54 MB | 864 MB |
+| `log.txt` | 30 kB | — |
+| **total `anim_frames/`** | | **1.11 GB** |
+
+### The cheap route — about 20 MB
+
+On CSF3:
+
+```bash
+cd ~/scratch/M3LB/ot3_re3040
+python3 ../results/N_mhd_sphere/render_slices.py anim_frames png
+python3 ../results/N_mhd_sphere/render_volume.py anim_frames
+module avail ffmpeg            # then load whatever it names
+ffmpeg -y -framerate 24 -i png/frame_%04d.png -c:v libx264 -pix_fmt yuv420p \
+       -crf 20 -movflags +faststart slices.mp4
+ffmpeg -y -framerate 24 -i anim_frames/png/jvol_%04d.png -c:v libx264 \
+       -pix_fmt yuv420p -crf 18 -vf scale=iw*2:ih*2:flags=neighbor jvol.mp4
+```
+
+On the laptop:
+
+```bash
+rsync -avP csf3:scratch/M3LB/ot3_re3040/{slices.mp4,jvol.mp4,log.txt} ~/Downloads/
+rsync -avP csf3:scratch/M3LB/ot3_re3040/anim_frames/meta.txt ~/Downloads/
+```
+
+### No ffmpeg on CSF3 — about 300 MB
+
+Render there, encode here:
+
+```bash
+rsync -avP csf3:scratch/M3LB/ot3_re3040/png ~/Downloads/ot3_re3040/
+rsync -avP csf3:scratch/M3LB/ot3_re3040/anim_frames/png ~/Downloads/ot3_re3040/jvolpng/
+```
+
+### The raw frames — 1.11 GB, and only if you will re-render
+
+```bash
+rsync -avP csf3:scratch/M3LB/ot3_re3040/anim_frames ~/Downloads/ot3_re3040/
+rsync -avP --exclude='jvol_*' csf3:scratch/M3LB/ot3_re3040/anim_frames ~/Downloads/   # slices only, 243 MB
+```
+
+**`rsync -avP`, not `scp`.** `-P` keeps a partial transfer and resumes it. At
+gigabyte scale over a VPN that is the difference between a dropped link costing
+seconds and costing the whole copy — the Colab run this job replaced was lost
+at 62 % for exactly that reason, nothing retrieved as it went.
+
+**Always take `log.txt`.** It is 30 kB and carries the whole diagnostic table:
+`J_max` in both lattice and dimensionless units, and the `max|divB|/k|B|` column,
+which is the number to read before quoting any `J_max` from a run this close to
+the tau floor.
+
+---
+
 ## Notes
 
 - **One GPU.** `GPU/` has no MPI and no multi-GPU, so `-G 1` always. Asking for
