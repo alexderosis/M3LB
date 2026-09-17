@@ -75,7 +75,7 @@
 //  And b0 = v0, the usual equipartition choice.
 //
 //    usage: orszag_tang [-m M] [-re RE] [-ma MA] [-tmax T] [-op bgk|cm]
-//                       [-probes N] [-vti K]
+//                       [-probes N] [-vti K] [-dump K] [-dumpvol K]
 //
 //  -vti K writes a ParaView .vti every K-th PROBE, plus a .pvd time series, into
 //  ./vti/. Tying frames to probes rather than to steps is deliberate: a frame
@@ -90,6 +90,9 @@
 //==============================================================================
 #include "lbm/backend.cuh"
 #include "lbm/vti.cuh"
+
+#include <fstream>
+#include <cstdint>
 
 #include <sys/stat.h>
 
@@ -188,6 +191,36 @@ static Diag measure(const std::vector<Real>& ux, const std::vector<Real>& uy,
   return d;
 }
 
+// Raw field dumps for the animation pipeline, byte-identical in format to
+// mhd_sphere.cu's: int32 nx, ny [, nz] then nx*ny[*nz] float32, x fastest. The
+// renderers in results/N_mhd_sphere/ read exactly this.
+//
+// meta.txt carries R = 0, which is the sentinel for "periodic box, no sphere".
+// mhd_sphere writes a real radius there and the renderers mask to it and draw
+// the boundary ring; this case has neither, so R = 0 tells them to render the
+// whole slice and draw no ring. Writing 0 rather than omitting R matters: an
+// ABSENT R makes render_slices.py assume 0.40 N from mhd_sphere's own default
+// and silently cut the box down to a disc.
+static void write_raw2(const std::string& path, int nx, int ny,
+                       const std::vector<float>& v) {
+  std::ofstream o(path, std::ios::binary);
+  const std::int32_t a = nx, b = ny;
+  o.write(reinterpret_cast<const char*>(&a), sizeof a);
+  o.write(reinterpret_cast<const char*>(&b), sizeof b);
+  o.write(reinterpret_cast<const char*>(v.data()),
+          std::streamsize(v.size() * sizeof(float)));
+}
+static void write_raw3(const std::string& path, int nx, int ny, int nz,
+                       const std::vector<float>& v) {
+  std::ofstream o(path, std::ios::binary);
+  const std::int32_t a = nx, b = ny, c = nz;
+  o.write(reinterpret_cast<const char*>(&a), sizeof a);
+  o.write(reinterpret_cast<const char*>(&b), sizeof b);
+  o.write(reinterpret_cast<const char*>(&c), sizeof c);
+  o.write(reinterpret_cast<const char*>(v.data()),
+          std::streamsize(v.size() * sizeof(float)));
+}
+
 // |J| at every node, for the .vti. Same central differences and same periodic
 // wrap as measure(); kept separate because measure() runs at every probe and
 // this only runs when a frame is actually written.
@@ -237,10 +270,40 @@ static bool write_frame(int M, int idx, const std::vector<Real>& rho,
   return lbm::write_vti_bin(std::string("vti/") + name, M, M, M, arr);
 }
 
+// One animation frame: the three mid-plane slices the renderers expect, and
+// optionally the |J| volume. Mid-plane is z = M/2, matching mhd_sphere.
+static void dump_frame(int M, int idx, bool withvol,
+                       const std::vector<Real>& ux, const std::vector<Real>& uy,
+                       const std::vector<Real>& uz, const std::vector<Real>& bx,
+                       const std::vector<Real>& by, const std::vector<Real>& bz) {
+  const std::size_t np = std::size_t(M) * std::size_t(M) * std::size_t(M);
+  std::vector<float> jm;
+  jmag_field(bx, by, bz, M, jm);
+  const int z0 = M / 2;
+  std::vector<float> su(std::size_t(M) * M), sb(std::size_t(M) * M), sj(std::size_t(M) * M);
+  for (int y = 0; y < M; ++y)
+    for (int x = 0; x < M; ++x) {
+      const std::size_t n = std::size_t(node_id(x, y, z0, M, M));
+      const std::size_t m = std::size_t(y) * M + x;
+      su[m] = float(std::sqrt(double(ux[n]) * ux[n] + double(uy[n]) * uy[n] + double(uz[n]) * uz[n]));
+      sb[m] = float(std::sqrt(double(bx[n]) * bx[n] + double(by[n]) * by[n] + double(bz[n]) * bz[n]));
+      sj[m] = jm[n];
+    }
+  char nm[96];
+  std::snprintf(nm, sizeof nm, "anim_frames/umag_%04d.raw", idx); write_raw2(nm, M, M, su);
+  std::snprintf(nm, sizeof nm, "anim_frames/bmag_%04d.raw", idx); write_raw2(nm, M, M, sb);
+  std::snprintf(nm, sizeof nm, "anim_frames/jmag_%04d.raw", idx); write_raw2(nm, M, M, sj);
+  if (withvol) {
+    std::snprintf(nm, sizeof nm, "anim_frames/jvol_%04d.raw", idx);
+    write_raw3(nm, M, M, M, jm);
+  }
+  (void)np;
+}
+
 int main(int argc, char** argv) {
   int M = 64, nprobe = 20;
   double Re = 100.0, Ma = 0.034, tmax = 4.0;
-  int vti = 0;
+  int vti = 0, dump = 0, dvol = 0;
   std::string op = "cm";
 
   for (int i = 1; i < argc; ++i) {
@@ -252,6 +315,8 @@ int main(int argc, char** argv) {
     if (a == "-op"   && i + 1 < argc) op   = argv[++i];
     if (a == "-probes" && i + 1 < argc) nprobe = std::atoi(argv[++i]);
     if (a == "-vti"    && i + 1 < argc) vti    = std::atoi(argv[++i]);
+    if (a == "-dump"   && i + 1 < argc) dump   = std::atoi(argv[++i]);
+    if (a == "-dumpvol"&& i + 1 < argc) dvol   = std::atoi(argv[++i]);
   }
 
   // Ma on the PEAK initial speed, 2 sqrt(2) v0 -- an assumption, not a reading.
@@ -310,6 +375,25 @@ int main(int argc, char** argv) {
     ++frame;
   }
 
+  std::FILE* meta = nullptr;
+  int dframe = 0;
+  if (dump > 0) {
+    ::mkdir("anim_frames", 0755);
+    meta = std::fopen("anim_frames/meta.txt", "w");
+    if (!meta) {
+      std::fprintf(stderr, "cannot open anim_frames/meta.txt -- giving up\n");
+      return 2;
+    }
+    // R = 0 is the sentinel for "periodic box": render the whole slice, draw no
+    // boundary ring. Te is the eddy time the frame clock is quoted in; here the
+    // paper's own t IS that clock, so Te = 1 and t/Te = t.
+    std::fprintf(meta, "N %d\nR 0\nTe 1.0\n", M);
+    dump_frame(M, dframe, dvol > 0, ux, uy, uz, bx, by, bz);
+    std::fprintf(meta, "frame %d %.6f %.8e %.8e\n", dframe, 0.0, d0.eu / e0, d0.eb / e0);
+    std::fflush(meta);
+    ++dframe;
+  }
+
   // Each probe copies six full fields to the host and walks every node there to
   // form curl and div. At 512^3 that is 3.2 GB and 134M host iterations per
   // sample, which can cost more than the simulation. Lower -probes on large
@@ -341,11 +425,27 @@ int main(int argc, char** argv) {
           ++frame;
         }
       }
+      if (dump > 0 && probe_no % dump == 0) {
+        dump_frame(M, dframe, dvol > 0 && (probe_no % dvol == 0),
+                   ux, uy, uz, bx, by, bz);
+        if (meta) {
+          std::fprintf(meta, "frame %d %.6f %.8e %.8e\n", dframe,
+                       double(t) * dt, d.eu / e0, d.eb / e0);
+          std::fflush(meta);
+        }
+        ++dframe;
+      }
     }
   }
 
   const double sec = std::chrono::duration<double>(
       std::chrono::steady_clock::now() - wall0).count();
+  if (meta) {
+    std::fprintf(meta, "frames %d\n", dframe);
+    std::fclose(meta);
+    std::printf("\n  wrote %d frames to anim_frames/  (render with "
+                "results/N_mhd_sphere/render_slices.py and render_volume.py)\n", dframe);
+  }
   if (vti > 0) {
     lbm::write_pvd("vti/ot3d.pvd", pvd);
     std::printf("\n  ParaView: open vti/ot3d.pvd  (%d frames, t 0 to %.3f)\n"

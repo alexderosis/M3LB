@@ -462,6 +462,13 @@ def build_mask(N, R, cx, cy):
     circle in this plane has radius sqrt(R^2 - dz^2), NOT R, whenever N is even
     -- dz = N//2 - (N-1)/2 = 0.5 there. At N=64, R=25.6 that is 25.5951, a
     0.02% correction: too small to see and free to get right."""
+    # R <= 0 IS THE PERIODIC-BOX SENTINEL, written by GPU/src/orszag_tang.cu,
+    # which has no sphere: all-true mask, rcut 0, and draw_circle() already
+    # treats rcut <= 0 as 'no ring'. Distinct from R being ABSENT, which still
+    # means 'assume mhd_sphere's rfac = 0.40' -- a box case must write R 0
+    # explicitly or it gets cut down to a disc.
+    if R is not None and R <= 0:
+        return bytearray(b'\x01' * (N * N)), 0.0
     dz = float(N // 2) - 0.5 * (N - 1)
     rr = R * R - dz * dz
     rcut = math.sqrt(rr) if rr > 0 else 0.0
@@ -742,7 +749,9 @@ def main(argv):
         N = read_slice(path(fields[0], idx[0]))[0]
     R = meta['R']
     r_note = ''
-    if R is None:
+    if R is not None and R <= 0:
+        r_note = '  (periodic box: no sphere mask, no ring)'
+    elif R is None:
         R = 0.40 * N                     # Opts::rfac default in mhd_sphere.cpp
         r_note = '  (R ASSUMED from rfac=0.40: meta.txt had none)'
     cx = cy = 0.5 * (N - 1)
@@ -827,7 +836,14 @@ def main(argv):
         row = meta['rows'].get(k)
 
         # --- header ---------------------------------------------------------
-        h1 = 'mhd_sphere   N=%d  R=%.1f   mid-plane z=%d   frame %d' % (N, R, N // 2, k)
+        # In box mode there is no sphere and no radius to quote, and the case is
+        # not mhd_sphere -- labelling it so is the kind of caption that outlives
+        # the run and gets believed.
+        if R is not None and R <= 0:
+            h1 = 'orszag_tang 3D   N=%d  periodic box   mid-plane z=%d   frame %d' \
+                 % (N, N // 2, k)
+        else:
+            h1 = 'mhd_sphere   N=%d  R=%.1f   mid-plane z=%d   frame %d' % (N, R, N // 2, k)
         if row:
             h1 += '   t/Te = %.3f' % row[0]
         cv.text(PAD, Y_H1, h1, FG, fit_scale(h1, W - 2 * PAD))
@@ -873,7 +889,8 @@ def main(argv):
             mid = mode_note
             if text_w(left, 1) + text_w(rl, 1) + text_w(mid, 1) + 16 <= P:
                 cv.text(x0 + (P - text_w(mid, 1)) // 2, Y_S1, mid, DIM, 1)
-            s2 = 'rms %s   max %s   (in sphere)' % (fmt(rms, 3), fmt(peak, 3))
+            s2 = 'rms %s   max %s   (%s)' % (fmt(rms, 3), fmt(peak, 3),
+                 'whole box' if (R is not None and R <= 0) else 'in sphere')
             cv.text(x0, Y_S2, elide(s2, P), DIM, 1)
 
         draw_history(cv, PAD, Y_HIST, W - 2 * PAD, HH, meta['rows'], k,

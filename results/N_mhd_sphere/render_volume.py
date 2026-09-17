@@ -425,6 +425,12 @@ def sphere_spans(nx, ny, nz, R):
     """Rows of x inside the sphere, as (z, y, x0, x1, base). This IS the mask:
     nothing outside it is read, so the penalised exterior cannot reach either
     the colour scale or a pixel."""
+    # R <= 0 IS THE PERIODIC-BOX SENTINEL (GPU/src/orszag_tang.cu): there is no
+    # sphere, so every row of x is in play and the whole cube is rendered. The
+    # ring is suppressed alongside it -- see where R is read in main().
+    if R is not None and R <= 0:
+        return [(z, y, 0, nx - 1, (z * ny + y) * nx)
+                for z in range(nz) for y in range(ny)]
     cx, cy, cz = 0.5 * (nx - 1), 0.5 * (ny - 1), 0.5 * (nz - 1)
     R2, out = R * R, []
     for z in range(nz):
@@ -855,8 +861,18 @@ def main(argv):
     if meta['N'] is None:
         meta = read_meta(os.path.join(in_dir, 'meta.txt'))
     nx, ny, nz, vol = read_volume(files[0])
-    R = opt['R'] or meta['R'] or 0.40 * nx     # rfac default in mhd_sphere.cpp
-    if R <= 0 or R > 0.5 * math.sqrt(3.0) * nx:
+    # meta['R'] == 0 is the PERIODIC-BOX sentinel and is FALSY, so it must not go
+    # through an `or` chain -- that silently falls back to 0.40 N and renders a
+    # box as a sphere, cutting 48 % of the cube away without a word. Resolve it
+    # explicitly, and keep the implausible-radius guard for real spheres only.
+    if opt['R']:
+        R = opt['R']
+    elif meta['R'] is not None:
+        R = meta['R']                         # may be 0.0 -> periodic box
+    else:
+        R = 0.40 * nx                         # rfac default in mhd_sphere.cpp
+    box = (R <= 0)
+    if not box and R > 0.5 * math.sqrt(3.0) * nx:
         die('implausible sphere radius R = %g for N = %d' % (R, nx))
     if meta['N'] and meta['N'] != nx:
         sys.stderr.write('  note: meta.txt says N = %d, volume says %d; using %d\n'
@@ -867,8 +883,12 @@ def main(argv):
 
     # ---- pass 1: amplitude of every frame, so the strip can be drawn on frame 0
     if not opt['quiet']:
-        print('  %d frames, %d^3 volume, R = %.2f, %d voxels inside the sphere (%.1f%%)'
-              % (len(files), nx, R, nvox, 100.0 * nvox / (nx * ny * nz)))
+        if box:
+            print('  %d frames, %d^3 volume, PERIODIC BOX (no sphere mask, no ring), '
+                  '%d voxels' % (len(files), nx, nvox))
+        else:
+            print('  %d frames, %d^3 volume, R = %.2f, %d voxels inside the sphere (%.1f%%)'
+                  % (len(files), nx, R, nvox, 100.0 * nvox / (nx * ny * nz)))
     t0 = time.time()
     peaks, p995 = [], []
     for k, fn in enumerate(files):
@@ -965,16 +985,20 @@ def main(argv):
 
         buf = bytearray(BG * (W * H))
         px, py = M, TOP
-        draw_ring(buf, W, H, px + 0.5 * P - 0.5, py + 0.5 * P - 0.5, R * sc * mag,
-                  RING, 0.85)
+        if not box:
+            draw_ring(buf, W, H, px + 0.5 * P - 0.5, py + 0.5 * P - 0.5,
+                      R * sc * mag, RING, 0.85)
         blit_panel(buf, W, H, px, py, val, dep, W0, H0, tf, R, mag,
                    not opt['nodepth'])
-        draw_ring(buf, W, H, px + 0.5 * P - 0.5, py + 0.5 * P - 0.5, R * sc * mag,
-                  RING, 0.45)
+        if not box:
+            draw_ring(buf, W, H, px + 0.5 * P - 0.5, py + 0.5 * P - 0.5,
+                      R * sc * mag, RING, 0.45)
 
         tstr = ('t/Te %6.2f' % ts[k]) if ts[k] is not None else 'frame index only'
         draw_text(buf, W, H, M, 6,
-                  'MHD DECAY IN A PENALISED SPHERE   |J| MAX-INTENSITY PROJECTION',
+                  ('3D ORSZAG-TANG, PERIODIC BOX   |J| MAX-INTENSITY PROJECTION'
+                   if box else
+                   'MHD DECAY IN A PENALISED SPHERE   |J| MAX-INTENSITY PROJECTION'),
                   FG, 1)
         draw_text(buf, W, H, M, 18,
                   '%s   frame %03d/%03d   N %d  R %.1f   yaw %03d deg  elev %02d deg'
