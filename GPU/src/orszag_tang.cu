@@ -31,6 +31,16 @@
 //  does NOT assert when J_max peaks; it prints the history and leaves the
 //  reading to whoever has the reference.
 //
+//  J_max IS PRINTED IN BOTH UNITS, AND THE DIMENSIONLESS ONE IS THE PAPER'S.
+//  measure() forms the curl with central differences of spacing 1, on fields
+//  scaled by v0 = b0, so its J_max is in LATTICE units and is ~1e-2 where the
+//  paper's figures are ~1e1. The conversion is one division by dt = v0 * 2 pi/M:
+//  a factor 1/dl for the gradient and a factor 1/b0 for the field, and dl * b0
+//  IS dt. That is validation/orszag_tang_3d.cpp's own `jp = jmax / dt`, and the
+//  two agree to 6.7e-09 on the tracked M = 32 series which carries both columns.
+//  Printing only the lattice number invites reading a figure against it, which
+//  is a factor 2293 at M = 100.
+//
 //  Two parameters the paper does not pin down, stated here as assumptions rather
 //  than readings: it says only that v0 and b0 "lead to a Mach number Ma ~ 0.034",
 //  and Ma depends on which speed it is built on. Taken on the PEAK initial speed,
@@ -254,10 +264,10 @@ int main(int argc, char** argv) {
 
   const Diag d0 = sample();
   const double e0 = d0.eu + d0.eb;
-  std::printf("  %8s %12s %12s %12s %14s\n", "t", "E/E0", "E_u/E0", "E_b/E0",
-              "max|divB|/k|B|");
-  std::printf("  %8.3f %12.6f %12.6f %12.6f %14.3e\n", 0.0, 1.0, d0.eu / e0,
-              d0.eb / e0, d0.divb);
+  std::printf("  %8s %12s %12s %12s %14s %13s %11s\n", "t", "E/E0", "E_u/E0",
+              "E_b/E0", "max|divB|/k|B|", "Jmax(lat)", "Jmax");
+  std::printf("  %8.3f %12.6f %12.6f %12.6f %14.3e %13.4e %11.4f\n", 0.0, 1.0,
+              d0.eu / e0, d0.eb / e0, d0.divb, d0.jmax, d0.jmax / dt);
 
   std::vector<std::pair<double, std::string>> pvd;
   int frame = 0, probe_no = 0;
@@ -292,8 +302,9 @@ int main(int argc, char** argv) {
       worst_rise = std::fmax(worst_rise, e - prev_e);
       prev_e = e;
       worst_div = std::fmax(worst_div, d.divb);
-      std::printf("  %8.3f %12.6f %12.6f %12.6f %14.3e   Jmax %.4e\n",
-                  double(t) * dt, e, d.eu / e0, d.eb / e0, d.divb, d.jmax);
+      std::printf("  %8.3f %12.6f %12.6f %12.6f %14.3e %13.4e %11.4f\n",
+                  double(t) * dt, e, d.eu / e0, d.eb / e0, d.divb,
+                  d.jmax, d.jmax / dt);
       std::fflush(stdout);
       ++probe_no;
       if (vti > 0 && probe_no % vti == 0) {
@@ -314,7 +325,10 @@ int main(int argc, char** argv) {
                 "  Colour by Jmag; u and b are there as vectors.\n",
                 frame, pvd.empty() ? 0.0 : pvd.back().first);
   }
-  std::printf("\n  worst max|div B| / k|B| over the run   %.3e\n", worst_div);
+  std::printf("\n  Jmax columns: (lat) is lattice units, Jmax is the paper's --\n"
+              "      Jmax = Jmax(lat) / dt,  dt = v0 * 2pi/M = %.6e  (x %.2f here).\n",
+              dt, 1.0 / dt);
+  std::printf("  worst max|div B| / k|B| over the run   %.3e\n", worst_div);
   std::printf("  largest rise in E_u + E_b between samples %.3e\n", worst_rise);
   std::printf("      Ideal incompressible MHD has dE/dt = -nu |grad u|^2 - eta |grad B|^2,\n");
   std::printf("      so this should be zero. It is not, at coarse M: the exchange between\n");
