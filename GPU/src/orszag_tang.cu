@@ -32,14 +32,41 @@
 //  reading to whoever has the reference.
 //
 //  J_max IS PRINTED IN BOTH UNITS, AND THE DIMENSIONLESS ONE IS THE PAPER'S.
-//  measure() forms the curl with central differences of spacing 1, on fields
-//  scaled by v0 = b0, so its J_max is in LATTICE units and is ~1e-2 where the
-//  paper's figures are ~1e1. The conversion is one division by dt = v0 * 2 pi/M:
-//  a factor 1/dl for the gradient and a factor 1/b0 for the field, and dl * b0
-//  IS dt. That is validation/orszag_tang_3d.cpp's own `jp = jmax / dt`, and the
-//  two agree to 6.7e-09 on the tracked M = 32 series which carries both columns.
-//  Printing only the lattice number invites reading a figure against it, which
-//  is a factor 2293 at M = 100.
+//  measure() forms the curl with central differences of spacing 1, so its J_max
+//  is in LATTICE units and is ~1e-2 where the paper's figures are ~1e1.
+//
+//  THE CONVERSION, STATED AS THE DIMENSIONAL ARGUMENT RATHER THAN AS A FORMULA,
+//  because the formula hides an assumption and the argument does not:
+//
+//      length     x_phys = x_lat * dx,      dx = 2 pi / M
+//      velocity   u_phys = u_lat / v0,      v0 = |u|_rms(lattice) / 2
+//      time       t = x / u   ->   dt = dx * v0
+//      field      B_lat = v0 * B_Mininni  (both are 0.8 * [same shape], one
+//                 carrying v0), so B converts by v0 as well -- NOT by b0
+//      current    J = curl B   ->   J_phys = J_lat / (dx * v0) = J_lat / dt
+//
+//  The 2 in v0 = |u|_rms/2 is Mininni's own rms, a property of his printed IC:
+//  <|u|^2> = 4 there, which is his stated E_V = 2. So this reads the velocity
+//  scale off the FIELD.
+//
+//  v0 = Ma / (2 sqrt(2) sqrt(3)) below is how v0 is CHOSEN, not what it means.
+//  It reads the scale off De Rosis's Ma = 0.034 under the assumption that Ma is
+//  built on the PEAK speed 2 sqrt(2) v0; on the rms instead it would be
+//  Ma / (2 sqrt(3)), larger by sqrt(2), and nu, dt and the J_max scale would all
+//  move with it. The dimensional argument above stays correct either way; the
+//  formula does not. Mininni himself has no Mach number -- he is incompressible
+//  pseudospectral -- so the ambiguity belongs to the LBM paper, not to him.
+//
+//  Checked three ways: 6.7e-09 against the tracked M = 32 Kokkos series, which
+//  carries both columns; the printed factor against the arithmetic done
+//  separately (733.8323 at M = 32); and J_max(t=0) = 5.2174 here against the
+//  same 5.2174 in that series, with no shared headers.
+//
+//  NOT corrected for b0. Mininni states E_V = E_M = 2, which pins b0/v0 =
+//  1.020621, and this driver uses b0 = v0 -- so its magnetic field is 2 % weak
+//  and E_M/E_V reads 0.96 (the t = 0 row shows E_u/E0 = 0.5102 where an exact
+//  reproduction would show 0.5000). That is an IC error, NOT a scaling one:
+//  J_max above is the right number for the field this run actually had.
 //
 //  Two parameters the paper does not pin down, stated here as assumptions rather
 //  than readings: it says only that v0 and b0 "lead to a Mach number Ma ~ 0.034",
