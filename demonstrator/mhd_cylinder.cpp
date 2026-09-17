@@ -190,6 +190,7 @@
 #include "Campaign.hpp"
 #include "collision/MhdBGK.hpp"
 #include "collision/MhdCentralMoments.hpp"
+#include "collision/MhdCentralMomentsShifted.hpp"
 #include "solver/MagneticSolver.hpp"
 
 using namespace lbm;
@@ -204,7 +205,8 @@ using CollG = MhdBGK<FL, SecondOrderEquilibrium<FL>, ShiftedPopulations, Guo>;
 // time is 0.515, and validation/square_cylinder.cpp measured BGK dying at
 // tau = 0.512 once the wake became energetic while central moments held.
 using CollB = MhdBGK<FL, SecondOrderEquilibrium<FL>, ShiftedPopulations>;
-using CollC = MhdCentralMoments<FL, true>;
+using CollC = MhdCentralMoments<FL, true>;          // published Eq. (8)/(11)
+using CollS = MhdCentralMomentsShifted<FL>;         // the default: shifted basis
 
 // UNSHIFT BEFORE TAKING A ONE-SIDED MOMENT -- see square_cylinder.cpp. Shifted
 // storage holds g_i = f_i - w_i, and sum_i c_i w_i = 0 only over the FULL
@@ -821,7 +823,8 @@ int main(int argc, char** argv) {
   {
     Opts o;
     std::vector<double> Has = {0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 15.0, 20.0};
-    std::string op = "cm";
+    std::string op = "cms";   // shifted basis by default; "cm" is the
+                              // published monomial scheme, kept reachable.
     bool selftest_only = false, skip_selftest = false, pair = false;
     for (int i = 1; i < argc; ++i) {
       const std::string a = argv[i];
@@ -896,13 +899,15 @@ int main(int argc, char** argv) {
                 "cylinder %s   outlet %s/%s\n",
                 o.umax, o.umax / 0.5773502692, o.umax * double(o.D) / o.Re,
                 0.5 + 3.0 * o.umax * double(o.D) / o.Re,
-                op == "cm" ? "central moments" : "BGK", o.cyl.c_str(),
+                op == "bgk" ? "BGK" : op == "cm" ? "central moments (monomial)"
+                                                 : "central moments (shifted)", o.cyl.c_str(),
                 o.outlet.c_str(), o.magout.c_str());
     std::printf("  transient %zu steps, averaging %zu   (one convective time is "
                 "%.0f steps)\n\n", o.transient, o.avg, double(25 * o.D) / o.umax);
     for (const double Ha : Has) {
-      if (op == "bgk") run_one<CollB>(o, Ha, status);
-      else             run_one<CollC>(o, Ha, status);
+      if (op == "bgk")      run_one<CollB>(o, Ha, status);
+      else if (op == "cm")  run_one<CollC>(o, Ha, status);
+      else                  run_one<CollS>(o, Ha, status);
       std::printf("\n");
     }
   }

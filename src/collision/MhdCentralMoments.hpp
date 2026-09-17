@@ -1,6 +1,38 @@
 #pragma once
 #include <type_traits>
 //==============================================================================
+//  NOT THE DEFAULT ANY MORE, AND KEPT ON PURPOSE. Since 2026-09-17 the tree's
+//  MHD operator is MhdCentralMomentsShifted: shifted (Hermite) basis, phi_2 =
+//  C^2 - cs^2, where K_F has exactly THREE non-zeros (a_x, a_y, a_z at first
+//  order) instead of being spread across the third-order slots by hand. Every
+//  physics driver defaults to it -- mhd_sphere, mhd_decay, mhd_cylinder and
+//  hartmann_inlet all take -op cms unless told otherwise.
+//
+//  This operator stays for the two things the shifted one cannot be:
+//    * the LITERAL reproduction of the paper below. tests/test_moments.cpp pins
+//      Eq. (8) and Eq. (11) term by term, validation/cmcheck.cpp pins the
+//      documented 3-D equilibrium moments (doc eq:cm3dho), and
+//      validation/orszag_tang{,_3d}.cpp reproduce that paper's own figures with
+//      that paper's own scheme. Migrating those would change what is being
+//      reproduced, which is the one thing a reproduction may not do.
+//    * the CONTRAST that justifies the shifted basis. validation/forcing_cm.cpp
+//      holds K_F for the MONOMIAL operators and the second-order truncation
+//      ladder (HighOrder = false, which the shifted operator has no switch for);
+//      those rows are the evidence that K_F collapses to three non-zeros.
+//
+//  THE TWO ARE NOT INTERCHANGEABLE, AND THE SIZE OF THE GAP DEPENDS ON THE FLOW.
+//  Beyond the basis change they differ in the EQUILIBRIUM: Eq. (11) carries
+//  hydrodynamic Galilean defects at orders 3 and 4 which the shifted form does
+//  not, and that difference does NOT vanish at omega_bulk = 1 (the omega_bulk
+//  term is only the k_22 basis artefact). Measured 2026-09-17:
+//    * hartmann_inlet, steady and near-unidirectional -- IDENTICAL to every
+//      printed digit, relL2 2.28102e-02 / 5.39096e-03 / 1.28554e-03 /
+//      3.07103e-04 and orders 2.081 / 2.068 / 2.066 either way.
+//    * orszag_tang_3d at M = 32, turbulent -- up to 10 % in E(t) and 6.8 % in
+//      J_max. Orders 3 and 4 matter there and the two schemes part company.
+//  So "swap the operator" is safe for a smooth steady flow and is a physics
+//  change for a turbulent one. Do not assume; measure, as above.
+//
 //  Hybrid central-moment MHD collision for D2Q9, after
 //
 //    A. De Rosis, E. Leveque, R. Chahine, "Advanced lattice Boltzmann scheme for

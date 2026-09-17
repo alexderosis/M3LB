@@ -89,6 +89,7 @@
 #include "collision/MagneticBGK.hpp"
 #include "collision/MhdBGK.hpp"
 #include "collision/MhdCentralMoments.hpp"
+#include "collision/MhdCentralMomentsShifted.hpp"
 #include "solver/MagneticSolver.hpp"
 
 #include <chrono>
@@ -275,7 +276,10 @@ int main(int argc, char** argv) {
     // Lx = 241, not the 21 of the Poiseuille test: the magnetic outlet
     // contaminates a long stretch upstream. See the header.
     Index Lx = 241;
-    std::string op = "cm", lat = "d2q9";
+    // cms (SHIFTED basis) is the default: it is the tree's standard MHD
+    // operator, and unlike "cm" its K_F is first order only. "cm" stays
+    // reachable because it is the published Eq. (8)/(11) scheme.
+    std::string op = "cms", lat = "d2q9";
     bool dump = false, boutd = false;
     std::vector<Index> Lys = {17, 33, 65, 129};
     for (int i = 1; i < argc; ++i) {
@@ -307,6 +311,8 @@ int main(int argc, char** argv) {
     for (Index Ly : Lys) {
       Result r;
       const bool known =
+        (lat == "d2q9" && op == "cms") ? (r = run<D2Q9, D2Q5, MhdCentralMomentsShifted<D2Q9>>(Ly, Lx, Ha, nu, umax, dump, boutd), true) :
+        (lat == "d3q27" && op == "cms")? (r = run<D3Q27, D3Q7, MhdCentralMomentsShifted<D3Q27>>(Ly, Lx, Ha, nu, umax, dump, boutd), true) :
         (lat == "d2q9" && op == "cm")  ? (r = run<D2Q9, D2Q5, MhdCentralMoments<D2Q9, true>>(Ly, Lx, Ha, nu, umax, dump, boutd), true) :
         (lat == "d2q9" && op == "bgk") ? (r = run<D2Q9, D2Q5, MhdBGK<D2Q9, HighOrderEquilibrium<D2Q9>, ShiftedPopulations, NoForcing>>(Ly, Lx, Ha, nu, umax, dump, boutd), true) :
         (lat == "d3q27" && op == "cm") ? (r = run<D3Q27, D3Q7, MhdCentralMoments<D3Q27, true>>(Ly, Lx, Ha, nu, umax, dump, boutd), true) :
