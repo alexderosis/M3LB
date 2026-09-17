@@ -38,9 +38,23 @@
 //  And b0 = v0, the usual equipartition choice.
 //
 //    usage: orszag_tang [-m M] [-re RE] [-ma MA] [-tmax T] [-op bgk|cm]
-//                       [-probes N]
+//                       [-probes N] [-vti K]
+//
+//  -vti K writes a ParaView .vti every K-th PROBE, plus a .pvd time series, into
+//  ./vti/. Tying frames to probes rather than to steps is deliberate: a frame
+//  needs the six host fields a probe has already copied, and writing on its own
+//  schedule would pay for a second copy of all of them. It also means the frame
+//  times ARE the probe times, so -probes 40 -vti 1 over tmax = 4 puts a frame
+//  every 0.1 without any divisibility trap for the caller to fall into.
+//
+//  THE DIRECTORY IS CREATED HERE. mhd_sphere.cu does not create its own and
+//  merely warns per frame when the open fails, which can lose a whole run's
+//  output to a missing mkdir. Not repeating that.
 //==============================================================================
 #include "lbm/backend.cuh"
+#include "lbm/vti.cuh"
+
+#include <sys/stat.h>
 
 #include <chrono>
 #include <cmath>
@@ -137,9 +151,59 @@ static Diag measure(const std::vector<Real>& ux, const std::vector<Real>& uy,
   return d;
 }
 
+// |J| at every node, for the .vti. Same central differences and same periodic
+// wrap as measure(); kept separate because measure() runs at every probe and
+// this only runs when a frame is actually written.
+static void jmag_field(const std::vector<Real>& bx, const std::vector<Real>& by,
+                       const std::vector<Real>& bz, int M, std::vector<float>& j) {
+  auto id = [M](int x, int y, int z) {
+    return std::size_t(node_id(((x % M) + M) % M, ((y % M) + M) % M,
+                               ((z % M) + M) % M, M, M));
+  };
+  j.assign(std::size_t(M) * std::size_t(M) * std::size_t(M), 0.0f);
+  for (int z = 0; z < M; ++z)
+    for (int y = 0; y < M; ++y)
+      for (int x = 0; x < M; ++x) {
+        const double jx = 0.5 * (double(bz[id(x, y + 1, z)]) - double(bz[id(x, y - 1, z)]))
+                        - 0.5 * (double(by[id(x, y, z + 1)]) - double(by[id(x, y, z - 1)]));
+        const double jy = 0.5 * (double(bx[id(x, y, z + 1)]) - double(bx[id(x, y, z - 1)]))
+                        - 0.5 * (double(bz[id(x + 1, y, z)]) - double(bz[id(x - 1, y, z)]));
+        const double jz = 0.5 * (double(by[id(x + 1, y, z)]) - double(by[id(x - 1, y, z)]))
+                        - 0.5 * (double(bx[id(x, y + 1, z)]) - double(bx[id(x, y - 1, z)]));
+        j[id(x, y, z)] = float(std::sqrt(jx * jx + jy * jy + jz * jz));
+      }
+}
+
+// One frame: rho, u, b as vectors, and |J| as the scalar ParaView opens on.
+static bool write_frame(int M, int idx, const std::vector<Real>& rho,
+                        const std::vector<Real>& ux, const std::vector<Real>& uy,
+                        const std::vector<Real>& uz, const std::vector<Real>& bx,
+                        const std::vector<Real>& by, const std::vector<Real>& bz,
+                        std::string& name) {
+  const std::size_t np = std::size_t(M) * std::size_t(M) * std::size_t(M);
+  std::vector<float> jm;
+  jmag_field(bx, by, bz, M, jm);
+  std::vector<float> fr(np), fu(3 * np), fb(3 * np);
+  for (std::size_t n = 0; n < np; ++n) {
+    fr[n] = float(rho[n]);
+    fu[3 * n] = float(ux[n]); fu[3 * n + 1] = float(uy[n]); fu[3 * n + 2] = float(uz[n]);
+    fb[3 * n] = float(bx[n]); fb[3 * n + 1] = float(by[n]); fb[3 * n + 2] = float(bz[n]);
+  }
+  std::vector<lbm::VtiArray> arr;
+  arr.push_back({"Jmag", 1, std::move(jm)});
+  arr.push_back({"rho", 1, std::move(fr)});
+  arr.push_back({"u", 3, std::move(fu)});
+  arr.push_back({"b", 3, std::move(fb)});
+  char buf[64];
+  std::snprintf(buf, sizeof buf, "ot3d_%04d.vti", idx);
+  name = buf;
+  return lbm::write_vti_bin(std::string("vti/") + name, M, M, M, arr);
+}
+
 int main(int argc, char** argv) {
   int M = 64, nprobe = 20;
   double Re = 100.0, Ma = 0.034, tmax = 4.0;
+  int vti = 0;
   std::string op = "cm";
 
   for (int i = 1; i < argc; ++i) {
@@ -150,6 +214,7 @@ int main(int argc, char** argv) {
     if (a == "-tmax" && i + 1 < argc) tmax = std::atof(argv[++i]);
     if (a == "-op"   && i + 1 < argc) op   = argv[++i];
     if (a == "-probes" && i + 1 < argc) nprobe = std::atoi(argv[++i]);
+    if (a == "-vti"    && i + 1 < argc) vti    = std::atoi(argv[++i]);
   }
 
   // Ma on the PEAK initial speed, 2 sqrt(2) v0 -- an assumption, not a reading.
@@ -194,6 +259,20 @@ int main(int argc, char** argv) {
   std::printf("  %8.3f %12.6f %12.6f %12.6f %14.3e\n", 0.0, 1.0, d0.eu / e0,
               d0.eb / e0, d0.divb);
 
+  std::vector<std::pair<double, std::string>> pvd;
+  int frame = 0, probe_no = 0;
+  if (vti > 0) {
+    ::mkdir("vti", 0755);                       // EEXIST is fine and expected
+    std::string nm;
+    if (!write_frame(M, frame, rho, ux, uy, uz, bx, by, bz, nm)) {
+      std::fprintf(stderr, "cannot write into vti/ -- giving up rather than "
+                           "running to completion with no output\n");
+      return 2;
+    }
+    pvd.emplace_back(0.0, nm);
+    ++frame;
+  }
+
   // Each probe copies six full fields to the host and walks every node there to
   // form curl and div. At 512^3 that is 3.2 GB and 134M host iterations per
   // sample, which can cost more than the simulation. Lower -probes on large
@@ -216,11 +295,25 @@ int main(int argc, char** argv) {
       std::printf("  %8.3f %12.6f %12.6f %12.6f %14.3e   Jmax %.4e\n",
                   double(t) * dt, e, d.eu / e0, d.eb / e0, d.divb, d.jmax);
       std::fflush(stdout);
+      ++probe_no;
+      if (vti > 0 && probe_no % vti == 0) {
+        std::string nm;
+        if (write_frame(M, frame, rho, ux, uy, uz, bx, by, bz, nm)) {
+          pvd.emplace_back(double(t) * dt, nm);
+          ++frame;
+        }
+      }
     }
   }
 
   const double sec = std::chrono::duration<double>(
       std::chrono::steady_clock::now() - wall0).count();
+  if (vti > 0) {
+    lbm::write_pvd("vti/ot3d.pvd", pvd);
+    std::printf("\n  ParaView: open vti/ot3d.pvd  (%d frames, t 0 to %.3f)\n"
+                "  Colour by Jmag; u and b are there as vectors.\n",
+                frame, pvd.empty() ? 0.0 : pvd.back().first);
+  }
   std::printf("\n  worst max|div B| / k|B| over the run   %.3e\n", worst_div);
   std::printf("  largest rise in E_u + E_b between samples %.3e\n", worst_rise);
   std::printf("      Ideal incompressible MHD has dE/dt = -nu |grad u|^2 - eta |grad B|^2,\n");
