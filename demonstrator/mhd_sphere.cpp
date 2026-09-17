@@ -784,6 +784,7 @@ int main(int argc, char** argv) {
   int rc = 0;
   {
     Opts o;
+    bool probe_given = false;
     for (int i = 1; i < argc; ++i) {
       auto next = [&](double& v) { if (i + 1 < argc) v = std::atof(argv[++i]); };
       if      (!std::strcmp(argv[i], "-n"))      { if (i + 1 < argc) o.N = Index(std::atoi(argv[++i])); }
@@ -800,7 +801,7 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(argv[i], "-kmax"))   { if (i + 1 < argc) o.kmax = std::atoi(argv[++i]); }
       else if (!std::strcmp(argv[i], "-seed"))   { if (i + 1 < argc) o.seed = unsigned(std::atoi(argv[++i])); }
       else if (!std::strcmp(argv[i], "-steps"))  { if (i + 1 < argc) o.steps = std::size_t(std::atoll(argv[++i])); }
-      else if (!std::strcmp(argv[i], "-probe"))  { if (i + 1 < argc) o.probe = std::size_t(std::atoll(argv[++i])); }
+      else if (!std::strcmp(argv[i], "-probe"))  { if (i + 1 < argc) { o.probe = std::size_t(std::atoll(argv[++i])); probe_given = true; } }
       else if (!std::strcmp(argv[i], "-dump"))   { if (i + 1 < argc) o.dumpevery = std::size_t(std::atoll(argv[++i])); }
       else if (!std::strcmp(argv[i], "-vti"))    { if (i + 1 < argc) o.vtievery = std::size_t(std::atoll(argv[++i])); }
       else if (!std::strcmp(argv[i], "-op"))     { if (i + 1 < argc) o.op = argv[++i]; }
@@ -814,10 +815,35 @@ int main(int argc, char** argv) {
       std::printf("-mwall must be cond or insul, not '%s'\n", o.mwall.c_str());
       rc = 2;
     } else {
-    if (o.dumpevery) o.probe = o.dumpevery;
-    if (o.vtievery && !o.dumpevery) o.probe = o.vtievery;
-    if (o.op == "bgk") rc = run<CollB>(o);
-    else               rc = run<CollS>(o);
+      // A FRAME MUST LAND ON A PROBE -- meta.txt and the .pvd carry that probe's
+      // energies -- but that is a DIVISIBILITY requirement and not a licence to
+      // overwrite -probe. The first version snapped probe = dump and silently
+      // threw away the diagnostic resolution that was asked for: -probe 256 with
+      // -vti 2560 gave three rows instead of twenty, and the time series was the
+      // poorer for it with nothing said. Now -probe only defaults to the frame
+      // interval when it was not given, and a cadence that cannot line up is
+      // refused by name.
+      if (!probe_given) {
+        if (o.dumpevery)     o.probe = o.dumpevery;
+        else if (o.vtievery) o.probe = o.vtievery;
+      } else {
+        auto must_divide = [&](const char* nm, std::size_t iv) {
+          if (iv && o.probe && iv % o.probe != 0) {
+            std::printf("%s %zu is not a multiple of -probe %zu. A frame has to "
+                        "land on a probe, because meta.txt carries that probe's "
+                        "energies. Pick a frame interval that divides by the "
+                        "probe (or drop -probe and it will follow the frames).\n",
+                        nm, iv, o.probe);
+            rc = 2;
+          }
+        };
+        must_divide("-dump", o.dumpevery);
+        must_divide("-vti", o.vtievery);
+      }
+      if (rc == 0) {
+        if (o.op == "bgk") rc = run<CollB>(o);
+        else               rc = run<CollS>(o);
+      }
     }
   }
   Kokkos::finalize();

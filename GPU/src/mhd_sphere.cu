@@ -288,6 +288,7 @@ struct Diag {
 
 int main(int argc, char** argv) {
   Opts o;
+  bool probe_given = false;
   auto next = [&](int& i) { return (i + 1 < argc) ? argv[++i] : (char*)"0"; };
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
@@ -305,7 +306,7 @@ int main(int argc, char** argv) {
     else if (a == "-kmax")   o.kmax = std::atoi(next(i));
     else if (a == "-seed")   o.seed = std::strtoull(next(i), nullptr, 10);
     else if (a == "-steps")  o.steps = std::size_t(std::atoll(next(i)));
-    else if (a == "-probe")  o.probe = std::size_t(std::atoll(next(i)));
+    else if (a == "-probe")  { o.probe = std::size_t(std::atoll(next(i))); probe_given = true; }
     else if (a == "-vti")    o.vti = std::size_t(std::atoll(next(i)));
     else if (a == "-dump")   o.dump = std::size_t(std::atoll(next(i)));
     else if (a == "-dumpvol") o.dumpvol = std::size_t(std::atoll(next(i)));
@@ -325,11 +326,33 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "-mwall must be cond or insul, not '%s'\n", o.mwall.c_str());
     return 2;
   }
-  // The frame cadences drive the probe, because meta.txt and the .pvd carry that
-  // probe's energies and time. -dump wins over -vti when both are given.
-  if (o.dump) o.probe = o.dump;
-  else if (o.vti) o.probe = o.vti;
+  // A FRAME MUST LAND ON A PROBE -- meta.txt and the .pvd carry that probe's
+  // energies and time -- but that is a DIVISIBILITY requirement and not a
+  // licence to overwrite -probe. The first version snapped probe = dump and
+  // silently threw away the diagnostic resolution that was asked for: -probe 256
+  // with -vti 2560 produced three rows instead of twenty, and the time series
+  // was the poorer for it with nothing said. Now -probe only defaults to the
+  // frame interval when it was not given, and a cadence that cannot line up is
+  // refused by name rather than quietly adjusted.
   if (!o.dumpvol) o.dumpvol = o.dump;
+  if (!probe_given) {
+    if (o.dump)      o.probe = o.dump;
+    else if (o.vti)  o.probe = o.vti;
+  } else {
+    auto must_divide = [&](const char* nm, std::size_t iv) {
+      if (iv && o.probe && iv % o.probe != 0) {
+        std::fprintf(stderr,
+            "%s %zu is not a multiple of -probe %zu. A frame has to land on a "
+            "probe, because meta.txt and the .pvd carry that probe's energies "
+            "and time. Pick a frame interval that divides by the probe (or drop "
+            "-probe and it will follow the frames).\n", nm, iv, o.probe);
+        std::exit(2);
+      }
+    };
+    must_divide("-dump", o.dump);
+    must_divide("-dumpvol", o.dumpvol);
+    must_divide("-vti", o.vti);
+  }
 
   const int N = o.N;
   const long NT = long(N) * N * N;
@@ -562,7 +585,12 @@ int main(int argc, char** argv) {
                   mass0 != 0 ? (g.mass - mass0) / mass0 : 0.0);
       std::fflush(stdout);
 
-      if (o.dump) {
+      // t % dump, not just `o.dump`: the block runs inside the PROBE, and a
+      // probe is now allowed to be finer than a frame. Without this the slices
+      // came out once per probe while the volume came out once per dumpvol --
+      // 7 slice frames against the 3 asked for, with meta.txt numbering them as
+      // if they were the frames.
+      if (o.dump && t % o.dump == 0) {
         const int zc = N / 2;
         std::vector<float> su(std::size_t(N) * N), sb(std::size_t(N) * N),
                            sj(std::size_t(N) * N);
@@ -607,7 +635,7 @@ int main(int argc, char** argv) {
         ++dframe;
       }
 
-      if (o.vti) {
+      if (o.vti && t % o.vti == 0) {
         const std::size_t np = std::size_t(NT);
         VtiArray am{"Jmag", 1, {}}, ar{"rho", 1, {}}, ac{"chi", 1, {}};
         VtiArray au{"u", 3, {}}, ab{"b", 3, {}}, aj{"J", 3, {}};
