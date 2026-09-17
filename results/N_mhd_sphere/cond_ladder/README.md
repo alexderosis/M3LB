@@ -5,7 +5,9 @@ resolution ceiling" entry in `doc/m3lb.tex`'s known limitations. Each `.dat` is
 the driver's own output: a parameter header, then the diagnostic table whose
 columns are named in the header line.
 
-All runs are `GPU/src/mhd_sphere.cu` on a Tesla T4, FP32, D3Q27 fluid + D3Q7
+Two ladders: the default one, and a scaling control where the penalisation is
+scaled with N (see the last section -- it is the one that answers "did you scale
+anything?"). All runs are `GPU/src/mhd_sphere.cu` on a Tesla T4, FP32, D3Q27 fluid + D3Q7
 magnetic, operator `cm`, built `-DLBM_ONLY_OP=cm -DLBM_ONLY_FORCE=field`:
 
     mhd_sphere -n N -re 500 -kmax 6 -k0 4 -steps 32N -probe 32N/256 -mwall cond
@@ -87,3 +89,45 @@ They buy delay proportional to the softening and nothing else. This is why the
 limitation is written as a ceiling rather than as a parameter to tune: by the
 time eps_m is large enough to matter it is no longer the boundary condition
 asked for. THE MECHANISM IS NOT DIAGNOSED.
+
+## The scaling control — `phys_<N>.dat`
+
+THE LADDER ABOVE HOLDS THE PENALISATION FIXED IN LATTICE UNITS, WHICH IS NOT
+THE SAME AS HOLDING THE BOUNDARY CONDITION FIXED. `eps`, `epsm` and `smooth`
+are a time in steps and a length in cells. Since `T_e = 16N` steps,
+
+    eps_m / T_e  =  2 / 16N  =  1/(8N)
+
+so refining at `epsm = 2` makes the wall PHYSICALLY STIFFER as N grows -- 2.33x
+stiffer at N = 224 than at N = 96 -- and stiffness is the one knob the sweep
+above says is fatal. That is a second variable, and it moves the wrong way. The
+first version of this note did not test it.
+
+So: repeat the ladder with all three scaled by N/96, which is the same physical
+problem refined rather than a stiffer one.
+
+| N | factor | eps = epsm | smooth | outcome | blow-up | (unscaled) |
+|---|---|---|---|---|---|---|
+| 128 | 1.333 | 2.667 | 1.333 | non-finite | step 432 | 448 |
+| 160 | 1.667 | 3.333 | 1.667 | non-finite | step 440 | 460 |
+| 192 | 2.000 | 4.000 | 2.000 | non-finite | step 408 | 432 |
+| 224 | 2.333 | 4.667 | 2.333 | non-finite | step 420 | 420 |
+
+ALL FOUR STILL FAIL, and the blow-up step moves by at most 4 % -- inside the
+tree's own rule that a blow-up step is not a reproducible metric. The
+instability is INDIFFERENT to this whole family of penalisation settings, so
+the ceiling is not an artefact of freezing them in lattice units.
+
+AND IT SHARPENS THE MECHANISM. At N = 128 the physical match epsm = 2.667 FAILS
+while epsm = 4 survives; at N = 224 the physical match 4.667 fails and so does
+4. The epsm needed for stability therefore grows FASTER than linearly in N, so
+no fixed physical wall stiffness survives refinement: stability can only be
+bought by making the wall progressively softer THAN PHYSICAL, which is giving up
+the boundary condition rather than imposing it. That is the strongest statement
+the data supports, and it is why this is written as a ceiling.
+
+What is still NOT established: the ladder is ACOUSTIC (u0 = 0.05 fixed), so
+Ma = 0.0866 at every N and the compressibility error does not vanish under
+refinement. This is a stability ladder, not a convergence study. A diffusive
+ladder (u0 ~ 1/N, nu fixed, steps ~ N^2) would separate the two and has not
+been run.

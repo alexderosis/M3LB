@@ -9356,8 +9356,31 @@ Stated plainly, because each has been measured.
   \emph{fraction} of $R$ fails too --- \code{smooth}$=1.333$ at $N=128$ is the
   same $2.6\,\%$ of $R$ as \code{smooth}$=1$ at $N=96$ and dies at step 480 ---
   so what matters is an absolute number of cells, which is the signature of a
-  grid-scale mechanism rather than an under-resolved wall layer. The mechanism
-  is \emph{not} diagnosed. Series in
+  grid-scale mechanism rather than an under-resolved wall layer.
+
+  The obvious objection --- that $\epsilon$, $\epsilon_m$ and \code{smooth} are
+  frozen in \emph{lattice} units, so the ladder silently stiffens the wall as it
+  refines --- is real and was checked. They are a time in steps and a length in
+  cells, and $T_e=16N$ steps, so $\epsilon_m/T_e=1/(8N)$: at $\epsilon_m=2$ the
+  wall is physically $2.33\times$ stiffer at $N=224$ than at $N=96$, in the one
+  direction the sweep says is fatal. Repeating the ladder with all three scaled
+  by $N/96$ --- the same physical problem refined --- still goes non-finite at
+  every $N$, at steps $432/440/408/420$ for $N=128/160/192/224$ against
+  $448/460/432/420$ unscaled: at most $4\,\%$ apart, and a blow-up step is not a
+  reproducible metric at that precision. So the ceiling is not an artefact of
+  the parameter freezing. It also sharpens the statement: at $N=128$ the
+  physical match $\epsilon_m=2.667$ fails while $\epsilon_m=4$ survives, and at
+  $N=224$ the match $4.667$ fails and so does $4$, so the $\epsilon_m$ required
+  for stability grows \emph{faster than linearly} in $N$ --- no fixed physical
+  wall stiffness survives refinement, and stability is only ever bought by
+  making the wall softer than physical, which gives the boundary condition up
+  rather than imposing it.
+
+  Two things this is not. It is not a convergence study: the ladder is
+  \emph{acoustic}, $u_0=0.05$ at every $N$, so $\mathit{Ma}=0.0866$ throughout
+  and the compressibility error does not refine away --- a diffusive ladder
+  ($u_0\sim1/N$, $\nu$ fixed, steps $\sim N^2$) has not been run. And the
+  mechanism is \emph{not} diagnosed. Series, both ladders and the full sweep in
   \code{results/N\_mhd\_sphere/cond\_ladder/}.
 
 \item \textbf{The on-node zero-flux scalar wall is about twice the halfway

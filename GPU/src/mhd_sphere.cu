@@ -96,6 +96,29 @@
 //  number of cells. THE MECHANISM IS NOT DIAGNOSED. Series and the full sweep in
 //  results/N_mhd_sphere/cond_ladder/.
 //
+//  AND THE LADDER IS NOT AN ARTEFACT OF FREEZING THOSE IN LATTICE UNITS, WHICH
+//  IS THE OBVIOUS OBJECTION AND WAS CHECKED. eps, epsm and smooth are a time in
+//  steps and a length in cells, and T_e = 16N steps, so epsm/T_e = 1/(8N):
+//  refining at epsm = 2 makes the wall PHYSICALLY 2.33x stiffer at N = 224 than
+//  at N = 96, which is the wrong direction. Repeating the ladder with all three
+//  scaled by N/96 -- the same physical problem refined -- still goes non-finite
+//  at every N, at step 432/440/408/420 for N = 128/160/192/224 against
+//  448/460/432/420 unscaled. At most 4 % apart, i.e. indistinguishable under
+//  this tree's own rule that a blow-up step is not a reproducible metric.
+//
+//  WHAT THAT BUYS IS THE SHARPER STATEMENT. At N = 128 the physical match
+//  epsm = 2.667 fails while epsm = 4 survives; at N = 224 the physical match
+//  4.667 fails and so does 4. The epsm needed for stability grows FASTER than
+//  linearly in N, so no fixed physical wall stiffness survives refinement --
+//  stability is only ever bought by making the wall softer THAN PHYSICAL, which
+//  is giving the boundary condition up rather than imposing it.
+//
+//  THE LADDER IS ACOUSTIC AND THEREFORE NOT A CONVERGENCE STUDY. u0 = 0.05 is
+//  held fixed, so Ma = 0.0866 at every N and the compressibility error does not
+//  refine away; nu = u0 2R/Re grows with N, which is what moves omega away from
+//  2. A diffusive ladder (u0 ~ 1/N, nu fixed, steps ~ N^2) would separate the
+//  two and has not been run.
+//
 //  So: -mwall insul is the wall to use above N = 96, and it is the one the
 //  N = 224 series was run with. A conducting run above the ceiling is not a
 //  result no matter how good its first two hundred steps look.
