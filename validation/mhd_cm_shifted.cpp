@@ -97,7 +97,7 @@ static int check3d() {
   std::mt19937 rng(7);
   std::uniform_real_distribution<double> U(-0.06, 0.06), P(-0.01, 0.01),
                                          Fd(-2e-3, 2e-3), Rh(0.85, 1.15);
-  double w_kf_s = 0, w_kf_m = 0, w_mom = 0, w_basis = 0;
+  double w_kf_s = 0, w_kf_m = 0, w_mom = 0, w_basis = 0, w_keq = 0;
 
   auto cm3 = [](const Real f[27], const double u[3], int p, int q, int r, bool shifted) {
     auto phi = [&](int e, double Cc) {
@@ -112,6 +112,7 @@ static int check3d() {
   };
 
   for (int t = 0; t < 200; ++t) {
+
     const double b[3] = {U(rng), U(rng), U(rng)};
     const double F[3] = {Fd(rng), Fd(rng), Fd(rng)};
     hbx(0) = Real(b[0]); hby(0) = Real(b[1]); hbz(0) = Real(b[2]);
@@ -129,6 +130,34 @@ static int check3d() {
     MhdCentralMomentsShifted<D3Q27, NoForcing> uc;
     uc.omega = omega; uc.omega_bulk = omega_b;
     uc.Bx = vbx; uc.By = vby; uc.Bz = vbz;
+    // 11. THE CLOSED FORM IS THE TRANSFORM IT REPLACED. collide() no longer
+    //     builds equilibrium POPULATIONS and transforms them; it evaluates
+    //     keq_maxwell<N> directly, which is what removed the two extra live
+    //     27-arrays and the 752-byte frame. equilibrium() is kept precisely so
+    //     that this identity can be asserted rather than assumed: every slot of
+    //     order >= 2, against the old path, at the same random state.
+    {
+      const Real rr = Real(Rh(rng));
+      const double uu[3] = {U(rng), U(rng), U(rng)};
+      const Real ur[3] = {Real(uu[0]), Real(uu[1]), Real(uu[2])};
+      const Real br[3] = {Real(b[0]), Real(b[1]), Real(b[2])};
+      Real fe[27];
+      uc.equilibrium(fe, rr, ur, br);               // the ORIGINAL path
+      const Real b2 = br[0]*br[0] + br[1]*br[1] + br[2]*br[2];
+      const Real M[6] = {Real(0.5)*b2 - br[0]*br[0], Real(0.5)*b2 - br[1]*br[1],
+                         Real(0.5)*b2 - br[2]*br[2],
+                         -br[0]*br[1], -br[0]*br[2], -br[1]*br[2]};
+      using CC = MhdCentralMomentsShifted<D3Q27, NoForcing>;
+      [&]<int... Ns>(std::integer_sequence<int, Ns...>) {
+        ((ProductBasis<D3Q27>::order(Ns) >= 2
+            ? (void)(w_keq = std::max(w_keq,
+                std::abs(double(CC::template keq_maxwell<Ns>(ur, M))
+                       - cm3(fe, uu, ProductBasis<D3Q27>::p_of(Ns),
+                                     ProductBasis<D3Q27>::q_of(Ns),
+                                     ProductBasis<D3Q27>::r_of(Ns), true))))
+            : (void)0), ...);
+      }(std::make_integer_sequence<int, 27>{});
+    }
 
     Real fa[27], fb[27];
     for (int i = 0; i < 27; ++i) { fa[i] = f0[i]; fb[i] = f0[i]; }
@@ -201,6 +230,7 @@ static int check3d() {
     {"8. D3Q27: K_F monomial == cs^(2m) a_b / 2 from the basis         ", w_kf_m},
     {"9. D3Q27: one step adds a = F/rho to sum(c f)   [rho != 1]       ", w_mom},
     {"10. D3Q27: orders >=3 ARE the shifted equilibrium (tests the BASIS)", w_basis},
+    {"11. D3Q27: closed-form K_eq == transform of equilibrium()        ", w_keq},
   };
   int bad = 0;
   for (auto& r : R) {

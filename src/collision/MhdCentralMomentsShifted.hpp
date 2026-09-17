@@ -261,6 +261,67 @@ struct MhdCentralMomentsShifted<D3Q27, Forcing> {
     }
   }
 
+
+  // The Maxwell part of K_eq in THIS basis, in closed form, slot by slot.
+  //
+  // DERIVED, NOT TRANSCRIBED. The equilibrium is the product form plus a
+  // second-order Hermite term carrying M_ab = |b|^2/2 delta_ab - b_a b_b. The
+  // product form has every shifted central moment zero above order zero (one
+  // line per axis: sum psi = 1, sum psi C = 0, sum psi (C^2 - cs^2) = 0), so the
+  // whole equilibrium above order 0 IS the Maxwell term, and its shifted central
+  // moments are M carried up by pure velocity shift:
+  //
+  //     k_pqr = sum over unordered index pairs {i,j} of the multiset
+  //             A = {x^p, y^q, z^r}  of  M_{A_i A_j} * prod_{k not in {i,j}} (-u_{A_k})
+  //
+  // No cs^2 corrections survive -- phi_2 = C^2 - cs^2 absorbs them, which is the
+  // whole reason this basis is the right one to write the equilibrium in. The
+  // rule was verified against a direct transform of equilibrium() in exact
+  // rational arithmetic, 184 comparisons over orders 2 to 6 at random u and
+  // random symmetric M, zero mismatches.
+  //
+  // WHY IT IS WORTH THE LINES. The previous version built the equilibrium
+  // POPULATIONS and transformed them, which needed two more live 27-element
+  // arrays (fe and ke) on top of k. tests/frame_check.sh measured the result at
+  // 752 bytes of stack frame, second only to ColourGradient, and a frame that
+  // size is per-thread LOCAL memory in device code -- the mechanism this tree
+  // has measured at 47x. GPU/'s own MHD operator reaches the same equilibrium
+  // through MaxwellMoments, so the two codebases still agree without sharing a
+  // line.
+  //
+  // N is a TEMPLATE parameter, never a runtime index: CLAUDE.md's rule, and the
+  // entire point of the exercise.
+  template <int N>
+  KOKKOS_INLINE_FUNCTION static Real keq_maxwell(const Real u[3], const Real M[6]) {
+    const Real Mxx = M[0], Myy = M[1], Mzz = M[2];
+    const Real Mxy = M[3], Mxz = M[4], Myz = M[5];
+    (void)Mxx; (void)Myy; (void)Mzz; (void)Mxy; (void)Mxz; (void)Myz;
+      if constexpr (N ==  2) return Mzz;   // k_002, order 2
+      if constexpr (N ==  4) return Myz;   // k_011, order 2
+      if constexpr (N ==  5) return - Real(2)*Myz*u[2] - Mzz*u[1];   // k_012, order 3
+      if constexpr (N ==  6) return Myy;   // k_020, order 2
+      if constexpr (N ==  7) return - Myy*u[2] - Real(2)*Myz*u[1];   // k_021, order 3
+      if constexpr (N ==  8) return Myy*u[2]*u[2] + Real(4)*Myz*u[1]*u[2] + Mzz*u[1]*u[1];   // k_022, order 4
+      if constexpr (N == 10) return Mxz;   // k_101, order 2
+      if constexpr (N == 11) return - Real(2)*Mxz*u[2] - Mzz*u[0];   // k_102, order 3
+      if constexpr (N == 12) return Mxy;   // k_110, order 2
+      if constexpr (N == 13) return - Mxy*u[2] - Mxz*u[1] - Myz*u[0];   // k_111, order 3
+      if constexpr (N == 14) return Mxy*u[2]*u[2] + Real(2)*Mxz*u[1]*u[2] + Real(2)*Myz*u[0]*u[2] + Mzz*u[0]*u[1];   // k_112, order 4
+      if constexpr (N == 15) return - Real(2)*Mxy*u[1] - Myy*u[0];   // k_120, order 3
+      if constexpr (N == 16) return Real(2)*Mxy*u[1]*u[2] + Mxz*u[1]*u[1] + Myy*u[0]*u[2] + Real(2)*Myz*u[0]*u[1];   // k_121, order 4
+      if constexpr (N == 17) return - Real(2)*Mxy*u[1]*u[2]*u[2] - Real(2)*Mxz*u[1]*u[1]*u[2] - Myy*u[0]*u[2]*u[2] - Real(4)*Myz*u[0]*u[1]*u[2] - Mzz*u[0]*u[1]*u[1];   // k_122, order 5
+      if constexpr (N == 18) return Mxx;   // k_200, order 2
+      if constexpr (N == 19) return - Mxx*u[2] - Real(2)*Mxz*u[0];   // k_201, order 3
+      if constexpr (N == 20) return Mxx*u[2]*u[2] + Real(4)*Mxz*u[0]*u[2] + Mzz*u[0]*u[0];   // k_202, order 4
+      if constexpr (N == 21) return - Mxx*u[1] - Real(2)*Mxy*u[0];   // k_210, order 3
+      if constexpr (N == 22) return Mxx*u[1]*u[2] + Real(2)*Mxy*u[0]*u[2] + Real(2)*Mxz*u[0]*u[1] + Myz*u[0]*u[0];   // k_211, order 4
+      if constexpr (N == 23) return - Mxx*u[1]*u[2]*u[2] - Real(2)*Mxy*u[0]*u[2]*u[2] - Real(4)*Mxz*u[0]*u[1]*u[2] - Real(2)*Myz*u[0]*u[0]*u[2] - Mzz*u[0]*u[0]*u[1];   // k_212, order 5
+      if constexpr (N == 24) return Mxx*u[1]*u[1] + Real(4)*Mxy*u[0]*u[1] + Myy*u[0]*u[0];   // k_220, order 4
+      if constexpr (N == 25) return - Mxx*u[1]*u[1]*u[2] - Real(4)*Mxy*u[0]*u[1]*u[2] - Real(2)*Mxz*u[0]*u[1]*u[1] - Myy*u[0]*u[0]*u[2] - Real(2)*Myz*u[0]*u[0]*u[1];   // k_221, order 5
+      if constexpr (N == 26) return Mxx*u[1]*u[1]*u[2]*u[2] + Real(4)*Mxy*u[0]*u[1]*u[2]*u[2] + Real(4)*Mxz*u[0]*u[1]*u[1]*u[2] + Myy*u[0]*u[0]*u[2]*u[2] + Real(4)*Myz*u[0]*u[0]*u[1]*u[2] + Mzz*u[0]*u[0]*u[1]*u[1];   // k_222, order 6
+    return Real(0);   // orders 0 and 1: handled by the caller
+  }
+
   KOKKOS_INLINE_FUNCTION
   void collide(Real f[27], const Macro& mac, Index n = 0) const {
     using B = ProductBasis<D3Q27>;
@@ -268,10 +329,16 @@ struct MhdCentralMomentsShifted<D3Q27, Forcing> {
     const Real u[3] = {mac.ux, mac.uy, mac.uz};
     const Real b[3] = {Bx(n), By(n), Bz(n)};
 
-    Real k[27], ke[27], fe[27];
+    Real k[27];
     B::template to_moments<true>(f, u, k);          // <true> = SHIFTED
-    equilibrium(fe, rho, u, b);
-    B::template to_moments<true>(fe, u, ke);
+
+    // K_eq in closed form: no equilibrium populations, no second transform,
+    // and no second and third live 27-array. See keq_maxwell above.
+    const Real b2 = b[0] * b[0] + b[1] * b[1] + b[2] * b[2];
+    const Real M[6] = {Real(0.5) * b2 - b[0] * b[0],
+                       Real(0.5) * b2 - b[1] * b[1],
+                       Real(0.5) * b2 - b[2] * b[2],
+                       -b[0] * b[1], -b[0] * b[2], -b[1] * b[2]};
 
     // orders 0 and 1 are collision invariants; the force lands in order 1 alone
     k[B::mi(0, 0, 0)] = rho;
@@ -293,38 +360,53 @@ struct MhdCentralMomentsShifted<D3Q27, Forcing> {
     // compiler cannot prove the subscript constant, so the array cannot live in
     // registers at any budget, which is the rule in CLAUDE.md.
     //
-    // IT DOES NOT FIX THIS OPERATOR'S FRAME, AND THE MEASUREMENT SAYS SO.
-    // tests/frame_check.sh reads 752 bytes / 1 loop / 4 register-indexed arrays
-    // at FP64 both before and after this block was unrolled -- second only to
-    // ColourGradient, against MomentCollision's clean 368 / 0 / 0. The cause is
-    // not the indices: it is that this operator keeps THREE live 27-element
-    // arrays -- k, ke and fe -- because it TRANSFORMS the equilibrium instead of
-    // writing it out, while MomentCollision computes eq_moment<N> analytically
-    // and carries only k. ProductBasis::to_moments itself also indexes k[mi(a,b,c)]
-    // with runtime a, b, c, and is shared by four operators.
+    // UNROLLING THIS BLOCK DID NOT FIX THE FRAME; THE CLOSED FORM DID.
+    // For the record, because the intermediate state misled once already:
+    // tests/frame_check.sh read 752 bytes / 289 instrs / 1 loop / 4 register-
+    // indexed arrays at FP64 both before and after this block was unrolled. The
+    // cause was never the indices here -- it was that the operator kept THREE
+    // live 27-element arrays (k, ke and fe) because it TRANSFORMED the
+    // equilibrium instead of writing it out, where MomentCollision computes
+    // eq_moment<N> analytically and carries only k.
     //
-    // SO THIS OPERATOR IS NOT FIT FOR A DEVICE AS IT STANDS. On a CPU a 752-byte
-    // frame is L1-resident and costs little; in device code it is per-thread
-    // LOCAL memory, off-chip and uncoalesced, and this tree has measured that
-    // mechanism at 47x in ColourGradient. The fix available is the closed form
-    // for K_eq -- derived and verified against this file's own equilibrium() to
-    // 6.7e-16, see the note above order 2 -- which would remove fe and the second
-    // transform. NOT DONE: it would re-open a validated operator, and nothing has
-    // yet needed it on a GPU.
+    // Replacing that with keq_maxwell<N> removes fe and ke outright. Measured
+    // on the same compiler, same build tree, before and after:
+    //
+    //            frame  instrs  loops  regidx
+    //     FP64     752     289      1       4     <- transform the equilibrium
+    //     FP64     416     121      0       3     <- closed form
+    //     FP32     448     405      0       3
+    //     FP32     304     124      0       3
+    //
+    // 45 % off the frame and 58 % off the instruction count, and the surviving
+    // loop is gone. What remains (416) is k itself plus ProductBasis::to_moments,
+    // which still indexes k[mi(a,b,c)] with runtime a, b, c and is shared by four
+    // operators -- that is the next thing to fix, and it is not this file's.
+    // MomentCollision's clean 368 / 0 / 0 is the target.
+    //
+    // The closed form is asserted against the path it replaced, slot by slot at
+    // every order >= 2, in validation/mhd_cm_shifted.cpp check 11 (1.5e-16).
+    // equilibrium() is kept for exactly that reason: it is the reference now,
+    // not the implementation.
     {
       constexpr int D0 = B::mi(2, 0, 0), D1 = B::mi(0, 2, 0), D2 = B::mi(0, 0, 2);
       constexpr int S0 = B::mi(1, 1, 0), S1 = B::mi(1, 0, 1), S2 = B::mi(0, 1, 1);
+      // Six scalars, not an array: these are the only equilibrium moments the
+      // order-2 schedule needs, and tre is tr(M) = |b|^2/2 in 3-D (it vanishes
+      // in 2-D, which is why the D2Q9 half of this file has no b in k_3^eq).
+      const Real e0 = keq_maxwell<D0>(u, M), e1 = keq_maxwell<D1>(u, M);
+      const Real e2 = keq_maxwell<D2>(u, M);
       const Real tr  = k[D0] + k[D1] + k[D2];
-      const Real tre = ke[D0] + ke[D1] + ke[D2];
+      const Real tre = e0 + e1 + e2;
       const Real third = Real(1) / Real(3);
       const Real tr_post = (Real(1) - omega_bulk) * tr + omega_bulk * tre;
       const Real om1 = Real(1) - omega;
-      k[D0] = om1 * (k[D0] - tr * third) + omega * (ke[D0] - tre * third) + tr_post * third;
-      k[D1] = om1 * (k[D1] - tr * third) + omega * (ke[D1] - tre * third) + tr_post * third;
-      k[D2] = om1 * (k[D2] - tr * third) + omega * (ke[D2] - tre * third) + tr_post * third;
-      k[S0] = om1 * k[S0] + omega * ke[S0];
-      k[S1] = om1 * k[S1] + omega * ke[S1];
-      k[S2] = om1 * k[S2] + omega * ke[S2];
+      k[D0] = om1 * (k[D0] - tr * third) + omega * (e0 - tre * third) + tr_post * third;
+      k[D1] = om1 * (k[D1] - tr * third) + omega * (e1 - tre * third) + tr_post * third;
+      k[D2] = om1 * (k[D2] - tr * third) + omega * (e2 - tre * third) + tr_post * third;
+      k[S0] = om1 * k[S0] + omega * keq_maxwell<S0>(u, M);
+      k[S1] = om1 * k[S1] + omega * keq_maxwell<S1>(u, M);
+      k[S2] = om1 * k[S2] + omega * keq_maxwell<S2>(u, M);
     }
 
     // order >= 3 straight to equilibrium. No force term: K_F is first order in
@@ -334,7 +416,7 @@ struct MhdCentralMomentsShifted<D3Q27, Forcing> {
     // Unrolled over a compile-time index sequence for the reason above: the
     // triple loop this replaces called B::mi(p, q, r) with RUNTIME p, q, r.
     [&]<int... Ns>(std::integer_sequence<int, Ns...>) {
-      ((B::order(Ns) >= 3 ? (void)(k[Ns] = ke[Ns]) : (void)0), ...);
+      ((B::order(Ns) >= 3 ? (void)(k[Ns] = keq_maxwell<Ns>(u, M)) : (void)0), ...);
     }(std::make_integer_sequence<int, 27>{});
 
     B::template to_populations<true>(k, u, f);
