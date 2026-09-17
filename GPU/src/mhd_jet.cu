@@ -503,8 +503,8 @@ int main(int argc, char** argv) {
     // without re-deriving u0 and dl: the .raw values are LATTICE |J|, and the
     // conversion is the same J(lat)/dt the J_max column uses.
     if (m) {
-      std::fprintf(m, "N %d\nnx %d\nny %d\nR 0\nTe 1.0\ndt %.8e\n",
-                   nx, nx, ny, dt);
+      std::fprintf(m, "N %d\nnx %d\nny %d\nnz %d\nR 0\nTe 1.0\ndt %.8e\n",
+                   nx, nx, ny, nz, dt);
       // The volume's own extents, written out rather than left to be inferred.
       // orszag_tang.cu's renderer recovers the stride from N %% nx == 0, which
       // only works on a cube; here the three reduced extents are independent

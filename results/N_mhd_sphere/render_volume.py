@@ -14,6 +14,8 @@
   --decades D               length of the log ramp; default 0 = size it to this
                             run's own fall. PIN IT when comparing two runs.
   --yawrate D  --yaw0 D  --elev D    camera, degrees (default 3/frame, 35, 22)
+  --title S                          banner line (default names the case)
+  --spin z|y                         axis the camera orbits (default z)
   --vscale S                MIP samples per voxel, splat is ceil(S) wide
                             (default 4; drop to 2 for ~2x the speed)
   --size PX                 target panel width (default 440)
@@ -267,7 +269,9 @@ def read_meta(path):
     'frame <i> <t/Te> <E_u> <E_b>'. Absent or partial is not fatal -- every
     consumer below has a fallback -- because the renderer must work on a dump
     made before the driver learned to write it."""
-    m = {'N': None, 'R': None, 'Te': None, 'frames': None, 'rows': {}}
+    m = {'N': None, 'R': None, 'Te': None, 'frames': None, 'rows': {},
+         'nx': None, 'ny': None, 'nz': None,
+         'vstride': None, 'vnx': None, 'vny': None, 'vnz': None}
     if not os.path.exists(path):
         return m
     for line in open(path):
@@ -283,6 +287,9 @@ def read_meta(path):
                 m['Te'] = float(p[1])
             elif p[0] == 'frames' and len(p) > 1:
                 m['frames'] = int(float(p[1]))
+            elif p[0] in ('nx', 'ny', 'nz', 'vstride', 'vnx', 'vny', 'vnz') \
+                    and len(p) > 1:
+                m[p[0]] = int(float(p[1]))
             elif p[0] == 'frame' and len(p) >= 5:
                 m['rows'][int(p[1])] = (float(p[2]), float(p[3]), float(p[4]))
         except ValueError:
@@ -799,7 +806,8 @@ def main(argv):
 
     # 'decades': 0 means "size the log ramp to this run's own decay" -- see the
     # block in main() that sets it, and pass --decades N to pin it instead.
-    opt = {'scale': 'log', 'decades': 0.0, 'yawrate': 3.0, 'yaw0': 35.0,
+    opt = {'title': '', 'spin': 'z',
+           'scale': 'log', 'decades': 0.0, 'yawrate': 3.0, 'yaw0': 35.0,
            'elev': 22.0, 'size': 440, 'vscale': 4.0, 'fps': 12, 'every': 1,
            'limit': 0, 'R': 0.0, 'nodepth': False, 'nosmooth': False,
            'png': '', 'selftest': False, 'quiet': False}
@@ -881,10 +889,32 @@ def main(argv):
     # reporting that as a discrepancy sends the reader looking for a bug. Keep the
     # warning for the case it was written for: dimensions that do NOT divide,
     # which really is a mixed-up directory.
+    # THE STRIDE IS READ WHERE IT IS STATED AND ONLY INFERRED WHERE IT IS NOT.
+    # The cube inference below -- meta's N divided by the volume's nx -- cannot
+    # work on a box whose three extents are independent: 512 x 734 x 512 at
+    # stride 4 dumps 128 x 184 x 128, and 734/184 is not 4. GPU/src/mhd_jet.cu
+    # writes vstride and the three reduced extents outright for exactly that
+    # reason, so those win when present and the inference is the fallback for
+    # dumps made before the driver learned to say so.
     grid_N, vstride = nx, 1
-    if meta['N'] and meta['N'] != nx:
+    gnx, gny, gnz = nx, ny, nz
+    if meta['vstride']:
+        vstride = max(1, meta['vstride'])
+        if meta['vnx'] and (meta['vnx'], meta['vny'], meta['vnz']) != (nx, ny, nz):
+            sys.stderr.write('  note: meta says the volume is %dx%dx%d, the file '
+                             'says %dx%dx%d; trusting the file\n'
+                             % (meta['vnx'], meta['vny'], meta['vnz'], nx, ny, nz))
+        gnx = meta['nx'] or nx * vstride
+        gny = meta['ny'] or ny * vstride
+        gnz = meta['nz'] or nz * vstride
+        grid_N = gnx
+        if not opt['quiet'] and vstride > 1:
+            print('  volume is a stride-%d dump of %dx%dx%d, rendered at %dx%dx%d'
+                  % (vstride, gnx, gny, gnz, nx, ny, nz))
+    elif meta['N'] and meta['N'] != nx:
         if meta['N'] % nx == 0:
             grid_N, vstride = meta['N'], meta['N'] // nx
+            gnx = gny = gnz = grid_N
             if not opt['quiet']:
                 print('  volume is a stride-%d dump of a %d^3 grid, rendered at %d^3'
                       % (vstride, grid_N, nx))
@@ -897,12 +927,13 @@ def main(argv):
 
     # ---- pass 1: amplitude of every frame, so the strip can be drawn on frame 0
     if not opt['quiet']:
+        shape = ('%d^3' % nx) if nx == ny == nz else ('%dx%dx%d' % (nx, ny, nz))
         if box:
-            print('  %d frames, %d^3 volume, PERIODIC BOX (no sphere mask, no ring), '
-                  '%d voxels' % (len(files), nx, nvox))
+            print('  %d frames, %s volume, PERIODIC BOX (no sphere mask, no ring), '
+                  '%d voxels' % (len(files), shape, nvox))
         else:
-            print('  %d frames, %d^3 volume, R = %.2f, %d voxels inside the sphere (%.1f%%)'
-                  % (len(files), nx, R, nvox, 100.0 * nvox / (nx * ny * nz)))
+            print('  %d frames, %s volume, R = %.2f, %d voxels inside the sphere (%.1f%%)'
+                  % (len(files), shape, R, nvox, 100.0 * nvox / (nx * ny * nz)))
     t0 = time.time()
     peaks, p995 = [], []
     for k, fn in enumerate(files):
@@ -965,7 +996,15 @@ def main(argv):
     # which for a box is the circumscribing sphere -- a cube of side N reaches
     # sqrt(3) N / 2 from its centre, and at some yaw a corner sits there. R itself
     # is 0 in box mode, which would size the canvas to nothing.
-    R_draw = R if not box else 0.5 * math.sqrt(3.0) * nx
+    # A CUBE'S CIRCUMSCRIBING SPHERE IS THE SPECIAL CASE, NOT THE RULE. This was
+    # 0.5 sqrt(3) nx, which is right only when the three extents are equal; the
+    # jet's volume is 128 x 184 x 128 and that formula undersizes the canvas by
+    # 17 %, clipping the box at the yaws where its long axis lies across the
+    # screen. The half-diagonal below is the same number on a cube -- put
+    # nx = ny = nz and it reduces to 0.5 sqrt(3) nx exactly -- so no cube result
+    # moves, and it is correct for any box.
+    R_draw = R if not box else 0.5 * math.sqrt(float(nx) ** 2 + float(ny) ** 2
+                                               + float(nz) ** 2)
     W0, H0 = mip_size(R_draw, sc, ns)
     mag = max(1, int(round(opt['size'] / float(W0))))
     P = W0 * mag
@@ -996,7 +1035,7 @@ def main(argv):
         val, dep, _w, _h = _project_inner(
             v, spans, [0.0] * (W0 * H0), [0.0] * (W0 * H0), W0, H0,
             0.5 * W0, 0.5 * H0, floor,
-            *axes(yaw, opt['elev'], sc), cx=cx, cy=cy, cz=cz, ns=ns)
+            *axes(yaw, opt['elev'], sc, opt['spin']), cx=cx, cy=cy, cz=cz, ns=ns)
         if ns <= 1:
             fill_holes(val, dep, W0, H0)   # only ns = 1 can leave any
         if not opt['nosmooth']:
@@ -1015,14 +1054,18 @@ def main(argv):
 
         tstr = ('t/Te %6.2f' % ts[k]) if ts[k] is not None else 'frame index only'
         draw_text(buf, W, H, M, 6,
-                  ('3D ORSZAG-TANG, PERIODIC BOX   |J| MAX-INTENSITY PROJECTION'
-                   if box else
-                   'MHD DECAY IN A PENALISED SPHERE   |J| MAX-INTENSITY PROJECTION'),
+                  (opt['title'] or
+                   ('3D ORSZAG-TANG, PERIODIC BOX   |J| MAX-INTENSITY PROJECTION'
+                    if box else
+                    'MHD DECAY IN A PENALISED SPHERE   |J| MAX-INTENSITY '
+                    'PROJECTION')),
                   FG, 1)
         draw_text(buf, W, H, M, 18,
-                  ('%s   frame %03d/%03d   N %d%s  periodic box   '
+                  ('%s   frame %03d/%03d   %s%s  periodic box   '
                    'yaw %03d deg  elev %02d deg'
-                   % (tstr, k + 1, len(files), grid_N,
+                   % (tstr, k + 1, len(files),
+                      ('N %d' % grid_N) if gnx == gny == gnz
+                      else ('%dx%dx%d' % (gnx, gny, gnz)),
                       '' if vstride == 1 else ' (vol /%d)' % vstride,
                       int(yaw) % 360, int(opt['elev'])))
                   if box else
@@ -1065,7 +1108,7 @@ def main(argv):
     return 0
 
 
-def axes(yaw, elev, sc):
+def axes(yaw, elev, sc, spin='z'):
     """Orthographic camera basis -> the nine per-voxel coefficients the inner
     loop increments: d(px), d(py), d(depth) per unit step in x, y and z. Yaw is
     about the volume's z axis and elevation is above the z = const plane. The
@@ -1077,6 +1120,20 @@ def axes(yaw, elev, sc):
     rx, ry, rz = -sf, cf, 0.0                      # screen right
     ux, uy, uz = -se * cf, -se * sf, ce            # screen up
     fx, fy, fz = -ce * cf, -ce * sf, -se           # into the screen
+    # WHICH AXIS TO SPIN ABOUT IS A QUESTION A SPHERE CANNOT ASK. For the
+    # penalised sphere and for Orszag-Tang's cube the three axes are alike and
+    # z is as good as any. The jet is not alike: x2 is the cross-stream
+    # direction the shear layer spreads along, 20 units against 13.96, and
+    # spinning about z lays it across the screen so the box tumbles end over
+    # end and no frame resembles the mid-plane slices. --spin y stands it
+    # upright and turns the two periodic directions past the camera, which is
+    # the view the physics is usually drawn in. The remap swaps the y and z
+    # components of all three basis vectors, so 'z' is bit-for-bit the old
+    # behaviour and no existing render moves.
+    if spin == 'y':
+        ry, rz = rz, ry
+        uy, uz = uz, uy
+        fy, fz = fz, fy
     return (sc * rx, sc * ry, sc * rz,
             -sc * ux, -sc * uy, -sc * uz,          # image y grows downward
             fx, fy, fz)
