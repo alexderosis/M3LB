@@ -70,6 +70,13 @@
 //  right -- and the transition they name is the moment jx and jy climb to meet
 //  jz, which starts alone.  All four current columns are in the paper's units.
 //
+//  THE VOLUME IS THERE FOR THE REASON THE SLICE IS NOT ENOUGH.  A current sheet
+//  is one or two cells thick, so a flat cut through one mostly misses it and a
+//  mid-plane movie understates exactly the structure the case is about.
+//  -dumpvol K writes the |J| volume every K-th dumped frame, reduced by BLOCK
+//  MAXIMUM to stride -volstride S.  At 512 x 734 x 512 a full frame is 770 MB,
+//  which is not a movie; S = 4 makes it 128 x 184 x 128 and 12 MB.
+//
 //  WHAT IS NOT CLAIMED.  Not a validation: the reference data is not published,
 //  and at any resolution reachable here this is under-resolved relative to a
 //  512 x 1024 x 512 sixth-order DNS -- k_max eta_K is about 0.25 even at
@@ -289,6 +296,75 @@ static void write_raw2(const std::string& path, int nx, int ny,
   std::fclose(f);
 }
 
+static void write_raw3(const std::string& path, int nx, int ny, int nz,
+                       const std::vector<float>& v) {
+  std::FILE* f = std::fopen(path.c_str(), "wb");
+  if (!f) return;
+  const std::int32_t a = nx, b = ny, c = nz;
+  std::fwrite(&a, 4, 1, f); std::fwrite(&b, 4, 1, f); std::fwrite(&c, 4, 1, f);
+  std::fwrite(v.data(), 4, v.size(), f);
+  std::fclose(f);
+}
+
+//------------------------------------------------------------------------------
+// The |J| volume, reduced by BLOCK MAXIMUM to (ceil(n/S))^3-ish before it is
+// written.
+//
+// THE REDUCTION IS COMPUTED ON THE FLY AND THAT IS NOT A MICRO-OPTIMISATION.
+// The obvious shape -- fill a full-resolution |J| buffer, then reduce it --
+// needs 770 MB at 512 x 734 x 512 in FP32, on top of the ~5.4 GB of field
+// arrays sample() already holds on the host. Walking the reduced grid and
+// forming |J| inside each block visits every cell exactly once and allocates
+// only the reduced array, which at stride 4 is 12 MB.
+//
+// MAXIMUM, NOT MEAN, AND THE CHOICE IS THE WHOLE POINT. A current sheet is one
+// or two cells thick. A block mean averages it against its quiet neighbours and
+// dims exactly the structure the picture is of; a block maximum is the same
+// operator the max-intensity projection downstream already applies, so the
+// sheets survive the reduction. orszag_tang.cu argues this at more length and
+// this is the same reasoning on a non-cubic box.
+//
+// STRIDES NEED NOT DIVIDE. ny = 734 is not a multiple of 4, so the last block
+// on each axis is short; the loops clamp rather than requiring divisibility,
+// because forcing the caller to pick a stride that divides all three extents
+// is a trap on a box whose sides are 512, 734 and 512.
+//------------------------------------------------------------------------------
+static void dump_volume(int nx, int ny, int nz, int idx, int S,
+                        const std::vector<Real>& bx, const std::vector<Real>& by,
+                        const std::vector<Real>& bz) {
+  auto id = [nx, ny, nz](int x, int y, int z) {
+    return std::size_t(node_id(((x % nx) + nx) % nx, ((y % ny) + ny) % ny,
+                               ((z % nz) + nz) % nz, nx, ny));
+  };
+  const int rx = (nx + S - 1) / S, ry = (ny + S - 1) / S, rz = (nz + S - 1) / S;
+  std::vector<float> red(std::size_t(rx) * ry * rz, 0.0f);
+  for (int Z = 0; Z < rz; ++Z)
+    for (int Y = 0; Y < ry; ++Y)
+      for (int X = 0; X < rx; ++X) {
+        double m = 0.0;
+        for (int dz = 0; dz < S; ++dz) {
+          const int z = Z * S + dz; if (z >= nz) break;
+          for (int dy = 0; dy < S; ++dy) {
+            const int y = Y * S + dy; if (y >= ny) break;
+            for (int dx = 0; dx < S; ++dx) {
+              const int x = X * S + dx; if (x >= nx) break;
+              const double jx = 0.5 * (double(bz[id(x, y + 1, z)]) - double(bz[id(x, y - 1, z)]))
+                              - 0.5 * (double(by[id(x, y, z + 1)]) - double(by[id(x, y, z - 1)]));
+              const double jy = 0.5 * (double(bx[id(x, y, z + 1)]) - double(bx[id(x, y, z - 1)]))
+                              - 0.5 * (double(bz[id(x + 1, y, z)]) - double(bz[id(x - 1, y, z)]));
+              const double jz = 0.5 * (double(by[id(x + 1, y, z)]) - double(by[id(x - 1, y, z)]))
+                              - 0.5 * (double(bx[id(x, y + 1, z)]) - double(bx[id(x, y - 1, z)]));
+              const double q = std::sqrt(jx * jx + jy * jy + jz * jz);
+              if (q > m) m = q;
+            }
+          }
+        }
+        red[(std::size_t(Z) * ry + Y) * rx + X] = float(m);
+      }
+  char tag[32]; std::snprintf(tag, sizeof tag, "_%04d.raw", idx);
+  write_raw3(std::string("anim_frames/jvol") + tag, rx, ry, rz, red);
+}
+
 static void dump_slices(int nx, int ny, int nz, int idx,
                         const std::vector<Real>& ux, const std::vector<Real>& uy,
                         const std::vector<Real>& uz, const std::vector<Real>& bx,
@@ -323,7 +399,7 @@ static void dump_slices(int nx, int ny, int nz, int idx,
 }
 
 int main(int argc, char** argv) {
-  int nx = 256, nprobe = 300, dump = 0;
+  int nx = 256, nprobe = 300, dump = 0, dvol = 0, vstride = 1;
   double Re = 3500.0, Ma = 0.034, tmax = 150.0, Pm = 1.0, S = 52.5;
   double sigma = 0.9, amp = 1.0e-3, seedamp = 1.0e-5;
   unsigned seed = 20260917u;
@@ -343,6 +419,8 @@ int main(int argc, char** argv) {
     if (a == "-seed"  && i + 1 < argc) seed    = unsigned(std::atol(argv[++i]));
     if (a == "-probes"&& i + 1 < argc) nprobe  = std::atoi(argv[++i]);
     if (a == "-dump"  && i + 1 < argc) dump    = std::atoi(argv[++i]);
+    if (a == "-dumpvol" && i + 1 < argc) dvol   = std::atoi(argv[++i]);
+    if (a == "-volstride" && i + 1 < argc) vstride = std::max(1, std::atoi(argv[++i]));
     if (a == "-op"    && i + 1 < argc) op      = argv[++i];
   }
 
@@ -424,16 +502,30 @@ int main(int argc, char** argv) {
     // dt is here so a renderer can put the slices into the reference's units
     // without re-deriving u0 and dl: the .raw values are LATTICE |J|, and the
     // conversion is the same J(lat)/dt the J_max column uses.
-    if (m) { std::fprintf(m, "N %d\nnx %d\nny %d\nR 0\nTe 1.0\ndt %.8e\n",
-                          nx, nx, ny, dt);
-             std::fclose(m); }
+    if (m) {
+      std::fprintf(m, "N %d\nnx %d\nny %d\nR 0\nTe 1.0\ndt %.8e\n",
+                   nx, nx, ny, dt);
+      // The volume's own extents, written out rather than left to be inferred.
+      // orszag_tang.cu's renderer recovers the stride from N %% nx == 0, which
+      // only works on a cube; here the three reduced extents are independent
+      // and a renderer that guessed would mis-shape the box in silence.
+      if (dvol > 0)
+        std::fprintf(m, "vstride %d\nvnx %d\nvny %d\nvnz %d\n", vstride,
+                     (nx + vstride - 1) / vstride, (ny + vstride - 1) / vstride,
+                     (nz + vstride - 1) / vstride);
+      std::fclose(m);
+    }
   }
 
   const std::size_t probe =
       (nprobe > 0 && T / std::size_t(nprobe)) ? T / std::size_t(nprobe) : 1;
   double worst_div = d0.divb, prev_eb = d0.eb / eb0, prev_t = 0.0;
   int probe_no = 0, dframe = 0;
-  if (dump > 0) { dump_slices(nx, ny, nz, dframe, ux, uy, uz, bx, by, bz); ++dframe; }
+  if (dump > 0) {
+    dump_slices(nx, ny, nz, dframe, ux, uy, uz, bx, by, bz);
+    if (dvol > 0) dump_volume(nx, ny, nz, dframe, vstride, bx, by, bz);
+    ++dframe;
+  }
   const auto wall0 = std::chrono::steady_clock::now();
 
   for (std::size_t t = 1; t <= T; ++t) {
@@ -456,6 +548,8 @@ int main(int argc, char** argv) {
       ++probe_no;
       if (dump > 0 && probe_no % dump == 0) {
         dump_slices(nx, ny, nz, dframe, ux, uy, uz, bx, by, bz);
+        if (dvol > 0 && probe_no % dvol == 0)
+          dump_volume(nx, ny, nz, dframe, vstride, bx, by, bz);
         ++dframe;
       }
     }
@@ -470,9 +564,14 @@ int main(int argc, char** argv) {
   std::printf("      Not cleaned. The reference holds div B below 1e-13 with\n"
               "      Brackbill-Barnes; this scheme has no cleaning stage at all. On a\n"
               "      reconnection problem that is the first number to read, not the last.\n");
-  if (dump > 0)
+  if (dump > 0) {
     std::printf("  wrote %d mid-plane frames to anim_frames/ (%d x %d, x1-x2 at z = nz/2)\n",
                 dframe, nx, ny);
+    if (dvol > 0)
+      std::printf("  and the |J| volume at %d x %d x %d (block MAX, stride %d)\n",
+                  (nx + vstride - 1) / vstride, (ny + vstride - 1) / vstride,
+                  (nz + vstride - 1) / vstride, vstride);
+  }
   std::printf("  %zu steps in %.2f s  ->  %.1f MLUPS\n",
               T, sec, double(fl.nodes()) * double(T) / sec / 1e6);
   return 0;

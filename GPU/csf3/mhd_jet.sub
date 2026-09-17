@@ -61,7 +61,23 @@
 #  WHAT COMES OUT, under $SLURM_SUBMIT_DIR/mhd_jet_<nx>_<prec>/:
 #      log.txt                     the columns, including gamma and jx/jy/jz
 #      anim_frames/umag,bmag,jmag  x1-x2 mid-plane slices, nx x ny float32
-#      anim_frames/meta.txt        N, nx, ny, R 0 (periodic-box sentinel), Te
+#      anim_frames/jvol_*.raw      the |J| volume, block-MAX reduced
+#      anim_frames/meta.txt        N, nx, ny, dt, R 0, Te, and the volume extents
+#
+#  WHY THE VOLUME IS WORTH ITS SIZE.  A current sheet is one or two cells thick,
+#  so a flat mid-plane cut through one mostly misses it and the slice movie
+#  understates exactly the structure this case is about.  At 512 x 734 x 512 a
+#  full |J| frame is 770 MB, which is not a movie; -volstride 4 reduces it by
+#  BLOCK MAXIMUM to 128 x 184 x 128 = 12.1 MB, and 150 of those is 1.8 GB.
+#  Maximum, not mean: a mean averages a one-cell sheet against quiet neighbours
+#  and dims the thing being filmed.  Verified bit-identical to the
+#  full-resolution peak at stride 1 -- the reduction loses no maximum.
+#  The stride need not divide any extent; 734 is not a multiple of 4 and the
+#  last block on each axis is simply short.
+#
+#  IT IS NOT FREE.  The reduction visits every one of the 192 M cells once per
+#  volume frame, single-threaded on the host, which is order 10 s a frame here
+#  -- about 25 min across the run, on top of the probe cost already counted.
 #  The slices are their Fig. 1 middle row.  results/N_mhd_sphere/render_slices.py
 #  reads the .raw headers so it gets the dimensions right, but it was written
 #  for a SQUARE slice and this one is not -- expect to adjust its layout before
@@ -116,9 +132,13 @@ echo
 # every node single-threaded, so it is roughly 2.5 h of the total.  That is the
 # price of the one curve this run exists to produce, so it is paid.
 # -dump 2 puts a slice frame on every other sample: 150 frames, ~675 MB.
+# -dumpvol 1 puts a |J| volume on every one of those, -volstride 4 reducing it
+# to 128 x 184 x 128: 150 frames, ~1.8 GB.  Raise the stride, or drop -dumpvol
+# to 2, if that is more than the scratch quota wants to hold.
 "$BIN" -nx "$NX" -re 3500 -pm 1 -s 52.5 -ma 0.034 -tmax 150 \
-       -probes 300 -dump 2 -op cm 2>&1 | tee log.txt
+       -probes 300 -dump 2 -dumpvol 1 -volstride 4 -op cm 2>&1 | tee log.txt
 
 echo
-echo "slices: $(ls anim_frames/jmag_*.raw 2>/dev/null | wc -l)"
+echo "slices : $(ls anim_frames/jmag_*.raw 2>/dev/null | wc -l)"
+echo "volumes: $(ls anim_frames/jvol_*.raw 2>/dev/null | wc -l)"
 du -sh anim_frames 2>/dev/null || true
