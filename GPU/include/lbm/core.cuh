@@ -827,12 +827,63 @@ struct Coupling {
 // instantiation carries not one extra register.
 //------------------------------------------------------------------------------
 template <bool Mhd>
+// CLOSED FORM, not a transform. The Maxwell term is a second-order Hermite
+// perturbation carrying M_ab = |b|^2/2 delta_ab - b_a b_b, and it contributes
+// nothing to the raw moments of order 0 and 1. In THIS basis (phi_2 = C^2 - cs^2)
+// its shifted central moments are therefore M carried up by pure velocity shift:
+//
+//     k_pqr = sum over unordered index pairs {i,j} of the multiset
+//             A = {x^p, y^q, z^r}  of  M_{A_i A_j} * prod_{k not in {i,j}} (-u_{A_k})
+//
+// No cs^2 corrections survive -- phi_2 absorbs them. The 27 lines below are
+// GENERATED from that rule, not typed, and the rule was verified in exact
+// rational arithmetic against a direct transform (184 comparisons, orders 2 to 6,
+// random u and random symmetric M, zero mismatches).
+//
+// WHAT IT REPLACES. The previous body built 27 equilibrium POPULATIONS and ran
+// to_moments over them -- an extra live 27-array and a full three-pass transform
+// per node per step, in device code. Only order 0 and 1 are zero here; rho comes
+// from cm_eq_moment, which is why this object carries the Maxwell part alone.
+//
+// src/collision/MhdCentralMomentsShifted.hpp reaches the same expressions from
+// the other codebase without sharing a line; test/host_check.cpp asserts this
+// form against the transform it replaced.
 struct MaxwellMoments {
   Real k[27];
   LBM_HD LBM_INLINE MaxwellMoments(const Real B[3], const Real ub[3]) {
-    Real df[27];
-    for (int i = 0; i < 27; ++i) df[i] = maxwell(i, B);
-    to_moments(df, ub, k);
+    const Real b2 = B[0] * B[0] + B[1] * B[1] + B[2] * B[2];
+    const Real Mxx = Real(0.5) * b2 - B[0] * B[0];
+    const Real Myy = Real(0.5) * b2 - B[1] * B[1];
+    const Real Mzz = Real(0.5) * b2 - B[2] * B[2];
+    const Real Mxy = -B[0] * B[1], Mxz = -B[0] * B[2], Myz = -B[1] * B[2];
+    const Real ux = ub[0], uy = ub[1], uz = ub[2];
+    k[ 0] = Real(0);   // order 0
+    k[ 1] = Real(0);   // order 1
+    k[ 2] = Mzz;
+    k[ 3] = Real(0);   // order 1
+    k[ 4] = Myz;
+    k[ 5] = -Real(2) * Myz * uz - Mzz * uy;
+    k[ 6] = Myy;
+    k[ 7] = -Myy * uz - Real(2) * Myz * uy;
+    k[ 8] = Myy * uz * uz + Real(4) * Myz * uy * uz + Mzz * uy * uy;
+    k[ 9] = Real(0);   // order 1
+    k[10] = Mxz;
+    k[11] = -Real(2) * Mxz * uz - Mzz * ux;
+    k[12] = Mxy;
+    k[13] = -Mxy * uz - Mxz * uy - Myz * ux;
+    k[14] = Mxy * uz * uz + Real(2) * Mxz * uy * uz + Real(2) * Myz * ux * uz + Mzz * ux * uy;
+    k[15] = -Real(2) * Mxy * uy - Myy * ux;
+    k[16] = Real(2) * Mxy * uy * uz + Mxz * uy * uy + Myy * ux * uz + Real(2) * Myz * ux * uy;
+    k[17] = -Real(2) * Mxy * uy * uz * uz - Real(2) * Mxz * uy * uy * uz - Myy * ux * uz * uz - Real(4) * Myz * ux * uy * uz - Mzz * ux * uy * uy;
+    k[18] = Mxx;
+    k[19] = -Mxx * uz - Real(2) * Mxz * ux;
+    k[20] = Mxx * uz * uz + Real(4) * Mxz * ux * uz + Mzz * ux * ux;
+    k[21] = -Mxx * uy - Real(2) * Mxy * ux;
+    k[22] = Mxx * uy * uz + Real(2) * Mxy * ux * uz + Real(2) * Mxz * ux * uy + Myz * ux * ux;
+    k[23] = -Mxx * uy * uz * uz - Real(2) * Mxy * ux * uz * uz - Real(4) * Mxz * ux * uy * uz - Real(2) * Myz * ux * ux * uz - Mzz * ux * ux * uy;
+    k[24] = Mxx * uy * uy + Real(4) * Mxy * ux * uy + Myy * ux * ux;
+    k[25] = -Mxx * uy * uy * uz - Real(4) * Mxy * ux * uy * uz - Real(2) * Mxz * ux * uy * uy - Myy * ux * ux * uz - Real(2) * Myz * ux * ux * uy;
+    k[26] = Mxx * uy * uy * uz * uz + Real(4) * Mxy * ux * uy * uz * uz + Real(4) * Mxz * ux * uy * uy * uz + Myy * ux * ux * uz * uz + Real(4) * Myz * ux * ux * uy * uz + Mzz * ux * ux * uy * uy;
   }
   LBM_HD LBM_INLINE Real operator[](int n) const { return k[n]; }
 };

@@ -448,6 +448,33 @@ int main() {
     const double e3 = double(kM[mi(1, 1, 1)]) - k111;
     check(std::fabs(e3) < eps * 100,
           "Maxwell central moments, order 3: k_abc = -(u_a M_bc + ...)", e3);
+
+    // THE CLOSED FORM IS THE TRANSFORM IT REPLACED, every slot, not just the
+    // two spot checks above. MaxwellMoments used to build 27 equilibrium
+    // populations and run to_moments over them; it now evaluates the algebraic
+    // rule directly. This is the assertion that makes that safe to have done --
+    // the OLD path, computed here, against the new object, over several states
+    // including ones with all three velocity components large enough for the
+    // orders 4 to 6 terms (which go as u^4) to be well above round-off.
+    {
+      const Real Bs[3][3] = {{Real(0.05), Real(0.03), Real(-0.02)},
+                             {Real(-0.09), Real(0.04), Real(0.07)},
+                             {Real(0.11), Real(-0.06), Real(0.02)}};
+      const Real us[3][3] = {{Real(0.02), Real(0.015), Real(-0.01)},
+                             {Real(-0.06), Real(0.05), Real(0.04)},
+                             {Real(0.08), Real(-0.07), Real(0.06)}};
+      double eall = 0;
+      for (int t = 0; t < 3; ++t) {
+        Real df[27], kref[27];
+        for (int i = 0; i < 27; ++i) df[i] = maxwell(i, Bs[t]);
+        to_moments(df, us[t], kref);            // the ORIGINAL path
+        const MaxwellMoments<true> kc(Bs[t], us[t]);
+        for (int n = 0; n < 27; ++n) eall = worst(eall, double(kc[n]) - double(kref[n]));
+      }
+      check(std::fabs(eall) < eps * 100,
+            "Maxwell moments: closed form == to_moments(maxwell()), all 27 slots",
+            eall);
+    }
   }
 
   // ---- 17. the Guo source has the moments the force needs -----------------
