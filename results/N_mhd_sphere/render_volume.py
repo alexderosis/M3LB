@@ -874,9 +874,23 @@ def main(argv):
     box = (R <= 0)
     if not box and R > 0.5 * math.sqrt(3.0) * nx:
         die('implausible sphere radius R = %g for N = %d' % (R, nx))
+    # A STRIDED VOLUME IS NOT A MISMATCH. GPU/src/orszag_tang.cu's -volstride S
+    # writes the |J| volume reduced to (N/S)^3 by block maximum, because a full
+    # frame at N = 288 is 95.6 MB and 244 of them is 23 GB. So meta's N and the
+    # volume's own dimensions legitimately differ by an exact integer factor, and
+    # reporting that as a discrepancy sends the reader looking for a bug. Keep the
+    # warning for the case it was written for: dimensions that do NOT divide,
+    # which really is a mixed-up directory.
+    grid_N, vstride = nx, 1
     if meta['N'] and meta['N'] != nx:
-        sys.stderr.write('  note: meta.txt says N = %d, volume says %d; using %d\n'
-                         % (meta['N'], nx, nx))
+        if meta['N'] % nx == 0:
+            grid_N, vstride = meta['N'], meta['N'] // nx
+            if not opt['quiet']:
+                print('  volume is a stride-%d dump of a %d^3 grid, rendered at %d^3'
+                      % (vstride, grid_N, nx))
+        else:
+            sys.stderr.write('  note: meta.txt says N = %d, volume says %d and does '
+                             'NOT divide it; using %d\n' % (meta['N'], nx, nx))
     spans = sphere_spans(nx, ny, nz, R)
     nvox = sum(x1 - x0 + 1 for _z, _y, x0, x1, _b in spans)
     cx, cy, cz = 0.5 * (nx - 1), 0.5 * (ny - 1), 0.5 * (nz - 1)
@@ -1006,9 +1020,11 @@ def main(argv):
                    'MHD DECAY IN A PENALISED SPHERE   |J| MAX-INTENSITY PROJECTION'),
                   FG, 1)
         draw_text(buf, W, H, M, 18,
-                  ('%s   frame %03d/%03d   N %d  periodic box   '
+                  ('%s   frame %03d/%03d   N %d%s  periodic box   '
                    'yaw %03d deg  elev %02d deg'
-                   % (tstr, k + 1, len(files), nx, int(yaw) % 360, int(opt['elev'])))
+                   % (tstr, k + 1, len(files), grid_N,
+                      '' if vstride == 1 else ' (vol /%d)' % vstride,
+                      int(yaw) % 360, int(opt['elev'])))
                   if box else
                   ('%s   frame %03d/%03d   N %d  R %.1f   yaw %03d deg  elev %02d deg'
                    % (tstr, k + 1, len(files), nx, R, int(yaw) % 360, int(opt['elev']))),
