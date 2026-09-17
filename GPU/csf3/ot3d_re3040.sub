@@ -1,0 +1,99 @@
+#!/bin/bash --login
+#==============================================================================
+#  3-D Orszag-Tang at Re = 3040 on M = 288, with the frames for an animation.
+#
+#  WHY M = 288 AND NOT SOMETHING ROUNDER. Re alone does not set the difficulty;
+#  the cell Reynolds number Re_cell = Re/M does, and so does tau = 3 v0 M/Re + 1/2
+#  which falls toward the 1/2 floor as Re rises at fixed M. The M = 100,
+#  Re = 1040 run this one is meant to be compared with sat at Re_cell = 10.4 and
+#  tau = 0.502002. Matching BOTH at Re = 3040 needs M = 292; 288 gives
+#  Re_cell = 10.6 and tau = 0.501972, i.e. the same run three times further up in
+#  Reynolds number rather than a coarser one. Anything much below 288 makes the
+#  higher-Re case the LESS resolved of the pair, which inverts the comparison.
+#
+#  WHY IT DID NOT RUN ON COLAB. 26417 steps x 23.9e6 cells is about 50 minutes on
+#  a T4, and a free Colab session hit its GPU usage limit at 62 % -- 151 of 244
+#  frames -- and took the VM and every frame with it. On a gpuA A100 the same
+#  work is roughly 6-8 minutes, so the wallclock below is mostly margin.
+#
+#  -volstride 3 IS LOAD-BEARING, NOT A TUNING KNOB. A full |J| volume frame at
+#  288^3 is 95.6 MB, so 244 of them is 23 GB on disk and about three hours in
+#  results/N_mhd_sphere/render_volume.py, which is pure Python. Stride 3 reduces
+#  the volume to 96^3 by BLOCK MAXIMUM -- the same operator the max-intensity
+#  projection already applies, so the current sheets survive it, where a block
+#  mean would average a one-cell sheet against its neighbours and dim exactly the
+#  structure the picture is of. That is 3.5 MB a frame, ~1.06 GB for the set.
+#  The mid-plane slices are untouched at full 288^2 and cost 332 kB a frame.
+#
+#  WHAT COMES OUT, all under $SLURM_SUBMIT_DIR/ot3_re3040/:
+#      log.txt                    the diagnostic table, including J_max in BOTH
+#                                 lattice and dimensionless units
+#      anim_frames/umag,bmag,jmag mid-plane slices, 244 each, 288^2 float32
+#      anim_frames/jvol_*.raw     |J| volume, 244, 96^3 float32
+#      anim_frames/meta.txt       N, R 0 (the periodic-box sentinel), Te, frames
+#
+#  THEN, on a machine with the repo (this is minutes, and needs no GPU):
+#      cd ot3_re3040
+#      python3 results/N_mhd_sphere/render_slices.py anim_frames png
+#      python3 results/N_mhd_sphere/render_volume.py anim_frames
+#      ffmpeg -y -framerate 24 -i png/frame_%04d.png -c:v libx264 \
+#             -pix_fmt yuv420p -crf 20 slices.mp4
+#      ffmpeg -y -framerate 24 -i anim_frames/png/jvol_%04d.png -c:v libx264 \
+#             -pix_fmt yuv420p -crf 18 -vf scale=iw*2:ih*2:flags=neighbor jvol.mp4
+#  244 frames at 24 fps is 10.2 s, twice the Re = 1040 animation.
+#
+#  BUILD FIRST -- this is GPU/, its own CMake project, nvcc only, no Kokkos:
+#      cd $SLURM_SUBMIT_DIR/GPU
+#      cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLBM_GPU_ARCH=80 \
+#            -DLBM_ONLY_OP=cm
+#      cmake --build build --target orszag_tang -j8
+#  80 = A100 (gpuA), 90 = H200 (gpuH). -DLBM_ONLY_OP=cm compiles one operator
+#  instead of four and cuts the build from ~13 min to ~3.
+#
+#  MEMORY: 48 distributions + macro fields at 288^3 FP32 is about 5.3 GB, so it
+#  fits an A100 40 GB with room to spare. M = 384 would be ~12.6 GB, also fine;
+#  M = 512 at ~30 GB is the point to start checking.
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-2:00              # ~8 min of GPU; the rest is margin for the
+                               # host-side probes, which are single-threaded
+#SBATCH -J ot3d_re3040
+#SBATCH -o ot3d_re3040-%j.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+# sbatch copies the script, so it cannot locate itself; the submit directory is
+# the only handle. Submit from the repo root, or set M3LB_ROOT.
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+BIN="$ROOT/GPU/build/orszag_tang"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN" >&2
+  echo "  This is GPU/, not the Kokkos tree. Build it with:" >&2
+  echo "    cd $ROOT/GPU && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \\" >&2
+  echo "        -DLBM_GPU_ARCH=80 -DLBM_ONLY_OP=cm" >&2
+  echo "    cmake --build build --target orszag_tang -j8" >&2
+  exit 1
+fi
+
+OUT="$ROOT/ot3_re3040"
+mkdir -p "$OUT"
+cd "$OUT"
+
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+# -probes 243 gives 244 samples counting t = 0; -dump 1 and -dumpvol 1 put a
+# frame on every one of them, which is what makes the two animations the same
+# length and lets them be stacked frame for frame.
+"$BIN" -m 288 -re 3040 -tmax 4 -probes 243 \
+       -dump 1 -dumpvol 1 -volstride 3 -op cm 2>&1 | tee log.txt
+
+echo
+echo "slices : $(ls anim_frames/umag_*.raw 2>/dev/null | wc -l) / 244"
+echo "volumes: $(ls anim_frames/jvol_*.raw 2>/dev/null | wc -l) / 244"
+du -sh anim_frames

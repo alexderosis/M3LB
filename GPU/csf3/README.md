@@ -80,7 +80,15 @@ sbatch GPU/csf3/cmbench.sub                          # first: under a minute
 sbatch --array=0 GPU/csf3/rb_cold.sub                # H = 498,  ~5 min
 sbatch --array=1 GPU/csf3/rb_cold.sub                # H = 998,  ~45 min
 sbatch --array=2 --time=12:00:00 GPU/csf3/rb_cold.sub  # H = 1998, ~6 h
+sbatch GPU/csf3/ot3d_re3040.sub                      # OT 3-D, M=288, ~10 min
 ```
+
+`ot3d_re3040.sub` is the odd one out: it builds **`GPU/`**, not the Kokkos
+tree, and it exists because the run does not fit a free Colab session --
+26417 steps at 288^3 took ~50 min on a T4 and the GPU usage limit killed it
+at 62 %, losing every frame. On a gpuA A100 it is minutes. It writes 244
+slice and 244 volume frames for an animation; render them afterwards on any
+machine with the repo, no GPU needed (the commands are in its header).
 
 **Ask for the wallclock you need, not the maximum.** SLURM backfills short jobs
 into gaps ahead of long ones, so a 1-day request can only start when a 1-day
