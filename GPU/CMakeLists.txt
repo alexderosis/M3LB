@@ -158,7 +158,7 @@ if(LBM_PTXAS_VERBOSE)
     $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-v>)
 endif()
 
-set(LBM_APPS ehd_cavity tgv3d tgv3d_bench bench box channel rayleigh_benard alfven orszag_tang droplet bubble newpaths hartmann rti3d impact skip rb_high_ra
+set(LBM_APPS ehd_cavity mhd_jet tgv3d tgv3d_bench bench box channel rayleigh_benard alfven orszag_tang droplet bubble newpaths hartmann rti3d impact skip rb_high_ra
     mhd_decay mhd_sphere)
 if(NOT LBM_HOST_ONLY)
   foreach(app ${LBM_APPS})

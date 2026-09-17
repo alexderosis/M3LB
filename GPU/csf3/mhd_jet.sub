@@ -1,0 +1,100 @@
+#!/bin/bash --login
+#==============================================================================
+#  Transitional MHD jet -- the Williams, De Rosis & Skillen (JFM) case, run with
+#  the lattice Boltzmann solver instead of their sixth-order FD DNS.
+#
+#  WHAT THIS IS FOR.  Their argument rests on two curves: gamma(t), the magnetic
+#  energy growth rate (their Fig. 2 left), and the per-component current maxima
+#  (Fig. 2 right), whose crossing at t ~ 82 is how they date the 3D onset.  Both
+#  are domain integrals, so both survive being computed on a coarser grid by a
+#  different discretisation -- which is exactly what makes them worth comparing.
+#  The driver prints them as columns.  Nothing else here is meant to be compared:
+#  see the banner in GPU/src/mhd_jet.cu for the three places this run cannot be
+#  their run, and for why the spectra and stress PDFs are deliberately absent.
+#
+#  READ max|divB| FIRST.  Not cleaned here; they hold it below 1e-13.  A div B
+#  error is a monopole and monopoles reconnect, so on THIS case the scheme can
+#  tell the right story for the wrong reason.  The column is on every row and
+#  the worst value is in the summary.  It was 5.24 on Orszag-Tang at Re = 3040.
+#
+#  WHY nx = 256 FIRST.  256 x 366 x 256 is 24.0 M nodes -- the same size as the
+#  Re = 3040 Orszag-Tang run that measured 978.5 MLUPS FP64 on a gpuA A100, so
+#  the wallclock below is extrapolation from a measurement rather than a guess.
+#  It resolves 18.3 cells per L0 against their 36.7.  nx = 512 is the run that
+#  matches their streamwise resolution; it is 192 M nodes, ~63 GB FP64 and ~15 h,
+#  so it is the second job, not the first.
+#
+#  THE THING MOST LIKELY TO GO WRONG, STATED PLAINLY.  tau - 1/2 = 3.1e-4 here.
+#  Every MHD run this scheme is established on sat at 2.0e-3, so this is three
+#  times closer to the floor than anything measured.  The driver prints a NOTE
+#  saying so and prints DIVERGED with the time if it goes.  If it does:
+#      -ma 0.06   ->  tau - 1/2 = 5.4e-4, and 79k steps instead of 140k
+#      -ma 0.10   ->  tau - 1/2 = 9.1e-4, 48k steps, but 1 % compressibility
+#      -nx 384    ->  tau - 1/2 = 4.6e-4 (nu grows with N at fixed Re and Ma)
+#  Raising resolution moves tau AWAY from the floor; coarsening moves it toward.
+#  That is the opposite of the usual instinct and it is why there is no cheaper
+#  version of this job.
+#
+#  FP64 IS -DLBM_DOUBLE=ON AND IS NOT OPTIONAL.  The background seed is 1e-5 u0,
+#  which at Ma = 0.034 is 2e-7 in lattice velocity -- close enough to FP32
+#  epsilon that FP32 quantises the seed away rather than merely weakening it.
+#  Measured, not assumed: the initial max|div u|/k|u| reads 7e-15 in FP64 and
+#  3.3e-6 in FP32 for an initial condition that is solenoidal by construction.
+#
+#  WHAT COMES OUT, under $SLURM_SUBMIT_DIR/mhd_jet/:
+#      log.txt                     the columns, including gamma and jx/jy/jz
+#      anim_frames/umag,bmag,jmag  x1-x2 mid-plane slices, 256 x 366 float32
+#      anim_frames/meta.txt        N, nx, ny, R 0 (periodic-box sentinel), Te
+#  The slices are their Fig. 1 middle row.  results/N_mhd_sphere/render_slices.py
+#  reads the .raw headers so it gets the dimensions right, but it was written for
+#  a SQUARE slice and this one is not -- expect to adjust its layout before the
+#  pictures are usable.  log.txt needs nothing.
+#
+#  BUILD FIRST -- GPU/ is its own CMake project, nvcc only, no Kokkos:
+#      cd $SLURM_SUBMIT_DIR/GPU
+#      cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLBM_GPU_ARCH=80 \
+#            -DLBM_DOUBLE=ON -DLBM_ONLY_OP=cm
+#      cmake --build build --target mhd_jet -j8
+#  80 = A100 (gpuA), 90 = H200 (gpuH).
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-4:00              # ~1 h of GPU + ~20 min of host-side probes
+#SBATCH -J mhd_jet
+#SBATCH -o mhd_jet-%j.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+BIN="$ROOT/GPU/build/mhd_jet"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN" >&2
+  echo "  This is GPU/, not the Kokkos tree. Build it with:" >&2
+  echo "    cd $ROOT/GPU && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \\" >&2
+  echo "        -DLBM_GPU_ARCH=80 -DLBM_DOUBLE=ON -DLBM_ONLY_OP=cm" >&2
+  echo "    cmake --build build --target mhd_jet -j8" >&2
+  exit 1
+fi
+
+OUT="$ROOT/mhd_jet"
+mkdir -p "$OUT"
+cd "$OUT"
+
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+# -probes 300 is one sample per dt = 0.5 of their time, which resolves the
+# gamma(t) curve they plot from t = 40 to 150.  Each sample pulls six fields to
+# the host (1.15 GB at this size) and walks every node, so it is not free --
+# it is roughly a fifth of the total wallclock here and would dominate at
+# nx = 512, where 100 is the sensible number.
+"$BIN" -nx 256 -re 3500 -pm 1 -s 52.5 -ma 0.034 -tmax 150 \
+       -probes 300 -dump 1 -op cm 2>&1 | tee log.txt
+
+echo
+echo "slices: $(ls anim_frames/jmag_*.raw 2>/dev/null | wc -l)"
+du -sh anim_frames 2>/dev/null || true
