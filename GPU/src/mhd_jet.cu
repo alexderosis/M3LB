@@ -77,11 +77,27 @@
 //  deliberately NOT produced: ours would be measuring the scheme's dissipation
 //  range, not the flow's.
 //
-//  FP64 IS NOT OPTIONAL HERE, AND THE SEED IS WHY.  The background noise is
-//  1e-5 u0; at Ma = 0.034 that is 2e-7 in lattice velocity, within a small
-//  factor of FP32 epsilon.  FP32 would not weaken the seed, it would quantise it
-//  away, and ehd_cavity has already measured that a seed chooses a BRANCH here
-//  and not merely a transient.  Build this driver FP64.
+//  PRECISION IS A SEED QUESTION HERE, AND THE MARGIN IS THREEFOLD, NOT NINE
+//  DECADES.  The initial condition is solenoidal by construction, so the
+//  startup line `max|div u|/k|u|` is a direct readout of the round-off noise
+//  floor in u.  It reads 7.0e-15 in FP64 and 3.3e-6 in FP32.  Against a
+//  deliberate seed of 1e-5 that is nine decades of headroom in FP64 and about
+//  HALF A DECADE in FP32.
+//
+//  So FP32 does not erase the seed -- an earlier version of this banner said it
+//  would, and the measurement above is what corrected it.  What FP32 does is
+//  COMPETE with it: a broadband noise floor a factor of three below the seed,
+//  re-injected every one of ~2.8e5 steps, while the sigma mode has to grow
+//  exponentially out of that seed over t = 0 to 80.  Since ehd_cavity has
+//  already measured that a seed here selects a BRANCH and not merely a
+//  transient, expect an FP32 onset TIME to be unreliable rather than merely
+//  shifted -- and onset time is what the reference's t = 82 is.
+//
+//  FP32 is therefore supported and is not silently wrong; it is a run whose
+//  onset time should not be quoted against theirs.  The growth-rate SHAPE of
+//  gamma(t), the current-component ordering, and the energy partition do not
+//  depend on when the instability was seeded, and remain readable.  Both
+//  precisions print the noise floor on startup, so the log says which run it is.
 //==============================================================================
 #include "lbm/backend.cuh"
 
