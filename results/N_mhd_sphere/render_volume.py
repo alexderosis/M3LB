@@ -17,6 +17,8 @@
   --title S                          banner line (default names the case)
   --spin z|y                         axis the camera orbits (default z)
   --ramp emissive|inferno            colour ramp (default emissive)
+  --cropy N                          box mode: keep rows within N of the
+                                     y centre (default 0, the whole box)
   --vscale S                MIP samples per voxel, splat is ceil(S) wide
                             (default 4; drop to 2 for ~2x the speed)
   --size PX                 target panel width (default 440)
@@ -563,6 +565,39 @@ def mip_size(R, sc, ns=2):
     return n, n
 
 
+def mip_size_box(nx, ny, nz, elev, spin, sc, ns=2):
+    """Screen buffer for an orthographic MIP of a BOX -- tight, not merely safe.
+
+    mip_size() above sizes from a radius, which for a box means its
+    circumscribing sphere: correct, and wasteful. At 128 x 184 x 128 spun about
+    y at 22 deg that is a 1045^2 buffer for a silhouette which never exceeds
+    737 x 966, so a third of the width is permanently black and the panel
+    floats in it.
+
+    The bound here is EXACT rather than generous. Let (a, b) be the half extents
+    in the plane the camera orbits and c the half extent along the spin axis.
+    Screen right is a unit vector in the orbit plane, so the widest the box can
+    project is max over yaw of a|sin| + b|cos| = sqrt(a^2 + b^2). Screen up
+    tilts out of that plane by the elevation, giving sin(e) sqrt(a^2 + b^2) +
+    cos(e) c. Both maxima are ATTAINED at some yaw, so one size still serves the
+    whole rotation and no frame can clip -- which is what the inner loop's
+    missing bounds test depends on, and the reason this must be a bound and not
+    an estimate.
+
+    Third return is the depth half-range, the same construction against the
+    into-screen axis: cos(e) sqrt(a^2 + b^2) + sin(e) c. The circumscribing
+    radius overstates it by 9 % here, which flattens the depth cue."""
+    hx, hy, hz = 0.5 * nx, 0.5 * ny, 0.5 * nz
+    a, b, c = (hx, hz, hy) if spin == 'y' else (hx, hy, hz)
+    d = math.sqrt(a * a + b * b)
+    se = abs(math.sin(math.radians(elev)))
+    ce = abs(math.cos(math.radians(elev)))
+    pad = 2 * (ns + 2)
+    return (int(math.ceil(2.0 * d * sc)) + pad,
+            int(math.ceil(2.0 * (se * d + ce * c) * sc)) + pad,
+            ce * d + se * c)
+
+
 def _project_inner(vol, spans, val, dep, W0, H0, OX, OY, floor,
                    pax, pay, paz, pbx, pby, pbz, fx, fy, fz, cx, cy, cz, ns=2):
     """The inner loop, and the only thing in this file whose cost scales with
@@ -881,7 +916,7 @@ def main(argv):
 
     # 'decades': 0 means "size the log ramp to this run's own decay" -- see the
     # block in main() that sets it, and pass --decades N to pin it instead.
-    opt = {'title': '', 'spin': 'z', 'ramp': 'emissive',
+    opt = {'title': '', 'spin': 'z', 'ramp': 'emissive', 'cropy': 0,
            'scale': 'log', 'decades': 0.0, 'yawrate': 3.0, 'yaw0': 35.0,
            'elev': 22.0, 'size': 440, 'vscale': 4.0, 'fps': 12, 'every': 1,
            'limit': 0, 'R': 0.0, 'nodepth': False, 'nosmooth': False,
@@ -1000,6 +1035,31 @@ def main(argv):
             sys.stderr.write('  note: meta.txt says N = %d, volume says %d and does '
                              'NOT divide it; using %d\n' % (meta['N'], nx, nx))
     spans = sphere_spans(nx, ny, nz, R)
+
+    # --cropy TRIMS THE BOX, NOT THE CANVAS, and the two are different fixes
+    # for what looks like one problem. mip_size_box() is an exact bound on
+    # where the box CAN project, so the black left inside it is not slack -- it
+    # is box that is genuinely EMPTY. The jet is sech^2(x2), below 1e-4 of its
+    # peak by |x2| = 5, so on a 20-unit box more than half the rows never carry
+    # a current above the log floor, and no canvas arithmetic recovers that
+    # space. render_jet.py crops the slices for the same reason and by default;
+    # here it is opt-in, because the sphere and Orszag-Tang have nothing to
+    # crop.
+    #
+    # IT HAPPENS BEFORE THE SCAN, NOT AFTER. vref is a PERCENTILE, so it
+    # depends on how many voxels are in the sample, not only on their values:
+    # P99.5 of a box that is half quiescent fluid is a lower number than P99.5
+    # of the jet alone. Cropping after the scan would colour the frames on a
+    # scale taken from voxels that are no longer in them.
+    ny_eff = ny
+    if box and opt['cropy'] > 0:
+        half = min(ny // 2, int(opt['cropy']))
+        lo, hi = ny // 2 - half, ny // 2 + half
+        spans = [t for t in spans if lo <= t[1] < hi]
+        ny_eff = 2 * half
+        if not opt['quiet']:
+            print('  cropped to |y - ny/2| < %d rows: %d of %d kept'
+                  % (half, ny_eff, ny))
     nvox = sum(x1 - x0 + 1 for _z, _y, x0, x1, _b in spans)
     cx, cy, cz = 0.5 * (nx - 1), 0.5 * (ny - 1), 0.5 * (nz - 1)
 
@@ -1086,15 +1146,19 @@ def main(argv):
     # screen. The half-diagonal below is the same number on a cube -- put
     # nx = ny = nz and it reduces to 0.5 sqrt(3) nx exactly -- so no cube result
     # moves, and it is correct for any box.
-    R_draw = R if not box else 0.5 * math.sqrt(float(nx) ** 2 + float(ny) ** 2
-                                               + float(nz) ** 2)
-    W0, H0 = mip_size(R_draw, sc, ns)
+    if box:
+        W0, H0, R_depth = mip_size_box(nx, ny_eff, nz, opt['elev'],
+                                       opt['spin'], sc, ns)
+        R_draw = R_depth
+    else:
+        R_draw = R_depth = R
+        W0, H0 = mip_size(R_draw, sc, ns)
     mag = max(1, int(round(opt['size'] / float(W0))))
-    P = W0 * mag
+    PW, PH = W0 * mag, H0 * mag
     M = 14
     TOP, STRIP, GAP = 46, 74, 30
-    W = P + 2 * M
-    H = TOP + P + GAP + STRIP + 26
+    W = PW + 2 * M
+    H = TOP + PH + GAP + STRIP + 26
     W += W & 1
     H += H & 1
 
@@ -1104,8 +1168,8 @@ def main(argv):
     if not opt['quiet']:
         print('  scan: %.2f s for %d frames (%.3f s/frame)'
               % (t_scan, len(files), t_scan / len(files)))
-        print('  canvas %dx%d  (MIP %d^2 at %.1f samples/voxel, %dx%d splat,'
-              ' magnified %dx)' % (W, H, W0, sc, ns, ns, mag))
+        print('  canvas %dx%d  (MIP %dx%d at %.1f samples/voxel, %dx%d splat,'
+              ' magnified %dx)' % (W, H, W0, H0, sc, ns, ns, mag))
         print('  vref = %.4e (largest per-frame P99.5)   |J| P99.5 falls %.1fx'
               '   log ramp %.2f decades' % (vref, fall, opt['decades']))
 
@@ -1127,12 +1191,12 @@ def main(argv):
         buf = bytearray(BG * (W * H))
         px, py = M, TOP
         if not box:
-            draw_ring(buf, W, H, px + 0.5 * P - 0.5, py + 0.5 * P - 0.5,
+            draw_ring(buf, W, H, px + 0.5 * PW - 0.5, py + 0.5 * PH - 0.5,
                       R * sc * mag, RING, 0.85)
-        blit_panel(buf, W, H, px, py, val, dep, W0, H0, tf, R_draw, mag,
+        blit_panel(buf, W, H, px, py, val, dep, W0, H0, tf, R_depth, mag,
                    not opt['nodepth'])
         if not box:
-            draw_ring(buf, W, H, px + 0.5 * P - 0.5, py + 0.5 * P - 0.5,
+            draw_ring(buf, W, H, px + 0.5 * PW - 0.5, py + 0.5 * PH - 0.5,
                       R * sc * mag, RING, 0.45)
 
         tstr = ('t/Te %6.2f' % ts[k]) if ts[k] is not None else 'frame index only'
@@ -1157,17 +1221,19 @@ def main(argv):
                   DIM, 1)
         draw_text(buf, W, H, M, 30, slab, DIM, 1)
 
-        y = TOP + P + 6
+        y = TOP + PH + 6
         draw_text(buf, W, H, M, y,
                   'frame |J| peak %.3e  P99.5 %.3e  = %.3f x vref'
                   % (peaks[k], p995[k], (p995[k] / vref) if vref else 0.0), FG, 1)
         draw_text(buf, W, H, M, y + 11,
-                  ('whole cube shown; the box is periodic, so the faces are not'
-                   ' boundaries' if box else
+                  (('whole box shown; it is periodic, so the faces are not'
+                    ' boundaries' if ny_eff == ny else
+                    'periodic box, cropped to the middle %d of %d rows in y; '
+                    'the faces are not boundaries' % (ny_eff, ny)) if box else
                    'ring = sphere r=R (exact under orthographic); outside it is'
                    ' penalised, not physics'), DIM, 1)
 
-        draw_strip(buf, W, H, M, TOP + P + GAP + 12, W - 2 * M - 2, STRIP - 24,
+        draw_strip(buf, W, H, M, TOP + PH + GAP + 12, W - 2 * M - 2, STRIP - 24,
                    series, k)
 
         out = os.path.join(png_dir, 'jvol_%04d.png' % k)
