@@ -125,7 +125,15 @@ namespace lbm {
 //
 // Named here rather than repeated in every driver, so that "the tree's default"
 // is a thing that exists in the code instead of a habit fourteen files happen to
-// share, and so that changing it is one edit.
+// share.
+//
+// IT IS NOT YET "ONE EDIT", AND AN EARLIER VERSION OF THIS COMMENT CLAIMED IT
+// WAS. Changing DefaultMultiphaseCollision here changes what a driver gets only
+// if that driver asks for it, and every existing one still spells
+// MultiphaseCentralMoments<FL> out by hand. What these two names buy today is a
+// default for the NEXT case and a single place that states the intent; making
+// them load-bearing means porting the drivers onto them, which is churn on
+// fourteen validated cases and has deliberately not been done.
 //
 // THE PHASE FIELD'S DEFAULT IS LATTICE DEPENDENT, AND THAT IS NOT A
 // CONVENIENCE. PhaseFieldCentralMoments static_asserts a product basis, and
