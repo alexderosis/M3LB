@@ -19,6 +19,7 @@
   --ramp emissive|inferno            colour ramp (default emissive)
   --cropy N                          box mode: keep rows within N of the
                                      y centre (default 0, the whole box)
+  --strip                            draw the history strip in box mode too
   --vscale S                MIP samples per voxel, splat is ceil(S) wide
                             (default 4; drop to 2 for ~2x the speed)
   --size PX                 target panel width (default 440)
@@ -917,6 +918,7 @@ def main(argv):
     # 'decades': 0 means "size the log ramp to this run's own decay" -- see the
     # block in main() that sets it, and pass --decades N to pin it instead.
     opt = {'title': '', 'spin': 'z', 'ramp': 'emissive', 'cropy': 0,
+           'strip': False,
            'scale': 'log', 'decades': 0.0, 'yawrate': 3.0, 'yaw0': 35.0,
            'elev': 22.0, 'size': 440, 'vscale': 4.0, 'fps': 12, 'every': 1,
            'limit': 0, 'R': 0.0, 'nodepth': False, 'nosmooth': False,
@@ -933,6 +935,8 @@ def main(argv):
             opt['nosmooth'] = True
         elif s == '--quiet':
             opt['quiet'] = True
+        elif s == '--strip':
+            opt['strip'] = True
         elif s.startswith('--'):
             k = s[2:]
             if k not in opt:
@@ -1157,6 +1161,17 @@ def main(argv):
     PW, PH = W0 * mag, H0 * mag
     M = 14
     TOP, STRIP, GAP = 46, 74, 30
+    # THE STRIP IS OFF BY DEFAULT IN BOX MODE, and suppressing it has to
+    # reclaim its height or the black it leaves behind is the same problem it
+    # was removed to fix. On the sphere it carries E_u and E_b beside |J|,
+    # which the panel does not otherwise say. On a box whose meta.txt has no
+    # per-frame table -- which is every mhd_jet.cu dump -- the only series left
+    # is |J| P99.5, and the panel already prints that number twice. NOTE that
+    # Orszag-Tang is also box mode and DOES write the energy rows, so --strip
+    # restores it there.
+    show_strip = opt['strip'] or not box
+    if not show_strip:
+        STRIP = GAP = 0
     W = PW + 2 * M
     H = TOP + PH + GAP + STRIP + 26
     W += W & 1
@@ -1233,8 +1248,9 @@ def main(argv):
                    'ring = sphere r=R (exact under orthographic); outside it is'
                    ' penalised, not physics'), DIM, 1)
 
-        draw_strip(buf, W, H, M, TOP + PH + GAP + 12, W - 2 * M - 2, STRIP - 24,
-                   series, k)
+        if show_strip:
+            draw_strip(buf, W, H, M, TOP + PH + GAP + 12, W - 2 * M - 2,
+                       STRIP - 24, series, k)
 
         out = os.path.join(png_dir, 'jvol_%04d.png' % k)
         write_png(out, W, H, buf)
