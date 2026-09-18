@@ -25,6 +25,7 @@
 //==============================================================================
 #include <cmath>
 #include <cstdint>
+#include <utility>   // integer_sequence -- the moment loop is unrolled, see below
 
 #if defined(__CUDACC__)
   #define LBM_HD __host__ __device__
@@ -376,13 +377,68 @@ LBM_HD LBM_INLINE Real eq_moment(Real rho, const Real Qf[3][3], int n) {
   return rho * Qf[0][p_of(n)] * Qf[1][q_of(n)] * Qf[2][r_of(n)];
 }
 
-// The same, for either storage. See the note above collide_cm_gen: the weight
-// moments subtract because the transform is linear and g = f - w.
+//------------------------------------------------------------------------------
+//  THE SAME, WITH THE MOMENT INDEX AS A TEMPLATE PARAMETER, and that is the
+//  whole point of it rather than a style choice.
+//
+//  `k[27]`, `Qf[3][3]` and `Aw[3][3]` are per-thread arrays. Indexed by a
+//  COMPILE-TIME constant they live in registers; indexed by a runtime variable
+//  they cannot, and the whole 27-moment array is spilled to per-thread LOCAL
+//  memory -- off-chip DRAM, every subscript uncoalesced. Nothing fails: the
+//  answer is bit-identical and every test passes, which is exactly why this
+//  survived. On the host it costs almost nothing (the frame is L1-resident),
+//  and that is why `host_check.cpp` still calls the runtime `eq_moment` above
+//  and why this went unnoticed in a host-only build.
+//
+//  THE PARENT TREE FIXED THIS ON 2026-09-04 AND THE FIX NEVER CROSSED.
+//  src/collision/MomentCollision.hpp's banner describes the bug it removed as
+//  "eq_moment(..., int n), called from a runtime loop for (n = 0; n < NM; ++n)
+//  if (order(n) >= 3) k[n] = eq_moment(..., n)" -- which is what stood here,
+//  verbatim, until today. CLAUDE.md measures this mechanism at 47x in THIS
+//  codebase's colour gradient, and records the Kokkos central-moment collapse
+//  as undiagnosed; `colour.cuh` already carries a #pragma unroll for it and
+//  the two operators here did not.
+//
+//  NOTE THE ONE DIFFERENCE FROM THE PARENT. There, `Basis::p_of` is a lookup in
+//  a 432-byte table, so a runtime index materialised the table as well. Here
+//  p_of/q_of/r_of are plain arithmetic (n/9, (n/3)%3, n%3), so that half of the
+//  mechanism never applied -- the array spill is the whole of it.
+//
+//  UNVERIFIED ON A DEVICE. There is no nvcc on the machine this was written on,
+//  so this is a structural guarantee replacing a reliance on the optimiser, not
+//  a measured speedup. The instrument is -DLBM_PTXAS_VERBOSE=ON: read the local
+//  memory and register columns, not the wall clock.
+//
+//  The runtime `cm_eq_moment` is deliberately NOT kept. Nothing outside this
+//  file called it, and leaving it would let a future edit reintroduce the loop
+//  without noticing.
+//------------------------------------------------------------------------------
+template <int N>
 LBM_HD LBM_INLINE Real cm_eq_moment(Real rho, const Real Qf[3][3],
-                                    const Real Aw[3][3], int n, bool shifted) {
-  const Real e = eq_moment(rho, Qf, n);
+                                    const Real Aw[3][3], bool shifted) {
+  constexpr int p = p_of(N), q = q_of(N), r = r_of(N);
+  const Real e = rho * Qf[0][p] * Qf[1][q] * Qf[2][r];
   if (!shifted) return e;
-  return e - Aw[0][p_of(n)] * Aw[1][q_of(n)] * Aw[2][r_of(n)];
+  return e - Aw[0][p] * Aw[1][q] * Aw[2][r];
+}
+
+// One slot of the order >= 3 relaxation, split out so the `if constexpr` has a
+// statement context and the fold below stays an expression. Templated on the
+// Maxwell object rather than on its bool, so this does not have to be declared
+// after it.
+template <int N, class KM>
+LBM_HD LBM_INLINE void relax_high_one(Real rho, const Real Qf[3][3],
+                                      const Real Aw[3][3], bool shifted,
+                                      const KM& kM, Real k[27]) {
+  if constexpr (order_of(N) >= 3)
+    k[N] = cm_eq_moment<N>(rho, Qf, Aw, shifted) + kM[N];
+}
+template <class KM, int... N>
+LBM_HD LBM_INLINE void relax_high(Real rho, const Real Qf[3][3],
+                                  const Real Aw[3][3], bool shifted,
+                                  const KM& kM, Real k[27],
+                                  std::integer_sequence<int, N...>) {
+  (relax_high_one<N>(rho, Qf, Aw, shifted, kM, k), ...);
 }
 
 //==============================================================================
@@ -994,28 +1050,37 @@ LBM_HD LBM_INLINE void collide_cm_gen(Real f[27], const Macro& m, Real omega,
   }
 
   // ---- order 2 ----
-  constexpr int I2D[3] = {mi(2, 0, 0), mi(0, 2, 0), mi(0, 0, 2)};
-  constexpr int I2S[3] = {mi(1, 1, 0), mi(1, 0, 1), mi(0, 1, 1)};
+  // UNROLLED BY HAND over the three components, and the scalars are named
+  // rather than held in d[3]/e[3]: a subscript of k[] that the compiler cannot
+  // fold puts the whole 27-moment array in local memory, which is the point
+  // argued at cm_eq_moment above. Three components is few enough that writing
+  // them out is clearer than a fold.
+  constexpr int D0 = mi(2, 0, 0), D1 = mi(0, 2, 0), D2 = mi(0, 0, 2);
+  constexpr int S0 = mi(1, 1, 0), S1 = mi(1, 0, 1), S2 = mi(0, 1, 1);
 
-  Real d[3], e[3];
-  Real tr = Real(0), tre = Real(0);
-  for (int a = 0; a < 3; ++a) {
-    d[a] = k[I2D[a]];
-    e[a] = cm_eq_moment(m.rho, Qf, Aw, I2D[a], shifted) + kM[I2D[a]];
-    tr += d[a]; tre += e[a];
-  }
+  const Real d0 = k[D0], d1 = k[D1], d2 = k[D2];
+  const Real e0 = cm_eq_moment<D0>(m.rho, Qf, Aw, shifted) + kM[D0];
+  const Real e1 = cm_eq_moment<D1>(m.rho, Qf, Aw, shifted) + kM[D1];
+  const Real e2 = cm_eq_moment<D2>(m.rho, Qf, Aw, shifted) + kM[D2];
+  const Real tr = d0 + d1 + d2, tre = e0 + e1 + e2;
   const Real invD = Real(1) / Real(3);
   const Real tr_post = (Real(1) - omega_bulk) * tr + omega_bulk * tre;
-  for (int a = 0; a < 3; ++a)
-    k[I2D[a]] = (Real(1) - omega) * (d[a] - tr * invD)
-              + omega * (e[a] - tre * invD) + tr_post * invD;
-  for (int a = 0; a < 3; ++a)
-    k[I2S[a]] = (Real(1) - omega) * k[I2S[a]]
-              + omega * (cm_eq_moment(m.rho, Qf, Aw, I2S[a], shifted) + kM[I2S[a]]);
+  k[D0] = (Real(1) - omega) * (d0 - tr * invD)
+        + omega * (e0 - tre * invD) + tr_post * invD;
+  k[D1] = (Real(1) - omega) * (d1 - tr * invD)
+        + omega * (e1 - tre * invD) + tr_post * invD;
+  k[D2] = (Real(1) - omega) * (d2 - tr * invD)
+        + omega * (e2 - tre * invD) + tr_post * invD;
+  k[S0] = (Real(1) - omega) * k[S0]
+        + omega * (cm_eq_moment<S0>(m.rho, Qf, Aw, shifted) + kM[S0]);
+  k[S1] = (Real(1) - omega) * k[S1]
+        + omega * (cm_eq_moment<S1>(m.rho, Qf, Aw, shifted) + kM[S1]);
+  k[S2] = (Real(1) - omega) * k[S2]
+        + omega * (cm_eq_moment<S2>(m.rho, Qf, Aw, shifted) + kM[S2]);
 
-  // ---- order >= 3 ----
-  for (int n = 0; n < 27; ++n)
-    if (order_of(n) >= 3) k[n] = cm_eq_moment(m.rho, Qf, Aw, n, shifted) + kM[n];
+  // ---- order >= 3: unrolled, see cm_eq_moment ----
+  relax_high(m.rho, Qf, Aw, shifted, kM, k,
+             std::make_integer_sequence<int, 27>{});
 
   to_populations(k, ub, f);
 }

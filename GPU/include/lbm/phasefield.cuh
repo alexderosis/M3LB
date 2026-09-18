@@ -134,6 +134,7 @@
 //  diverges at a ratio, omega is the first thing to print.
 //==============================================================================
 #include <functional>
+#include <utility>   // integer_sequence -- see mp_eq_moment
 
 #include "streaming.cuh"
 
@@ -418,9 +419,41 @@ LBM_HD LBM_INLINE void mp_weight_factors(const Real u[3], Real Aw[3][3]) {
   }
 }
 
-LBM_HD LBM_INLINE Real mp_eq_moment(int n, Real p_tilde, const Real Aw[3][3]) {
-  return ((n == 0) ? Real(1) : Real(0))
-       + (p_tilde - Real(1)) * Aw[0][p_of(n)] * Aw[1][q_of(n)] * Aw[2][r_of(n)];
+// THE MOMENT INDEX IS A TEMPLATE PARAMETER, for the reason argued at length
+// above cm_eq_moment in core.cuh: k[27] and Aw[3][3] are per-thread arrays, and
+// a subscript the compiler cannot fold moves the whole of k[] into per-thread
+// LOCAL memory. Bit-identical either way, so no test can see it; CLAUDE.md
+// measures the mechanism at 47x in this codebase's colour gradient. The parent
+// tree's MultiphaseCentralMoments was fixed on 2026-09-04 and this twin was
+// not. Unverified on a device -- there is no nvcc here, so this is a structural
+// guarantee replacing a reliance on the optimiser; -DLBM_PTXAS_VERBOSE=ON is
+// the instrument.
+template <int N>
+LBM_HD LBM_INLINE Real mp_eq_moment(Real p_tilde, const Real Aw[3][3]) {
+  constexpr int p = p_of(N), q = q_of(N), r = r_of(N);
+  return ((N == 0) ? Real(1) : Real(0))
+       + (p_tilde - Real(1)) * Aw[0][p] * Aw[1][q] * Aw[2][r];
+}
+
+template <int N>
+LBM_HD LBM_INLINE void mp_relax_high_one(Real p_tilde, const Real Aw[3][3],
+                                         Real k[27]) {
+  if constexpr (order_of(N) >= 3) k[N] = mp_eq_moment<N>(p_tilde, Aw);
+}
+template <int... N>
+LBM_HD LBM_INLINE void mp_relax_high(Real p_tilde, const Real Aw[3][3],
+                                     Real k[27],
+                                     std::integer_sequence<int, N...>) {
+  (mp_relax_high_one<N>(p_tilde, Aw, k), ...);
+}
+
+// EVERY moment to equilibrium. Used by host_phasefield to build the fixed point
+// it then asserts the operator reproduces; unrolled for the same reason as the
+// rest, and exposed so that no caller needs a runtime-indexed form at all.
+template <int... N>
+LBM_HD LBM_INLINE void mp_all_eq(Real p_tilde, const Real Aw[3][3], Real k[27],
+                                 std::integer_sequence<int, N...>) {
+  ((k[N] = mp_eq_moment<N>(p_tilde, Aw)), ...);
 }
 
 LBM_HD LBM_INLINE void collide_multiphase_cm(Real f[27], Real p_tilde, const Real u[3],
@@ -436,31 +469,35 @@ LBM_HD LBM_INLINE void collide_multiphase_cm(Real f[27], Real p_tilde, const Rea
 
   // ---- order 1: exact assignment, the force included ----
   const Real hr = Real(0.5) / rho;
-  constexpr int I1[3] = {mi(1, 0, 0), mi(0, 1, 0), mi(0, 0, 1)};
-  for (int a = 0; a < 3; ++a) k[I1[a]] = mp_eq_moment(I1[a], p_tilde, Aw) + hr * F[a];
+  // UNROLLED BY HAND, and the named scalars are the point: a subscript of k[]
+  // the compiler cannot fold spills the whole array. See mp_eq_moment.
+  constexpr int A0 = mi(1, 0, 0), A1 = mi(0, 1, 0), A2 = mi(0, 0, 1);
+  k[A0] = mp_eq_moment<A0>(p_tilde, Aw) + hr * F[0];
+  k[A1] = mp_eq_moment<A1>(p_tilde, Aw) + hr * F[1];
+  k[A2] = mp_eq_moment<A2>(p_tilde, Aw) + hr * F[2];
 
   // ---- order 2: trace at omega_bulk, deviatoric and shear at omega ----
-  constexpr int I2D[3] = {mi(2, 0, 0), mi(0, 2, 0), mi(0, 0, 2)};
-  constexpr int I2S[3] = {mi(1, 1, 0), mi(1, 0, 1), mi(0, 1, 1)};
-  Real d[3], e[3];
-  Real tr = Real(0), tre = Real(0);
-  for (int a = 0; a < 3; ++a) {
-    d[a] = k[I2D[a]];
-    e[a] = mp_eq_moment(I2D[a], p_tilde, Aw);
-    tr += d[a];  tre += e[a];
-  }
+  constexpr int D0 = mi(2, 0, 0), D1 = mi(0, 2, 0), D2 = mi(0, 0, 2);
+  constexpr int S0 = mi(1, 1, 0), S1 = mi(1, 0, 1), S2 = mi(0, 1, 1);
+  const Real d0 = k[D0], d1 = k[D1], d2 = k[D2];
+  const Real e0 = mp_eq_moment<D0>(p_tilde, Aw);
+  const Real e1 = mp_eq_moment<D1>(p_tilde, Aw);
+  const Real e2 = mp_eq_moment<D2>(p_tilde, Aw);
+  const Real tr = d0 + d1 + d2, tre = e0 + e1 + e2;
   const Real invD = Real(1) / Real(3);
   const Real tr_post = (Real(1) - omega_bulk) * tr + omega_bulk * tre;
-  for (int a = 0; a < 3; ++a)
-    k[I2D[a]] = (Real(1) - omega) * (d[a] - tr * invD)
-              + omega * (e[a] - tre * invD) + tr_post * invD;
-  for (int a = 0; a < 3; ++a)
-    k[I2S[a]] = (Real(1) - omega) * k[I2S[a]]
-              + omega * mp_eq_moment(I2S[a], p_tilde, Aw);
+  k[D0] = (Real(1) - omega) * (d0 - tr * invD)
+        + omega * (e0 - tre * invD) + tr_post * invD;
+  k[D1] = (Real(1) - omega) * (d1 - tr * invD)
+        + omega * (e1 - tre * invD) + tr_post * invD;
+  k[D2] = (Real(1) - omega) * (d2 - tr * invD)
+        + omega * (e2 - tre * invD) + tr_post * invD;
+  k[S0] = (Real(1) - omega) * k[S0] + omega * mp_eq_moment<S0>(p_tilde, Aw);
+  k[S1] = (Real(1) - omega) * k[S1] + omega * mp_eq_moment<S1>(p_tilde, Aw);
+  k[S2] = (Real(1) - omega) * k[S2] + omega * mp_eq_moment<S2>(p_tilde, Aw);
 
   // ---- order >= 3: straight to equilibrium, which is the whole point ----
-  for (int n = 0; n < 27; ++n)
-    if (order_of(n) >= 3) k[n] = mp_eq_moment(n, p_tilde, Aw);
+  mp_relax_high(p_tilde, Aw, k, std::make_integer_sequence<int, 27>{});
 
   to_populations(k, u, f);
 }

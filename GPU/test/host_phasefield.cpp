@@ -595,7 +595,7 @@ int main() {
     Real Aw[3][3];
     mp_weight_factors(u, Aw);
     Real keq[27], feqm[27];
-    for (int n = 0; n < 27; ++n) keq[n] = mp_eq_moment(n, pt, Aw);
+    mp_all_eq(pt, Aw, keq, std::make_integer_sequence<int, 27>{});
     to_populations(keq, u, feqm);
 
     {
