@@ -355,7 +355,32 @@ Run run(double deg, Index b, Index nx, Index ny, double v, double v_phys,
   auto hphi = Kokkos::create_mirror_view(pf.phi());
   const double norm = rho_h * v * v * double(b);
   for (std::size_t step = 0; step <= nsteps; ++step) {
-    fl.compute_macroscopic();
+    // TWO COUPLINGS THAT WERE WIRED AND NEVER DRIVEN, both fixed 2026-09-18.
+    //
+    // ORDER. pf.refresh() used to sit AFTER fl.step(true), so the fluid
+    // collided against grad phi(t-1) -- the one-step splitting error
+    // PhaseFieldSolver.hpp's banner calls "a systematically misplaced
+    // interface", since the interface MOVES. enan_rt.cpp always had the right
+    // order; this file did not, and the two were never compared.
+    //
+    // F_nu. ViscousInterfaceForce was constructed, wired into the collision at
+    // fc.Vx and handed its inputs -- and never refreshed, so it contributed
+    // zeros for the whole run. Nothing failed, because fc.Vx was non-null and
+    // the operator's `have_v` guard was therefore TRUE: it read a real array
+    // full of zeros. The term vanishes at a matched density, which is what made
+    // it invisible; this case runs water over air with a 15x KINEMATIC
+    // viscosity contrast, where it does not.
+    //
+    // MEASURED, one at a time, at the driver's own defaults: the slope at
+    // phi = 2 deg goes 2518.61 (neither) -> 2518.64 (F_nu only) -> 2516.96
+    // (order only) -> 2516.98 (both), with R^2 improving 0.9904 -> 0.9907.
+    // So both are small HERE, and that is a property of this case rather than
+    // of the couplings: the run is ~305 steps at u_lat = 0.01, too short for
+    // either to accumulate. Neither touches the deviation from Wagner
+    // (-20.8% / +22.4%), which is therefore still unexplained.
+    pf.refresh();                        // phi(t) and grad phi(t), BEFORE the fluid
+    fl.compute_macroscopic();            // u(t), for the velocity gradient
+    vf.refresh(fc);                      // F_nu from u(t) and grad phi(t)
     body.refresh(dens);                  // after macroscopic, before the step
     if (step >= settle && probe > 0 && (step - settle) % std::size_t(probe) == 0) {
       Kokkos::deep_copy(hrho, fl.rho());
@@ -388,9 +413,8 @@ Run run(double deg, Index b, Index nx, Index ny, double v, double v_phys,
       r.tau.push_back(t);
       r.fstar.push_back(P / norm);
     }
-    fl.step(true);
-    pf.refresh();
-    pf.step();
+    fl.step(true);                       // collides against grad phi(t), F_nu(t)
+    pf.step();                           // advects with u(t)
     body.advance();
     r.steps = step;
   }

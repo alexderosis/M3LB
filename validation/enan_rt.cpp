@@ -429,9 +429,33 @@ static RT run(Index W, bool three_d, double At, double Re, double Ca, double Pe,
     // because the interface MOVES it is a systematically misplaced interface
     // rather than a damping offset. The CUDA port had it right, which is how
     // the discrepancy between the two was noticed.
-    pf.refresh();          // phi(t) and grad phi(t)
-    fl.step(true);         // collides against grad phi(t), writes u(t)
-    pf.step();             // advects with u(t)
+    pf.refresh();               // phi(t) and grad phi(t)
+    // F_nu, AND IT WAS SILENTLY ZERO UNTIL 2026-09-18. This object was
+    // constructed, wired into the collision at fc.Vx and handed its two inputs
+    // at set_velocity/set_phase_gradient -- and then never refreshed, so the
+    // arrays it owns stayed at their zero-initialised value for the whole run
+    // and the operator dutifully added nothing. Nothing failed: fc.Vx was
+    // non-null, so the operator's `have_v` guard was TRUE and it read a real
+    // array full of zeros. The term is identically zero at a matched density,
+    // which is what makes the omission invisible; this case runs At = 0.5, a
+    // ratio of three, where ViscousInterfaceForce's own banner says it "is not
+    // a correction one may drop".
+    //
+    // It was found by diffing against the CUDA twin, whose rti3d.cu has always
+    // called enable_viscous_force(true) -- so the two codebases were solving
+    // different momentum equations on this case. Measured at W = 64, 2-D,
+    // At = 0.5: the spike at t/t0 = 2 moves 1.3125 -> 1.2969 and |u|max by
+    // 3.1%. Small at a ratio of three, and it grows with the ratio, since
+    // F_nu scales with grad rho.
+    //
+    // The two calls are the order ViscousInterfaceForce.hpp:24 prescribes:
+    // compute_macroscopic() fills u(t) from the populations, which the fused
+    // step(true) would otherwise write only as it goes -- too late for the
+    // neighbour gather this force needs.
+    fl.compute_macroscopic();   // u(t), for the velocity gradient below
+    vf.refresh(fc);             // F_nu from u(t) and grad phi(t)
+    fl.step(true);              // collides against grad phi(t) and F_nu(t)
+    pf.step();                  // advects with u(t)
   }
 
   if (dump && *dump) {
