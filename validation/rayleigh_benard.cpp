@@ -32,6 +32,7 @@
 #include "boundary/MomentDirichlet.hpp"
 #include "boundary/Regularized.hpp"
 #include "collision/BGK.hpp"
+#include "collision/MomentCollision.hpp"
 #include "collision/ScalarBGK.hpp"
 #include "core/Types.hpp"
 #include "FieldDump.hpp"
@@ -50,7 +51,14 @@ using namespace lbm;
 
 using FL = D2Q9;
 using SL = D2Q5;
-using FluidColl = BGK<FL, SecondOrderEquilibrium<FL>, BoussinesqGuo, ShiftedPopulations>;
+// The fluid operator is a template parameter of `run` with a DEFAULT, so every
+// existing call site -- and so every number this case has already published --
+// is BGK exactly as before. `-op cm` selects the central-moment operator for a
+// single-Ra measurement without touching the onset, convergence or marginal
+// -curve paths, which were all measured with BGK.
+using FluidBGK  = BGK<FL, SecondOrderEquilibrium<FL>, BoussinesqGuo, ShiftedPopulations>;
+using FluidCM   = CentralMoments<FL, BoussinesqGuo, ShiftedPopulations>;
+using FluidColl = FluidBGK;
 
 struct RB {
   double nu_wall, nu_vol;   // two independent Nusselt estimators
@@ -69,9 +77,10 @@ struct RB {
 // the critical wavelength, 2 pi / 3.117. Making it a parameter is what turns
 // this from a test of Ra_c into a test of the whole MARGINAL CURVE Ra(k), whose
 // minimum is the second seven-figure number in the problem.
+template <class FColl = FluidColl>
 static RB run(Index H, double Ra, double Pr, Real uc, std::size_t nsteps,
               bool measure_growth, bool on_node = false,
-              double aspect = 2.0158) {
+              double aspect = 2.0158, double wbulk = -1.0) {
   const Index nx = Index(std::lround(aspect * double(H)));
   const Index ny = on_node ? (H + 1) : (H + 2);
 
@@ -116,10 +125,11 @@ static RB run(Index H, double Ra, double Pr, Real uc, std::size_t nsteps,
   force.gx = Real(0); force.gy = Real(1); force.gz = Real(0);
   force.rho0 = Real(1); force.beta = gb; force.T0 = Real(0);
 
-  FluidColl fcoll;
-  fcoll.omega = BGK<FL>::omega_from_viscosity(nu);
+  FColl fcoll;
+  fcoll.omega = FColl::omega_from_viscosity(nu);
+  if constexpr (requires { fcoll.omega_bulk; }) fcoll.omega_bulk = Real(wbulk);
   fcoll.forcing = force;
-  FluidSolver<FL, EsotericPull<FL>, FluidColl> fl(d, fcoll);
+  FluidSolver<FL, EsotericPull<FL>, FColl> fl(d, fcoll);
   fl.set_geometry([&](Index, Index y, Index) -> CellType {
     if (on_node) return Fluid;
     return (y == 0 || y == ny - 1) ? Solid : Fluid;
@@ -257,11 +267,17 @@ int main(int argc, char** argv) {
     Real uc = Real(0.02);
     bool onset = true, sweep = true, on_node = false, conv = false;
     bool marginal = false, rate = false;
+    double ra_one = 0, wbulk = -1.0, tfac = 12.0;   // -ra: one Rayleigh number
+    std::string op = "cm";                          // CM is the default operator
     for (int i = 1; i < argc; ++i) {
       const std::string a = argv[i];
       if (a == "-h"  && i + 1 < argc) H = std::atoi(argv[++i]);
       if (a == "-pr" && i + 1 < argc) Pr = std::atof(argv[++i]);
       if (a == "-uc" && i + 1 < argc) uc = Real(std::atof(argv[++i]));
+      if (a == "-ra" && i + 1 < argc) ra_one = std::atof(argv[++i]);
+      if (a == "-op" && i + 1 < argc) op = argv[++i];
+      if (a == "-wb" && i + 1 < argc) wbulk = std::atof(argv[++i]);
+      if (a == "-tfac" && i + 1 < argc) tfac = std::atof(argv[++i]);
       if (a == "-noonset") onset = false;
       if (a == "-nosweep") sweep = false;
       if (a == "-onnode") on_node = true;
@@ -279,6 +295,42 @@ int main(int argc, char** argv) {
                 on_node ? "regularised + moment  (planes ON nodes 0 and H)"
                         : "bounce-back + anti-bounce-back  (planes midway)");
     std::printf("  layer depth exactly H either way, so Ra means the same thing\n\n");
+
+    //--------------------------------------------------------------------------
+    // ONE RAYLEIGH NUMBER. `-ra R` measures Nu at R and stops -- the sweep's own
+    // ladder is a fixed list and does not contain every value one might want.
+    // The step count is the sweep's: tfac diffusive times, tfac settable because
+    // "converged" is a property of the run and not of the number 12.
+    //--------------------------------------------------------------------------
+    if (ra_one > 0) {
+      const double t_diff = double(H) * double(H) /
+                            (double(H) * double(uc) * std::sqrt(Pr / ra_one) / Pr);
+      const std::size_t ns = std::size_t(tfac * t_diff);
+      const double nu_lat = double(H) * double(uc) * std::sqrt(Pr / ra_one);
+      std::printf("  single run: Ra = %.4g   operator %s   omega_bulk %s\n",
+                  ra_one, op == "cm" ? "CentralMoments" : "BGK",
+                  wbulk < 0 ? "= omega (follow)" : "set explicitly");
+      std::printf("  nu = %.6e   tau = %.6f   D = %.6e   %zu steps (%.0f t_diff)\n\n",
+                  nu_lat, 3.0 * nu_lat + 0.5, nu_lat / Pr, ns, tfac);
+      const RB r = (op == "cm")
+          ? run<FluidCM> (H, ra_one, Pr, uc, ns, false, on_node, 2.0158, wbulk)
+          : run<FluidBGK>(H, ra_one, Pr, uc, ns, false, on_node, 2.0158, wbulk);
+      if (!r.ok) {
+        std::printf("  DIVERGED\n");
+        Kokkos::finalize();
+        return 1;
+      }
+      const double spread = std::abs(r.nu_wall - r.nu_vol) /
+                            std::max(1.0, std::abs(r.nu_vol));
+      std::printf("  %10s %12s %12s %10s %10s\n",
+                  "Ra/Ra_c", "Nu (wall)", "Nu (volume)", "spread", "|u|max");
+      std::printf("  %10.4f %12.6f %12.6f %9.2e %10.6f\n",
+                  ra_one / 1707.762, r.nu_wall, r.nu_vol, spread, r.umax);
+      std::printf("\n  the two estimators are independent; a spread that is not\n");
+      std::printf("  small means the run is not converged, not that Nu is interesting.\n");
+      Kokkos::finalize();
+      return 0;
+    }
 
     // The bracket has to hold the whole marginal curve, not just its minimum:
     // away from k_c the neutral Rayleigh number rises steeply, so [1400, 2100]
