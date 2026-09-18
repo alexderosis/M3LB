@@ -334,7 +334,7 @@ void run(Index N, double Re, const char* opname, Setup setup, bool dump = false)
 //------------------------------------------------------------------------------
 // The whole lattice/operator dispatch, parameterised on the equilibrium order so
 // both can be built: HO = true uses the highest order each lattice admits (D3Q27
-// product form, sixth order; D3Q19 fourth order; D2Q9 product form, fourth),
+// product form, sixth order; D2Q9 product form, fourth),
 // HO = false the second-order truncation the published results were produced
 // with. Selected at run time by -eq2.
 //------------------------------------------------------------------------------
@@ -350,9 +350,8 @@ void dispatch(Index N, double Re, double tmax, const std::string& op,
   // and periodic z the wrap sends the z-neighbour back to the node itself, so
   // the out-of-plane populations stream in place and the answer must match the
   // native 2D lattice. The magnetic field follows the fluid's dimensionality
-  // (D2Q5 beside D2Q9, D3Q7 beside D3Q19/D3Q27).
+  // (D2Q5 beside D2Q9, D3Q7 beside D3Q27).
   using F9  = MhdBGK<D2Q9,  EqOf<D2Q9, HO>,  ShiftedPopulations>;
-  using F19 = MhdBGK<D3Q19, EqOf<D3Q19, HO>, ShiftedPopulations>;
   using F27 = MhdBGK<D3Q27, EqOf<D3Q27, HO>, ShiftedPopulations>;
 
   using CM9  = MhdCentralMoments<D2Q9, HO>;
@@ -364,13 +363,10 @@ void dispatch(Index N, double Re, double tmax, const std::string& op,
                                "hybrid central moments, D3Q27 + D3Q7 (nz = 1)", cm_setup);
     else if (op == "cm")     stability<CM9, D2Q5>(N, Re, tmax,
                                "hybrid central moments (Eqs. 7-13)", cm_setup);
-    else if (lat == "d3q19") {
+    else if (lat == "d3q27") {
         // -maglat lets the magnetic lattice be held fixed across fluid lattices,
         // which is the only way to separate the fluid lattice's effect from the
         // magnetic one (D3Q7 has cs2 = 1/4, D2Q5 has 1/3).
-        if (maglat == "d2q5") stability<F19, D2Q5>(N, Re, tmax, "BGK, D3Q19 + D2Q5", bgk_setup);
-        else                  stability<F19, D3Q7>(N, Re, tmax, "BGK, D3Q19 + D3Q7", bgk_setup);
-      } else if (lat == "d3q27") {
         if (maglat == "d2q5") stability<F27, D2Q5>(N, Re, tmax, "BGK, D3Q27 + D2Q5", bgk_setup);
         else                  stability<F27, D3Q7>(N, Re, tmax, "BGK, D3Q27 + D3Q7", bgk_setup);
       }
@@ -387,14 +383,9 @@ void dispatch(Index N, double Re, double tmax, const std::string& op,
   } else if (op == "cm") {
     std::printf("  omega_3 (bulk) = %.3f\n", wbulk);
     run<CM9, D2Q5>(N, Re, "hybrid central moments (Eqs. 7-13)", cm_setup, dump);
-  } else if (lat == "d3q19") {
+  } else if (lat == "d3q27") {
     // b_z is identically zero for this flow, so a 2D magnetic lattice is a
     // legitimate pairing and isolates the magnetic lattice's contribution.
-    if (maglat == "d2q5")
-      run<F19, D2Q5>(N, Re, "BGK, D3Q19 fluid + D2Q5 magnetic (nz = 1)", bgk_setup, dump);
-    else
-      run<F19, D3Q7>(N, Re, "BGK, D3Q19 fluid + D3Q7 magnetic (nz = 1)", bgk_setup, dump);
-  } else if (lat == "d3q27") {
     if (maglat == "d2q5")
       run<F27, D2Q5>(N, Re, "BGK, D3Q27 fluid + D2Q5 magnetic (nz = 1)", bgk_setup, dump);
     else

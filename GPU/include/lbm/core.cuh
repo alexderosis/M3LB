@@ -465,7 +465,7 @@ LBM_HD LBM_INLINE void collide_scalar(Real h[L::Q], Real dT, Real T_ref,
 //
 //  NOT TEMPLATED ON THE LATTICE, deliberately: the moment split above is a
 //  property of D3Q7's velocity set, not a general one, and a version that
-//  silently accepted D3Q19 would be wrong rather than slow.
+//  silently accepted another lattice would be wrong rather than slow.
 //  ===========================================================================
 LBM_HD LBM_INLINE void collide_scalar_regularised(Real h[7], Real dT, Real T_ref,
                                                   Real ux, Real uy, Real uz,

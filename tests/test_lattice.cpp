@@ -44,7 +44,7 @@ void run() {
 
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
-  { run<D2Q5>(); run<D2Q9>(); run<D3Q7>(); run<D3Q19>(); run<D3Q27>(); }
+  { run<D2Q5>(); run<D2Q9>(); run<D3Q7>(); run<D3Q27>(); }
   const int r = check::report("lattice");
   Kokkos::finalize();
   return r;

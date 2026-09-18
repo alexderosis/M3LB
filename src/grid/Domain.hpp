@@ -24,9 +24,9 @@ namespace lbm {
 // streaming policy: nb[i] is the node at n + c_i.
 //
 // Sized Q even for schemes that only use half the directions: compacting it to
-// the odd half was tried and measured, and made no difference on D3Q27 while
-// costing ~4% on D3Q19 for the extra index shift. The kernel is not limited by
-// this array.
+// the odd half was tried and measured, and made no difference on D3Q27 -- the
+// extra index shift costs what it saves. The kernel is not limited by this
+// array.
 //------------------------------------------------------------------------------
 template <class L>
 struct Neighbours {

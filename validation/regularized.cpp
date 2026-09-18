@@ -277,7 +277,6 @@ int main(int argc, char** argv) {
     std::printf("\n");
 
     sweep(D2Q9{},  "D2Q9");
-    sweep(D3Q19{}, "D3Q19  (periodic x and z, walls in y)");
     sweep(D3Q27{}, "D3Q27  (periodic x and z, walls in y)");
     std::printf("\n  the wall column is the fitted no-slip plane: it should sit at y = 0,\n");
     std::printf("  since the regularised condition places the wall ON the boundary node.\n");

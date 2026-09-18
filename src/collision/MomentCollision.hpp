@@ -45,7 +45,6 @@
 //  (1 - omega/2) prefactor.
 //==============================================================================
 #include "collision/BGK.hpp"
-#include "collision/MonomialBasis.hpp"
 #include "collision/ProductBasis.hpp"
 #include "core/Types.hpp"
 #include "forcing/Forcing.hpp"
@@ -57,13 +56,11 @@
 namespace lbm {
 
 //------------------------------------------------------------------------------
-// Which moment basis a lattice uses. Product lattices get the factorised
-// transform; D3Q19 is not one (it is D3Q27 minus its eight corners) and uses the
-// generated 19-monomial basis instead. Both expose the same interface, so the
-// operator below does not care which it got.
+// Which moment basis a lattice uses. Every lattice here is a product lattice and
+// gets the factorised transform; the indirection is kept because the operator
+// below reaches the basis only through this interface.
 //------------------------------------------------------------------------------
 template <class L> struct SelectBasis { using type = ProductBasis<L>; };
-template <> struct SelectBasis<D3Q19> { using type = MonomialBasis<D3Q19>; };
 
 template <class L, class Forcing = NoForcing, class Store = RawPopulations,
           bool Central = true>
@@ -333,8 +330,8 @@ struct MomentCollision {
   }
 
  private:
-  // Moment slots, located through the basis rather than hardcoded, so the same
-  // relaxation works for the product basis and for D3Q19's monomial basis.
+  // Moment slots, located through the basis rather than hardcoded, so the
+  // relaxation does not depend on the basis's own ordering.
   static constexpr int i1(int a) {
     return Basis::index_of(a == 0, a == 1, (D == 3) && a == 2);
   }

@@ -107,15 +107,13 @@ int main(int argc, char** argv) {
   {
     const Real r = Real(1.03), ux = Real(0.031), uy = Real(-0.017), uz = Real(0.022);
     hydrodynamic_moments<D2Q9,  SecondOrderEquilibrium<D2Q9>>(r, ux, uy, 0);
-    hydrodynamic_moments<D3Q19, SecondOrderEquilibrium<D3Q19>>(r, ux, uy, uz);
     hydrodynamic_moments<D3Q27, SecondOrderEquilibrium<D3Q27>>(r, ux, uy, uz);
     hydrodynamic_moments<D2Q9,  ProductFormEquilibrium<D2Q9>>(r, ux, uy, 0);
 
     shifted_identity<D2Q9,  SecondOrderEquilibrium<D2Q9>>(r, ux, uy, 0);
-    shifted_identity<D3Q19, SecondOrderEquilibrium<D3Q19>>(r, ux, uy, uz);
     shifted_identity<D3Q27, SecondOrderEquilibrium<D3Q27>>(r, ux, uy, uz);
     shifted_identity<D2Q9,  ProductFormEquilibrium<D2Q9>>(r, ux, uy, 0);
-    shifted_identity<D3Q19, SecondOrderEquilibrium<D3Q19>>(Real(1), 0, 0, 0);
+    shifted_identity<D3Q27, SecondOrderEquilibrium<D3Q27>>(Real(1), 0, 0, 0);
 
     // The second-order equilibrium is NOT Galilean invariant -- it is correct
     // only to O(u^2) -- so only the product form is asserted here.

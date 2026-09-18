@@ -145,8 +145,7 @@ int main(int argc, char** argv) {
     // The same case on every lattice the solver admits. Mass advection is
     // lattice-generic in principle -- the exchange loops over the whole velocity
     // set and the reconstruction uses opp(i), which every lattice here honours --
-    // but "in principle" is not a test, and D3Q19 is the one the free-surface
-    // literature actually uses.
+    // but "in principle" is not a test.
     std::printf("\n1. at rest, no gravity -- only the bookkeeping can move mass\n");
     std::printf("   D2Q9\n");   run_case<D2Q9,  0.0>("at rest, D2Q9",  true);
     std::printf("   D3Q27\n");  run_case<D3Q27, 0.0>("at rest, D3Q27", true);

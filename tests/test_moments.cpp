@@ -9,7 +9,6 @@
 #include "collision/BGK.hpp"
 #include "collision/MhdCentralMoments.hpp"
 #include "collision/MomentCollision.hpp"
-#include "collision/MonomialBasis.hpp"
 #include "collision/ProductBasis.hpp"
 #include "collision/TRT.hpp"
 #include "core/Types.hpp"
@@ -77,8 +76,7 @@ void against_direct(Real ubx, Real uby, Real ubz) {
 //     k_pqr = rho M(p) M(q) M(r),   M = {1, 0, cs2}
 // contracted directly here, with no reference to the basis machinery, so this is
 // a check on the physics rather than on the code reproducing itself. It holds on
-// every monomial the lattice can represent -- which for D3Q19 is the 19 in its
-// basis, not the full 27.
+// every monomial the lattice can represent.
 template <class L, class Store>
 void equilibrium_is_maxwellian(Real rho, Real ux, Real uy, Real uz) {
   using C = MomentCollision<L, NoForcing, Store, true>;
@@ -437,7 +435,7 @@ void mhd_cm3d_conservation(Real omega) {
 
 //------------------------------------------------------------------------------
 // The higher-order equilibria taken from the MATLAB generators -- product form
-// (6th order) on D3Q27, 4th order on D3Q19, product form (4th) on D2Q9 -- must
+// (6th order) on D3Q27 and product form (4th) on D2Q9 -- must
 // be Maxwellian in every REPRESENTABLE central moment.
 //------------------------------------------------------------------------------
 template <class L>
@@ -497,18 +495,13 @@ int main(int argc, char** argv) {
 
     round_trip<D2Q9>(0, 0, 0);
     round_trip<D2Q9>(ux, uy, 0);
-    round_trip<D3Q19>(0, 0, 0);
-    round_trip<D3Q19>(ux, uy, uz);
     round_trip<D3Q27>(0, 0, 0);
     round_trip<D3Q27>(ux, uy, uz);
     against_direct<D2Q9>(ux, uy, 0);
-    against_direct<D3Q19>(ux, uy, uz);
     against_direct<D3Q27>(ux, uy, uz);
 
     equilibrium_is_maxwellian<D2Q9,  RawPopulations>(r, ux, uy, 0);
     equilibrium_is_maxwellian<D2Q9,  ShiftedPopulations>(r, ux, uy, 0);
-    equilibrium_is_maxwellian<D3Q19, RawPopulations>(r, ux, uy, uz);
-    equilibrium_is_maxwellian<D3Q19, ShiftedPopulations>(r, ux, uy, uz);
     equilibrium_is_maxwellian<D3Q27, RawPopulations>(r, ux, uy, uz);
     equilibrium_is_maxwellian<D3Q27, ShiftedPopulations>(r, ux, uy, uz);
 
@@ -521,13 +514,9 @@ int main(int argc, char** argv) {
         conservation<decltype(c), D3Q27, ShiftedPopulations>("CM", c); }
       { MomentCollision<D3Q27, NoForcing, RawPopulations, false> c; c.omega = w;
         conservation<decltype(c), D3Q27, RawPopulations>("MRT", c); }
-      { MomentCollision<D3Q19, NoForcing, ShiftedPopulations, true>  c; c.omega = w;
-        conservation<decltype(c), D3Q19, ShiftedPopulations>("CM", c); }
-      { MomentCollision<D3Q19, NoForcing, RawPopulations, false> c; c.omega = w;
-        conservation<decltype(c), D3Q19, RawPopulations>("MRT", c); }
-      { TRT<D3Q19, SecondOrderEquilibrium<D3Q19>, NoForcing, RawPopulations> c;
-        c.omega_p = w; c.omega_m = TRT<D3Q19>::omega_minus_for(w, TRT<D3Q19>::magic_3_16);
-        conservation<decltype(c), D3Q19, RawPopulations>("TRT", c); }
+      { TRT<D3Q27, SecondOrderEquilibrium<D3Q27>, NoForcing, RawPopulations> c;
+        c.omega_p = w; c.omega_m = TRT<D3Q27>::omega_minus_for(w, TRT<D3Q27>::magic_3_16);
+        conservation<decltype(c), D3Q27, RawPopulations>("TRT", c); }
 
       { MomentCollision<D2Q9, Guo, RawPopulations, true> c; c.omega = w;
         c.forcing = Guo{F[0], F[1], Real(0)};
@@ -539,16 +528,10 @@ int main(int argc, char** argv) {
       { MomentCollision<D3Q27, Guo, RawPopulations, false> c; c.omega = w;
         c.forcing = Guo{F[0], F[1], F[2]};
         forced_momentum<decltype(c), D3Q27, RawPopulations>("MRT", c, F); }
-      { MomentCollision<D3Q19, Guo, ShiftedPopulations, true> c; c.omega = w;
+      { TRT<D3Q27, SecondOrderEquilibrium<D3Q27>, Guo> c;
+        c.omega_p = w; c.omega_m = TRT<D3Q27>::omega_minus_for(w, TRT<D3Q27>::magic_3_16);
         c.forcing = Guo{F[0], F[1], F[2]};
-        forced_momentum<decltype(c), D3Q19, ShiftedPopulations>("CM", c, F); }
-      { MomentCollision<D3Q19, Guo, RawPopulations, false> c; c.omega = w;
-        c.forcing = Guo{F[0], F[1], F[2]};
-        forced_momentum<decltype(c), D3Q19, RawPopulations>("MRT", c, F); }
-      { TRT<D3Q19, SecondOrderEquilibrium<D3Q19>, Guo> c;
-        c.omega_p = w; c.omega_m = TRT<D3Q19>::omega_minus_for(w, TRT<D3Q19>::magic_3_16);
-        c.forcing = Guo{F[0], F[1], F[2]};
-        forced_momentum<decltype(c), D3Q19, RawPopulations>("TRT", c, F); }
+        forced_momentum<decltype(c), D3Q27, RawPopulations>("TRT", c, F); }
     }
 
     full_relaxation<D2Q9,  RawPopulations,     true>();
@@ -556,14 +539,10 @@ int main(int argc, char** argv) {
     full_relaxation<D3Q27, RawPopulations,     true>();
     full_relaxation<D3Q27, ShiftedPopulations, true>();
     full_relaxation<D3Q27, RawPopulations,     false>();
-    full_relaxation<D3Q19, RawPopulations,     true>();
-    full_relaxation<D3Q19, ShiftedPopulations, true>();
-    full_relaxation<D3Q19, RawPopulations,     false>();
 
     cm_equals_mrt_at_rest<D2Q9,  RawPopulations>();
     cm_equals_mrt_at_rest<D3Q27, ShiftedPopulations>();
-    cm_equals_mrt_at_rest<D3Q19, RawPopulations>();
-    cm_equals_mrt_at_rest<D3Q19, ShiftedPopulations>();
+    cm_equals_mrt_at_rest<D3Q27, RawPopulations>();
 
     mhd_cm_equilibrium(Real(1.07), Real(0.031), Real(-0.017), Real(0.022), Real(-0.033));
     mhd_cm_equilibrium(Real(1.0),  Real(0.0),   Real(0.0),    Real(0.05), Real(0.0));
@@ -585,13 +564,11 @@ int main(int argc, char** argv) {
       mhd_cm3d_conservation<true>(w); mhd_cm3d_conservation<false>(w);
     }
 
-    // higher-order equilibria: D3Q27 to 6th order, D3Q19 to 4th, D2Q9 to 4th
+    // higher-order equilibria: D3Q27 to 6th order, D2Q9 to 4th
     high_order_eq_is_maxwellian<D2Q9>(r, ux, uy, 0);
-    high_order_eq_is_maxwellian<D3Q19>(r, ux, uy, uz);
     high_order_eq_is_maxwellian<D3Q27>(r, ux, uy, uz);
     high_order_eq_is_maxwellian<D3Q27>(r, Real(0.2), Real(-0.15), Real(0.1));
     high_order_eq_matches_moment_space<D2Q9,  RawPopulations>(r, ux, uy, 0);
-    high_order_eq_matches_moment_space<D3Q19, RawPopulations>(r, ux, uy, uz);
     high_order_eq_matches_moment_space<D3Q27, RawPopulations>(r, ux, uy, uz);
     high_order_eq_matches_moment_space<D3Q27, ShiftedPopulations>(r, ux, uy, uz);
 

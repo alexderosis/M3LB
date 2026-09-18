@@ -11,9 +11,9 @@
 //  0074_H_AO_H): 109 x 184 x 361 voxels at a pitch of 0.0616 cm, tagged
 //  0 solid, 1 fluid, 2 inlet, 3 outlet. About 16% of the box is fluid.
 //
-//  D3Q27, not the D3Q19 the original project uses -- see the note on lattice
-//  scope in doc/. The geometry is lattice-independent, so the only consequence
-//  is that results are not directly comparable with that project's.
+//  D3Q27; the original project uses D3Q19, which this tree does not carry. The
+//  geometry is lattice-independent, so the only consequence is that results are
+//  not directly comparable with that project's.
 //
 //  BOUNDARY CONDITIONS.
 //    solid   halfway bounce-back, which is free under Esoteric Pull

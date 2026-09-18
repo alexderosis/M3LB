@@ -12,7 +12,7 @@
 //         p   = -(rho0 U^2 / 4) [cos(2kx) + cos(2ky)] E(t)^2
 //         E(t) = exp(-2 nu k^2 t),   k = 2 pi / L
 //     The field is z-independent, so it is an exact solution in 3D as well and
-//     runs unchanged on D3Q19/D3Q27. Nonlinear, so it exercises the parts of the
+//     runs unchanged on D3Q27. Nonlinear, so it exercises the parts of the
 //     collision operator a linear test cannot reach.
 //
 //  2. ABC / BELTRAMI FLOW (nonlinear, exact, and genuinely three-dimensional)

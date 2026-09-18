@@ -8,9 +8,9 @@
 //  of validation/enan_interface.cpp, a fluid collision operator IS exercised
 //  here, and it is the central-moment one on D3Q27 throughout -- for the
 //  two-dimensional cases too, run with a single periodic cell in z. The paper
-//  uses D3Q19; M3LB's multiphase central-moment operator does not run on D3Q19
-//  at all (it is D3Q27 minus its corners, so the moment basis is not a product
-//  form), which is stated rather than worked around.
+//  uses D3Q19, which this tree does not carry -- and would not run the
+//  multiphase central-moment operator anyway, since it is D3Q27 minus its
+//  corners and so has no product basis. Stated rather than worked around.
 //
 //  SETUP, theirs exactly. A box W wide and 4W tall, heavy fluid above light,
 //  periodic across and no-slip top and bottom, with the interface given a

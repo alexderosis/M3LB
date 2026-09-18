@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
     Index D = 64;
     double Re = 1600.0, tmax = 10.0;      // t* = t u0 / D
     Real u0 = Real(0.02);
-    std::string lat = "d3q19", op = "cm";
+    std::string lat = "d3q27", op = "cm";
     for (int i = 1; i < argc; ++i) {
       const std::string a = argv[i];
       if (a == "-d"    && i + 1 < argc) D  = std::atoi(argv[++i]);

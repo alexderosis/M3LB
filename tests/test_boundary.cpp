@@ -155,8 +155,7 @@ static void preserves_stress(std::uint8_t code, Real rho_in, const Real u[3]) {
     eqm[0] += e * cx * cx; eqm[1] += e * cy * cy; eqm[2] += e * cz * cz;
     eqm[3] += e * cx * cy; eqm[4] += e * cx * cz; eqm[5] += e * cy * cz;
   }
-  // D3Q19 cannot carry an arbitrary symmetric Pi^(1) through Eq. (45) exactly;
-  // the diagonal is exact, the shear components are what the lattice supports.
+  // The diagonal is exact; the shear components are what the lattice supports.
   double worst = 0;
   const int ncomp = (L::D == 2) ? 4 : 6;
   const int idx[6] = {0, 1, 3, 2, 4, 5};
@@ -234,7 +233,6 @@ int main(int argc, char** argv) {
     for (std::uint8_t c = NrmXp; c <= NrmZm; ++c) {
       enforces_velocity<D2Q9>(c, Real(1.02), u0);
       enforces_velocity<D2Q9>(c, Real(1.02), u1);
-      enforces_velocity<D3Q19>(c, Real(0.98), u2);
       enforces_velocity<D3Q27>(c, Real(0.98), u2);
     }
     preserves_stress<D2Q9>(NrmYp, Real(1.02), u1);
@@ -243,13 +241,11 @@ int main(int argc, char** argv) {
     const int c2[4][3] = {{-1,-1,0},{1,-1,0},{-1,1,0},{1,1,0}};
     for (auto& w : c2) corner_enforces_velocity<D2Q9>(w, Real(1.02), u1);
     const int c3[3] = {-1,-1,-1};
-    corner_enforces_velocity<D3Q19>(c3, Real(0.98), u2);
     corner_enforces_velocity<D3Q27>(c3, Real(0.98), u2);
     const int e3[3] = {-1,1,0};          // 3D edge: two walls, one free axis
     corner_enforces_velocity<D3Q27>(e3, Real(0.98), u2);
 
     idempotent_on_equilibrium<D2Q9>(Real(1.02), u1);
-    idempotent_on_equilibrium<D3Q19>(Real(0.98), u2);
     idempotent_on_equilibrium<D3Q27>(Real(0.98), u2);
   }
   Kokkos::finalize();

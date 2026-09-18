@@ -182,7 +182,7 @@ In this order, and the first one is not optional:
    It carries a factor H/α — 5.3e6 at these parameters — so it is mostly
    amplified noise. In the CPU run it flipped sign every output row for the
    first twenty free-fall times while both plate estimators sat correctly at 1.
-4. `Nu_ref` is the D3Q19 reference's own normalisation, printed only so the two
+4. `Nu_ref` is the reference driver's own normalisation, printed only so the two
    codes can go in one table. It is the raw correlation divided by `nx-1`, and
    it is 3% high by construction. Do not mix it with `Nu_vol`.
 

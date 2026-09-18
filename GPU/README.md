@@ -707,7 +707,7 @@ every driver alongside the device ones.
 
 | | this code | parent (Kokkos) |
 |---|---|---|
-| lattices | D3Q27 fluid, D3Q7 or D3Q27 phase, D3Q7 scalar and field | D2Q9, D2Q5, D3Q7, D3Q19, D3Q27 |
+| lattices | D3Q27 fluid, D3Q7 or D3Q27 phase, D3Q7 scalar and field | D2Q9, D2Q5, D3Q7, D3Q27 |
 | collision | BGK, TRT, central moments | BGK, TRT, raw MRT, central moments |
 | streaming | Esoteric Pull; two-lattice for the free surface | Esoteric Pull, two-lattice |
 | storage | raw, shifted | raw, shifted |
@@ -715,7 +715,7 @@ every driver alongside the device ones.
 | forcing | Guo: uniform, Boussinesq, arbitrary per-node field | Guo, high-order Hermite |
 | thermal | advection–diffusion + Boussinesq | same |
 | MHD | Dellar induction + Maxwell stress, BGK and central moments, moment-based walls | + the published D2Q9 scheme |
-| multiphase | colour gradient + phase field, each with BGK **and** central moments; free surface | same, + D2Q9/D3Q19 |
+| multiphase | colour gradient + phase field, each with BGK **and** central moments; free surface | same, + D2Q9 |
 | rigid body | volume penalisation, Rect and Wedge | same, + a moving obstacle in the free surface |
 | geometry | arbitrary voxel input | arbitrary voxel input |
 | cases | 10 drivers, including `hartmann` | ~20 validation cases |
@@ -736,7 +736,7 @@ Still absent, not merely untested:
   pressure and free outlets. A different feature from a velocity wall, with its
   own failure mode (the parent measures a zero-gradient outlet settling at
   ρ ≈ 181), and not what "regularised walls" means.
-* **D3Q19, raw MRT, the aorta, height-field input.**
+* **Raw MRT, the aorta, height-field input.**
 
 And one property rather than an omission: **regularised walls are not mass
 conserving**, because BC3 overwrites populations. At rest that costs nothing —

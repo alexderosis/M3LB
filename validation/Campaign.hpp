@@ -8,8 +8,7 @@
 //  measurement. Every configuration uses:
 //
 //    * the highest-order equilibrium the lattice admits (HighOrderEquilibrium),
-//      as the paper does -- product form on D2Q9 and D3Q27, fourth order on
-//      D3Q19;
+//      as the paper does -- the product form on D2Q9 and D3Q27;
 //    * shifted population storage;
 //    * no external force -- the campaign is deliberately force-free, so the
 //      wall-force interaction of the regularised condition never arises.
@@ -49,7 +48,6 @@ bool dispatch(const std::string& lat, const std::string& op, Fn&& fn) {
     return false;
   };
   if (lat == "d2q9")  return pick(D2Q9{});
-  if (lat == "d3q19") return pick(D3Q19{});
   if (lat == "d3q27") return pick(D3Q27{});
   return false;
 }

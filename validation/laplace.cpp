@@ -127,7 +127,8 @@ using CmColl     = MultiphaseCentralMoments<FL>;
 
 // The phase lattice is a parameter, not a decision baked into the case. D2Q5
 // with a first-order equilibrium is the cheap route; D2Q9 with the second-order
-// one is what De Rosis & Enan run (their D3Q19, reduced to two dimensions).
+// one is what De Rosis & Enan run (their D3Q19, reduced to two dimensions --
+// that lattice is not in this tree, and D2Q9 is its two-dimensional analogue).
 // Select with -plat.
 template <class PL> using PhaseColl = PhaseFieldBGK<PL>;
 template <class PL> using PhaseSlv  = PhaseFieldSolver<PL, EsotericPull<PL>, PhaseColl<PL>>;

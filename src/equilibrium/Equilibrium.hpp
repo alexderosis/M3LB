@@ -123,54 +123,8 @@ struct ProductFormPhi<D3Q27> {
   }
 };
 
-//------------------------------------------------------------------------------
-// Fourth-order equilibrium for D3Q19, transcribed from MATLAB/D3Q19_CM.m.
-//
-// D3Q19 is not a product lattice, so there is no factorised form and the series
-// stops at fourth order -- the highest the 19 velocities support. The expression
-// is written per velocity group (rest / axis / edge), exactly as in the script.
-//
-// Within the 19 REPRESENTABLE central moments -- {1, 3 first, 6 second, 6 third
-// of type k_aab, 3 fourth of type k_aabb} -- its central moments are likewise
-// exactly Maxwellian. The nonzero k_111, k_112, ... that a naive contraction
-// returns are outside that set and are aliases of it, not independent modes.
-//------------------------------------------------------------------------------
-template <class L>
-struct FourthOrderPhi;
-
-template <>
-struct FourthOrderPhi<D3Q19> {
-  static constexpr const char* name = "FourthOrder";
-  KOKKOS_INLINE_FUNCTION
-  static Real phi(int i, Real ux, Real uy, Real uz) {
-    const Real c[3] = {Real(D3Q19::cx(i)), Real(D3Q19::cy(i)), Real(D3Q19::cz(i))};
-    const Real u[3] = {ux, uy, uz};
-    const Real s[3] = {ux * ux, uy * uy, uz * uz};
-    int a = -1, b = -1, n = 0;
-    for (int d = 0; d < 3; ++d)
-      if (c[d] != Real(0)) { (n == 0 ? a : b) = d; ++n; }
-
-    if (n == 0)                                            // rest
-      return -(s[0] + s[1] + s[2]) +
-             Real(3) * (s[0] * s[1] + s[0] * s[2] + s[1] * s[2]);
-
-    if (n == 1) {                                          // axis
-      const int p = (a + 1) % 3, q = (a + 2) % 3;
-      const Real rest = s[p] + s[q];
-      return Real(3) * c[a] * u[a] + Real(3) * (s[a] - rest)
-           - Real(9) * c[a] * u[a] * rest - Real(9) * s[a] * rest;
-    }
-    // edge: only the two in-plane components appear
-    return Real(3) * (c[a] * u[a] + c[b] * u[b]) + Real(3) * (s[a] + s[b])
-         + Real(9) * c[a] * c[b] * u[a] * u[b]
-         + Real(9) * (c[b] * s[a] * u[b] + c[a] * u[a] * s[b])
-         + Real(9) * s[a] * s[b];
-  }
-};
-
 template <class L> using SecondOrderEquilibrium = Equilibrium<L, SecondOrderPhi<L>>;
 template <class L> using ProductFormEquilibrium = Equilibrium<L, ProductFormPhi<L>>;
-template <class L> using FourthOrderEquilibrium = Equilibrium<L, FourthOrderPhi<L>>;
 
 //------------------------------------------------------------------------------
 // The highest-order equilibrium each lattice admits. This is what the MHD and
@@ -179,7 +133,6 @@ template <class L> using FourthOrderEquilibrium = Equilibrium<L, FourthOrderPhi<
 template <class L> struct BestEquilibriumOf            { using type = SecondOrderEquilibrium<L>; };
 template <> struct BestEquilibriumOf<D2Q9>             { using type = ProductFormEquilibrium<D2Q9>; };
 template <> struct BestEquilibriumOf<D3Q27>            { using type = ProductFormEquilibrium<D3Q27>; };
-template <> struct BestEquilibriumOf<D3Q19>            { using type = FourthOrderEquilibrium<D3Q19>; };
 template <class L> using HighOrderEquilibrium = typename BestEquilibriumOf<L>::type;
 
 }  // namespace lbm

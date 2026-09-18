@@ -9,7 +9,7 @@
 //
 //  Each component gets its own Streaming instance, so Esoteric Pull, the halo
 //  logic and the neighbour machinery are reused verbatim; only the collision is
-//  new. The fluid runs on D2Q9/D3Q19/D3Q27 while this runs on D2Q5/D3Q7 at the
+//  new. The fluid runs on D2Q9/D3Q27 while this runs on D2Q5/D3Q7 at the
 //  same time, on the same Domain.
 //
 //  BOUNDARY CONDITIONS. Two kinds, both moment based:

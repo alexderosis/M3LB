@@ -46,9 +46,9 @@ using namespace lbm;
 //------------------------------------------------------------------------------
 //  BLOCK 1 of 4 -- THE DISCRETISATION.
 //
-//  D2Q9 for a 2D problem; use D3Q27 in 3D. Do not reach for D3Q19 unless you
-//  know you want it: it is not a product lattice, so the central-moment and
-//  multiphase operators either fall back to a different basis or refuse.
+//  D2Q9 for a 2D problem; use D3Q27 in 3D -- they are the two Navier-Stokes
+//  lattices here, and both are product lattices, which is what the
+//  central-moment and multiphase operators need.
 //
 //  BGK is the simplest operator and the right default. Swap the alias for a
 //  central-moment operator if you need Galilean invariance at higher Mach or

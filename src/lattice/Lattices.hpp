@@ -123,35 +123,6 @@ struct D3Q7 {
 };
 
 //==============================================================================
-//  D3Q19
-//==============================================================================
-struct D3Q19 {
-  static constexpr const char* name = "D3Q19";
-  static constexpr int D = 3, Q = 19;
-  static constexpr int cs2_num = 1, cs2_den = 3;
-  static constexpr int w_den = 36;
-  static constexpr bool supports_navier_stokes = true;
-
-  //                          0  1   2  3   4  5   6  7   8  9  10  11 12  13 14  15 16  17 18
-  LBM_FN static constexpr int cx(int i) noexcept {
-    constexpr int v[Q] = { 0, 1, -1, 0,  0, 0,  0, 1, -1, 1, -1, 1, -1, 1, -1, 0,  0, 0,  0 };
-    return v[i];
-  }
-  LBM_FN static constexpr int cy(int i) noexcept {
-    constexpr int v[Q] = { 0, 0,  0, 1, -1, 0,  0, 1, -1,-1,  1, 0,  0, 0,  0, 1, -1, 1, -1 };
-    return v[i];
-  }
-  LBM_FN static constexpr int cz(int i) noexcept {
-    constexpr int v[Q] = { 0, 0,  0, 0,  0, 1, -1, 0,  0, 0,  0, 1, -1,-1,  1, 1, -1,-1,  1 };
-    return v[i];
-  }
-  LBM_FN static constexpr int w_num(int i) noexcept {
-    constexpr int v[Q] = {12, 2,  2, 2,  2, 2,  2, 1,  1, 1,  1, 1,  1, 1,  1, 1,  1, 1,  1 };
-    return v[i];
-  }
-};
-
-//==============================================================================
 //  D3Q27
 //==============================================================================
 struct D3Q27 {
@@ -312,7 +283,6 @@ template <class L> constexpr bool check_fourth_moment() {
 LBM_VERIFY_LATTICE(D2Q5)
 LBM_VERIFY_LATTICE(D2Q9)
 LBM_VERIFY_LATTICE(D3Q7)
-LBM_VERIFY_LATTICE(D3Q19)
 LBM_VERIFY_LATTICE(D3Q27)
 
 #undef LBM_VERIFY_LATTICE

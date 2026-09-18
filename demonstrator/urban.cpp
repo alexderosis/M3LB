@@ -86,8 +86,8 @@ using L      = D3Q7;
 using Coll   = ScalarBGK<L>;
 using Solver = ScalarSolver<L, EsotericPull<L>, Coll>;
 
-// The wind, when it is solved rather than prescribed. D3Q27 because D3Q19 is
-// out of scope for validation in this code, and TRT rather than BGK because the
+// The wind, when it is solved rather than prescribed. D3Q27 because it is the
+// only 3-D Navier-Stokes lattice here, and TRT rather than BGK because the
 // effective viscosity here puts tau within a few thousandths of 1/2, where BGK
 // is not usable and TRT's free antisymmetric rate is exactly the lever needed.
 using FL   = D3Q27;

@@ -132,14 +132,13 @@ int main(int argc, char** argv) {
     permutation<D2Q9,  EsotericPull<D2Q9>>(8, 6, 1, 2);
     permutation<D2Q9,  EsotericPull<D2Q9>>(8, 6, 1, 7);
     permutation<D2Q9,  EsotericPull<D2Q9>>(8, 6, 1, 24);
-    permutation<D3Q19, TwoLattice<D3Q19>>(5, 4, 3, 11);
-    permutation<D3Q19, EsotericPull<D3Q19>>(5, 4, 3, 1);
-    permutation<D3Q19, EsotericPull<D3Q19>>(5, 4, 3, 11);
+    permutation<D3Q27, TwoLattice<D3Q27>>(5, 4, 3, 11);
+    permutation<D3Q27, EsotericPull<D3Q27>>(5, 4, 3, 1);
     permutation<D3Q27, EsotericPull<D3Q27>>(5, 4, 3, 13);
 
     cross_check<D2Q9,  RawPopulations>(40);
     cross_check<D2Q9,  ShiftedPopulations>(40);
-    cross_check<D3Q19, RawPopulations>(20);
+    cross_check<D3Q27, RawPopulations>(20);
     cross_check<D3Q27, ShiftedPopulations>(20);
   }
   const int r = check::report("streaming");

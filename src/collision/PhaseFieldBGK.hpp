@@ -32,11 +32,11 @@
 //  THE EQUILIBRIUM IS A POLICY, because the right truncation depends on the
 //  lattice and this operator is meant to run on both kinds:
 //
-//    * On a Navier-Stokes lattice (D2Q9, D3Q19, D3Q27) the default is the
+//    * On a Navier-Stokes lattice (D2Q9, D3Q27) the default is the
 //      SECOND-ORDER form, which is Eq. (11) of the reference exactly -- and it
 //      is the fluid's own equilibrium with phi substituted for rho, so
 //      SecondOrderEquilibrium is reused rather than retyped. The paper runs the
-//      phase field on the full D3Q19 alongside the flow.
+//      phase field on the full Navier-Stokes lattice alongside the flow.
 //    * On D2Q5 / D3Q7 the default drops to FIRST order, because those lattices
 //      have no isotropic fourth-order moment; on D3Q7 every velocity has a
 //      single nonzero component, so (c.u)^2 collapses to c_a^2 u_a^2 and the

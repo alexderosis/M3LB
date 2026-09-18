@@ -108,47 +108,29 @@ int main(int argc, char** argv) {
     const Study abc_cm  = convergence("CM", [&](int N) {
       return abc_flow<ops::Cm<D3Q27>,  D3Q27, EsotericPull>(N, tau, Real(0.32 / N), frac, ops::plain); }, lad3);
 
-    std::printf("\nABC / BELTRAMI, D3Q19  (moment operators via the 19-monomial basis)\n");
-    header();
-    const Study a19_bgk = convergence("BGK", [&](int N) {
-      return abc_flow<ops::Bgk<D3Q19>, D3Q19, EsotericPull>(N, tau, Real(0.32 / N), frac, ops::plain); }, lad3);
-    const Study a19_mrt = convergence("MRT", [&](int N) {
-      return abc_flow<ops::Mrt<D3Q19>, D3Q19, EsotericPull>(N, tau, Real(0.32 / N), frac, ops::plain); }, lad3);
-    const Study a19_cm  = convergence("CM", [&](int N) {
-      return abc_flow<ops::Cm<D3Q19>,  D3Q19, EsotericPull>(N, tau, Real(0.32 / N), frac, ops::plain); }, lad3);
-
     //--------------------------------------------------------------------------
     std::printf("\nDIAGONAL SHEAR WAVE  (linear, off-axis -- probes lattice isotropy)\n");
     header();
-    const Study sw19 = convergence("D3Q19 BGK", [&](int N) {
-      return shear_wave<ops::Bgk<D3Q19>, D3Q19, EsotericPull>(N, tau, Real(0.32 / N), frac, ops::plain); }, lad2);
     const Study sw27 = convergence("D3Q27 BGK", [&](int N) {
       return shear_wave<ops::Bgk<D3Q27>, D3Q27, EsotericPull>(N, tau, Real(0.32 / N), frac, ops::plain); }, lad2);
-    const Study sw19cm = convergence("D3Q19 CM", [&](int N) {
-      return shear_wave<ops::Cm<D3Q19>,  D3Q19, EsotericPull>(N, tau, Real(0.32 / N), frac, ops::plain); }, lad2);
     const Study sw27cm = convergence("D3Q27 CM", [&](int N) {
       return shear_wave<ops::Cm<D3Q27>,  D3Q27, EsotericPull>(N, tau, Real(0.32 / N), frac, ops::plain); }, lad2);
-    std::printf("\n  off-diagonal viscosity error at the finest N, relative to D3Q19+BGK:\n");
-    std::printf("    D3Q19 BGK 1.00x   D3Q19 CM %.2fx   D3Q27 BGK %.2fx   D3Q27 CM %.2fx\n",
-                sw19.nu_err_fine / sw19cm.nu_err_fine,
-                sw19.nu_err_fine / sw27.nu_err_fine,
-                sw19.nu_err_fine / sw27cm.nu_err_fine);
+    std::printf("\n  off-diagonal viscosity error at the finest N, relative to D3Q27+BGK:\n");
+    std::printf("    D3Q27 BGK 1.00x   D3Q27 CM %.2fx\n",
+                sw27.nu_err_fine / sw27cm.nu_err_fine);
 
     for (const Study* st : {&tg_bgk, &tg_trt, &tg_mrt, &tg_cm,
                             &abc_bgk, &abc_trt, &abc_mrt, &abc_cm,
-                            &a19_bgk, &a19_mrt, &a19_cm,
-                            &sw19, &sw27, &sw19cm, &sw27cm})
+                            &sw27, &sw27cm})
       all_orders_ok = all_orders_ok && orders_ok(*st, ord_tol);
 
     //--------------------------------------------------------------------------
     std::printf("\nCROSS-LATTICE CONSISTENCY  (Taylor-Green, N=32, BGK -- same 2D field)\n");
     const Real U32 = Real(0.64 / 32.0);
     const Result c9  = taylor_green<ops::Bgk<D2Q9>,  D2Q9,  EsotericPull>(32, 1, tau, U32, frac, ops::plain);
-    const Result c19 = taylor_green<ops::Bgk<D3Q19>, D3Q19, EsotericPull>(32, 8, tau, U32, frac, ops::plain);
     const Result c27 = taylor_green<ops::Bgk<D3Q27>, D3Q27, EsotericPull>(32, 8, tau, U32, frac, ops::plain);
-    std::printf("  D2Q9 %.12f   D3Q19 %.12f   D3Q27 %.12f\n", c9.nu_eff, c19.nu_eff, c27.nu_eff);
-    const double spread = std::max(std::abs(c19.nu_eff - c9.nu_eff),
-                                   std::abs(c27.nu_eff - c9.nu_eff)) / c9.nu_eff;
+    std::printf("  D2Q9 %.12f   D3Q27 %.12f\n", c9.nu_eff, c27.nu_eff);
+    const double spread = std::abs(c27.nu_eff - c9.nu_eff) / c9.nu_eff;
     std::printf("  spread %.2e\n", spread);
 
     //--------------------------------------------------------------------------
@@ -173,22 +155,19 @@ int main(int argc, char** argv) {
     const double mass_tol  = sizeof(Real) == 4 ? 1e-4 : 1e-12;
     const double cross_tol = sizeof(Real) == 4 ? 1e-4 : 1e-10;
     const bool pass_cross = spread < cross_tol;
-    const bool pass_iso   = sw27.nu_err_fine < sw19.nu_err_fine;
     const bool pass_mass  = g_worst_mass < mass_tol;
     const bool pass_equiv = same_scheme && store_spread < cross_tol;
 
     std::printf("\nacceptance:\n");
-    std::printf("  every fitted order > %.1f  (15 studies x 2 quantities x 2 pairs)  %s\n",
+    std::printf("  every fitted order > %.1f  (10 studies x 2 quantities x 2 pairs)  %s\n",
                 ord_tol, all_orders_ok ? "PASS" : "FAIL");
-    std::printf("  D2Q9/D3Q19/D3Q27 agree on a 2D field   spread %.1e        %s\n",
+    std::printf("  D2Q9/D3Q27 agree on a 2D field         spread %.1e        %s\n",
                 spread, pass_cross ? "PASS" : "FAIL");
-    std::printf("  D3Q27 beats D3Q19 off-axis (isotropy)                     %s\n",
-                pass_iso ? "PASS" : "FAIL");
     std::printf("  streaming/storage equivalence          spread %.1e        %s\n",
                 store_spread, pass_equiv ? "PASS" : "FAIL");
     std::printf("  mass drift  %.2e  < %.1e                            %s\n",
                 g_worst_mass, mass_tol, pass_mass ? "PASS" : "FAIL");
-    if (!(all_orders_ok && pass_cross && pass_iso && pass_mass && pass_equiv)) status = 1;
+    if (!(all_orders_ok && pass_cross && pass_mass && pass_equiv)) status = 1;
   }
   Kokkos::finalize();
   return status;

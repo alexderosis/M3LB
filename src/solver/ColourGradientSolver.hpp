@@ -64,8 +64,8 @@
 //   * NO SHIFTED STORAGE. Two colours summing to rho leave nothing sensible to
 //     shift by, so RawPopulations it is, and the FP32 accuracy argument that
 //     motivates shifted storage elsewhere in this code does not apply.
-//   * NO D3Q19. phi_i, B_i and sigma = 4 A tau / 9 are all derived for D3Q27 in
-//     the source paper, and the operator static_asserts it.
+//   * D3Q27 ONLY. phi_i, B_i and sigma = 4 A tau / 9 are all derived for D3Q27
+//     in the source paper, and the operator static_asserts it.
 //   * NO MASS-CONSERVING RECOLOURING GUARANTEE PER COLOUR. The partition
 //     conserves the TOTAL exactly (f^r + f^b = f identically), but individual
 //     colour masses drift by the amount the recolouring moves across the

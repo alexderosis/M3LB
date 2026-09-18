@@ -110,9 +110,6 @@ struct TB { using type = BGK<D3Q27, SecondOrderEquilibrium<D3Q27>, NoForcing, Sh
 struct TT { using type = TRT<D3Q27, SecondOrderEquilibrium<D3Q27>, NoForcing, ShiftedPopulations>; };
 struct TM { using type = MomentCollision<D3Q27, NoForcing, ShiftedPopulations, false>; };
 struct TC { using type = MomentCollision<D3Q27, NoForcing, ShiftedPopulations, true>; };
-struct QB { using type = BGK<D3Q19, SecondOrderEquilibrium<D3Q19>, NoForcing, ShiftedPopulations>; };
-struct QM { using type = MomentCollision<D3Q19, NoForcing, ShiftedPopulations, false>; };
-struct QC { using type = MomentCollision<D3Q19, NoForcing, ShiftedPopulations, true>; };
 
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
@@ -158,10 +155,6 @@ int main(int argc, char** argv) {
     const Op t = sweep("  TRT(3/16)",      TT{}, trt);
     const Op m = sweep("  MRT (raw)",      TM{}, plain);
     const Op c = sweep("  CentralMoments", TC{}, plain);
-    std::printf("D3Q19  (moment operators via the 19-monomial basis):\n");
-    const Op qb = sweep("  BGK",            QB{}, plain);
-    const Op qm = sweep("  MRT (raw)",      QM{}, plain);
-    const Op qc = sweep("  CentralMoments", QC{}, plain);
 
     // How the drift scales with U0 tells us what KIND of error is left.
     auto power = [&](const Op& o) {
@@ -171,7 +164,7 @@ int main(int argc, char** argv) {
     };
     std::printf("\n%-16s %-12s %-12s %-10s\n", "operator", "drift", "vs BGK", "power in U0");
     std::printf("%s\n", std::string(56, '-').c_str());
-    for (const Op* o : {&b, &t, &m, &c, &qb, &qm, &qc})
+    for (const Op* o : {&b, &t, &m, &c})
       std::printf("%-16s %-12.2e %-12s %-10.2f\n", o->name, o->drift,
                   (o == &b ? "-" : (std::to_string(int(b.drift / o->drift)) + "x").c_str()),
                   power(*o));
@@ -187,7 +180,6 @@ int main(int argc, char** argv) {
     const bool pass_cm     = c.drift < tol_cm;
     const bool pass_better = c.drift < b.drift / 100.0 && m.drift < b.drift / 100.0;
     const bool pass_raw    = c.drift <= m.drift;     // central at least as good as raw
-    const bool pass_q19    = qc.drift < qb.drift / 100.0;
     const bool pass_power  = std::abs(power(c) - 2.0) < 0.25;
     std::printf("\nacceptance:\n");
     std::printf("  CentralMoments viscosity drift %.2e < %.1e            %s\n",
@@ -196,11 +188,9 @@ int main(int argc, char** argv) {
                 pass_better ? "PASS" : "FAIL");
     std::printf("  central moments no worse than raw moments               %s\n",
                 pass_raw ? "PASS" : "FAIL");
-    std::printf("  D3Q19 CM also at least 100x better than D3Q19 BGK       %s\n",
-                pass_q19 ? "PASS" : "FAIL");
     std::printf("  residual scales as U0^2 (compressibility, power %.2f)    %s\n",
                 power(c), pass_power ? "PASS" : "FAIL");
-    if (!(pass_cm && pass_better && pass_raw && pass_power && pass_q19)) status = 1;
+    if (!(pass_cm && pass_better && pass_raw && pass_power)) status = 1;
   }
   Kokkos::finalize();
   return status;

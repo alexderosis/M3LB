@@ -82,7 +82,7 @@ struct ScalarRegularised : ScalarBGK<L> {
   // axes and a genuine 9- or 27-moment transform, which this is not.
   static_assert(L::Q == 2 * L::D + 1,
                 "ScalarRegularised needs a rest-plus-axial-pairs lattice "
-                "(D2Q5 or D3Q7); D2Q9/D3Q19/D3Q27 have coupled axes.");
+                "(D2Q5 or D3Q7); D2Q9/D3Q27 have coupled axes.");
   static_assert(cvel<L>(1, 0) == 1 && cvel<L>(2, 0) == -1,
                 "slots 1,2 must be the +/-x pair.");
   static_assert(cvel<L>(3, 1) == 1 && cvel<L>(4, 1) == -1,

@@ -83,10 +83,8 @@
 //  real measurements of the wrong thing.
 //
 //  PRODUCT LATTICES ONLY. The transform is three one-dimensional passes, which
-//  needs the velocity set to be a tensor product: D2Q9 and D3Q27, not D3Q19 and
-//  not D2Q5 or D3Q7. The paper's own scheme is D3Q19 and reaches the same place
-//  by writing out a 19x19 transform; that is a different piece of work and is
-//  not done here. Pair this with PhaseFieldBGK on the reduced lattices.
+//  needs the velocity set to be a tensor product: D2Q9 and D3Q27, not D2Q5 or
+//  D3Q7. Pair this with PhaseFieldBGK on the reduced lattices.
 //==============================================================================
 #include "collision/PhaseFieldBGK.hpp"
 #include "collision/ProductBasis.hpp"
@@ -106,8 +104,7 @@ struct PhaseFieldCentralMoments {
 
   static_assert(Basis::enabled,
                 "the phase-field central-moment collision needs a product "
-                "lattice: D2Q9 or D3Q27. Use PhaseFieldBGK on D2Q5, D3Q7 or "
-                "D3Q19.");
+                "lattice: D2Q9 or D3Q27. Use PhaseFieldBGK on D2Q5 or D3Q7.");
 
   Real omega = Real(1);      // sets the mobility, exactly as in PhaseFieldBGK
   Real width = Real(4);      // interface width W, in lattice units

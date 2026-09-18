@@ -23,10 +23,10 @@
 //  banner argues it at length). So every comparison below is against the
 //  paper's FD column, which is also the one it uses for all its own figures.
 //
-//  LATTICE. The paper runs its phase field on D3Q19. Here the default is D3Q27
-//  -- the richest three-dimensional set, and the one the fluid side needs for
-//  the central-moment operator in the second group of tests -- with -lat d3q19
-//  available to match the paper exactly. Two-dimensional cases are run with one
+//  LATTICE. The paper runs its phase field on D3Q19, which this tree does not
+//  carry. Here it is D3Q27 -- the richest three-dimensional set, and the one the
+//  fluid side needs for the central-moment operator in the second group of
+//  tests -- or D3Q7 with -lat d3q7. Two-dimensional cases are run with one
 //  periodic cell in z, which on a product lattice is an exact reduction. The
 //  gradient stencil always runs on the full Navier-Stokes lattice of the same
 //  dimension, which is what sets the isotropy.
@@ -427,7 +427,7 @@ int main(int argc, char** argv) {
     std::printf("M3LB conservative Allen-Cahn phase field, %s, %s collision, "
                 "Esoteric Pull\n",
                 op == "cm" ? "D3Q27" :
-                  (lat == "d3q19" ? "D3Q19" : (lat == "d3q7" ? "D3Q7" : "D3Q27")),
+                  (lat == "d3q7" ? "D3Q7" : "D3Q27"),
                 op == "cm" ? "central-moment (their Sec. II.D)"
                            : "BGK (their Sec. II.B physics only)");
     std::printf("backend %s   precision %s   U0 = %g\n",
@@ -444,7 +444,6 @@ int main(int argc, char** argv) {
           throw std::runtime_error("-op cm needs -lat d3q27");
         return run<D3Q27, PhaseFieldCentralMoments<D3Q27>>(s, Pe, U0, tag, probe);
       }
-      if (lat == "d3q19") return run<D3Q19, PhaseFieldBGK<D3Q19>>(s, Pe, U0, tag, probe);
       if (lat == "d3q7")  return run<D3Q7,  PhaseFieldBGK<D3Q7>>(s, Pe, U0, tag, probe);
       return run<D3Q27, PhaseFieldBGK<D3Q27>>(s, Pe, U0, tag, probe);
     };

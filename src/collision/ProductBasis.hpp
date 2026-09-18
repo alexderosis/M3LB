@@ -22,9 +22,9 @@
 //  (Checked symbolically for D2Q9 and D3Q27.) That is what collapses the
 //  collision to a handful of lines in MomentCollision.hpp.
 //
-//  D3Q19 is not a product lattice -- it is D3Q27 minus the eight corners -- so
-//  none of this applies to it and `enabled` is false. Its central-moment
-//  operator needs the 19-moment d'Humieres basis and a genuine 19x19 transform.
+//  A lattice whose velocity set is not a full tensor product gets
+//  `enabled = false`, and the operators that need this transform static_assert
+//  on it rather than falling back to something slower.
 //==============================================================================
 #include "core/Types.hpp"
 #include "lattice/Lattices.hpp"
@@ -62,7 +62,7 @@ struct ProductBasis {
   static constexpr int mi(int p, int q, int r = 0) {
     return (D == 2) ? (p * 3 + q) : ((p * 3 + q) * 3 + r);
   }
-  // ---- interface shared with MonomialBasis, so MomentCollision is basis-generic ----
+  // ---- the interface MomentCollision reaches the basis through ----
   //
   // Table lookups, not arithmetic: these are called with a runtime moment index
   // inside the collision, and the obvious `n / 9`, `(n / 3) % 3` form costs three
@@ -96,7 +96,7 @@ struct ProductBasis {
 
   // 1D equilibrium factors in this basis. phi_2 = C^2 - cs2 already has the cs2
   // subtracted, which is why the Maxwellian is diagonal here and these come out
-  // as pure powers rather than carrying a cs2 term (contrast MonomialBasis).
+  // as pure powers rather than carrying a cs2 term.
   // The 1D basis function itself, for tests that contract directly.
   KOKKOS_INLINE_FUNCTION
   static Real phi(int p, int c, Real u) {

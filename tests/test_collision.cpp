@@ -286,16 +286,15 @@ int main(int argc, char** argv) {
   {
     for (Real w : {Real(0.4), Real(1.0), Real(1.8)}) {
       conservation<D2Q9,  RawPopulations>(w);
-      conservation<D3Q19, RawPopulations>(w);
       conservation<D3Q27, RawPopulations>(w);
       conservation<D2Q9,  ShiftedPopulations>(w);
-      conservation<D3Q19, ShiftedPopulations>(w);
+      conservation<D3Q27, ShiftedPopulations>(w);
       forced_momentum<D2Q9,  RawPopulations>(w);
-      forced_momentum<D3Q19, RawPopulations>(w);
+      forced_momentum<D3Q27, RawPopulations>(w);
       forced_momentum<D2Q9,  ShiftedPopulations>(w);
-      forced_momentum<D3Q19, ShiftedPopulations>(w);
+      forced_momentum<D3Q27, ShiftedPopulations>(w);
       storage_equivalence<D2Q9>(w);
-      storage_equivalence<D3Q19>(w);
+      storage_equivalence<D3Q27>(w);
     }
     for (Real w : {Real(0.4), Real(1.0), Real(1.8), Real(1.997)}) {
       scalar_regularised<D3Q7>(w);
@@ -306,7 +305,7 @@ int main(int argc, char** argv) {
       charge_cm<D2Q9>(w);
     }
     viscosity_roundtrip<D2Q9>();
-    viscosity_roundtrip<D3Q19>();
+    viscosity_roundtrip<D3Q27>();
   }
   const int r = check::report("collision");
   Kokkos::finalize();

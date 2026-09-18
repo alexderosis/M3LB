@@ -8,7 +8,7 @@ There are **two independent codes** here and it matters which one you use:
 
 | | what it is | use it when |
 |---|---|---|
-| `src/` + `validation/` | the main solver, C++20 on Kokkos. 29 validation cases, five lattices, four collision operators, thermal + MHD modules, two demonstrators | you want the full physics, or you are running on CPU |
+| `src/` + `validation/` | the main solver, C++20 on Kokkos. 29 validation cases, four lattices, four collision operators, thermal + MHD modules, two demonstrators | you want the full physics, or you are running on CPU |
 | `GPU/` | a second implementation written directly in CUDA, deliberately sharing no code with the first | you want GPU speed, or you want to check one code against the other |
 
 They agree where they overlap — Taylor–Green to 5.3e-04 in energy — which is the
@@ -440,7 +440,9 @@ So you do not spend a week looking for them.
   two configurations did not finish in seventeen minutes at 64³ where BGK took
   0.03 s. Unexplained; register spilling is ruled out. Use `GPU/` if you need
   central moments on a device.
-* D3Q19 is excluded from current validation work.
+* D3Q19 was removed from the tree on 2026-09-18. The four lattices are now
+  D2Q5, D2Q9, D3Q7 and D3Q27. Measurements taken on D3Q19 are kept in
+  `results/`, `doc/fig/` and the README tables, marked as historical.
 
 ## 8. If something looks wrong
 

@@ -103,10 +103,10 @@
 //     the transport, but sets no contact angle: that needs a condition on
 //     grad phi at the wall. Do not put an interface against a wall.
 //   * OPEN BOUNDARIES for phi.
-//   * D3Q19, on either distribution. It is not a product lattice, so the
-//     factorised transform does not apply to it at all; the paper's own scheme
-//     is D3Q19 and gets there by writing out a 19x19, which is a different
-//     piece of work and is not done here or in the parent.
+//   * ANY NON-PRODUCT LATTICE, on either distribution: the factorised
+//     transform does not apply to one at all. The paper's own scheme is D3Q19
+//     and gets there by writing out a 19x19, which is a different piece of work
+//     and is not done here or in the parent.
 //
 //  MEMORY. f at 27 Real, h at 7 (D3Q7) or 27 (D3Q27), plus phi, grad phi (3),
 //  lap, u (3) and, when used, the viscous force (3) and grad p~ (3). At FP32

@@ -400,7 +400,6 @@ int main(int argc, char** argv) {
     // applicable there rather than expected to fail.
     fails += moments<D3Q27>(std::uint8_t(SpecXm | SpecYp | SpecZm),
                             "D3Q27 corner", false);
-    fails += moments<D3Q19>(std::uint8_t(SpecXm | SpecZm), "D3Q19 -x-z edge", true);
     std::printf("\n  %s\n", fails ? "FAIL" : "PASS");
   }
   Kokkos::finalize();

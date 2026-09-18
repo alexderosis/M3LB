@@ -57,7 +57,7 @@
 This document describes the numerical schemes, the software architecture and the
 complete validation record of \code{M3LB}, a portable lattice Boltzmann
 solver written in C\texttt{++}20 on top of Kokkos. The code targets NVIDIA GPUs
-and CPU clusters from a single source. It supports five lattices, two streaming
+and CPU clusters from a single source. It supports four lattices, two streaming
 schemes (including the in-place Esoteric Pull), two population storage
 conventions, four collision operators for the fluid (BGK, TRT, raw multiple
 relaxation time and central moments), no-slip, regularised and free-slip walls, a passive-scalar module for heat transfer
@@ -184,7 +184,7 @@ satisfy
   \label{eq:iso4}
 \end{align}
 
-Five lattices are provided. \textbf{D2Q5} and \textbf{D3Q7} satisfy
+Four lattices are provided. \textbf{D2Q5} and \textbf{D3Q7} satisfy
 \eqref{eq:iso2} but \emph{not} \eqref{eq:iso4}: they cannot support
 Navier--Stokes and are used only for scalar transport and for the magnetic field,
 where only the second moment is required.
@@ -2579,8 +2579,7 @@ exactly $F_x/\rho$ and $F_y/\rho$, to $1.4\e{-17}$, with the full multiphase for
 assembled.
 
 \paragraph{Two constraints on where this operator may be used.} It requires a
-product lattice: D2Q9 or D3Q27, enforced by a static assertion, since D3Q19 would
-need the monomial basis and its own equilibrium moments. And it takes raw storage
+product lattice: D2Q9 or D3Q27, enforced by a static assertion. And it takes raw storage
 only. The shifted convention centres the stored variable on $\tilde p = 1$, which
 is precisely the pressure gauge that must be avoided at a density ratio --- the
 subject of \S\ref{sec:gauge}.
@@ -8255,7 +8254,6 @@ and they are worth listing because any future port will meet them:
   \code{KOKKOS\_INLINE\_FUNCTION} accessors wrapping function-local arrays.
   \textbf{Invariant to preserve: \code{src/} contains no static constexpr array
   members.}
-\item The same, in \code{MonomialBasis}.
 \item Extended lambdas may not appear inside a \emph{generic} lambda, and
   function-local types may not be template arguments of one.
 \end{enumerate}
@@ -8963,7 +8961,7 @@ Absent, not merely untested:
   potential form. The colour gradient \emph{is} in central moments.
 \item \textbf{No wetting, no contact angle, no external force field, and no
   open boundary for $\phi$.}
-\item \textbf{D3Q27 only}, no D3Q19, no TRT or raw MRT, no regularised walls, no
+\item \textbf{D3Q27 only}, no TRT or raw MRT, no regularised walls, no
   height-field input, and therefore no aorta and no city.
 \end{itemize}
 
@@ -9428,7 +9426,7 @@ Stated plainly, because each has been measured.
 
 \item \textbf{The CUDA implementation of \S\ref{sec:cuda} covers a fraction of
   this one.} D3Q27 only; no shifted storage; no open boundary for the scalar; no
-  physical magnetic wall, so every MHD case there is periodic; no D3Q19, TRT, raw
+  physical magnetic wall, so every MHD case there is periodic; no TRT, raw
   MRT, regularised walls or height-field input. It cannot run the aorta or a city.
   Both immiscible models of \S\ref{sec:multiphase} are there
   (\S\ref{sec:cudamp}); the free surface is not, and cannot be without a
@@ -9697,14 +9695,11 @@ the fitted rate is blamed on the scheme.
   ratio of $10$ and diverged inside $500$ steps. The default stays local-$\rho$
   because that is what every validated result in this tree was obtained with.
 
-\item \textbf{The multiphase central-moment operator does not run on D3Q19.}
-  It is built on \code{ProductBasis}, and the \code{static\_assert} says so: a
-  product lattice is required --- D2Q9 or D3Q27 --- and D3Q19 would need the
-  monomial basis and its own equilibrium central moments. The pressure-form BGK
-  operator carries no such restriction, asking only for a Navier--Stokes
-  lattice, so a D3Q19 two-phase run is possible at single-relaxation-time
-  quality --- which is exactly the quality that failed at $\mathrm{Re}=30000$ in
-  \S\ref{sec:rt}.
+\item \textbf{The multiphase central-moment operator requires a product
+  lattice.} It is built on \code{ProductBasis}, and the \code{static\_assert}
+  says so: D2Q9 or D3Q27. Both three-dimensional lattices in this tree satisfy
+  it, so the restriction bites only if a non-product lattice is added --- which
+  D3Q19 was, until it was removed on 2026-09-18.
 
 \item \textbf{Shifted storage is unavailable to the multiphase operators.}
   \code{ShiftedPopulations} centres the stored variable on $\tilde p = 1$, which

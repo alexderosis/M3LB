@@ -591,7 +591,7 @@ class PenalisedBody {
   // angle about z, no quaternion. A tilted or tumbling 3-D body remains absent.
   static_assert(L::D == 2 || Shape::three_d,
                 "a 3-D lattice needs a 3-D shape: Rect and Wedge are prisms in "
-                "z, so on D3Q19/D3Q27 they would model an infinite prism with a "
+                "z, so on D3Q27 they would model an infinite prism with a "
                 "one-angle solve. Use Sphere, or a 2-D lattice.");
 
   explicit PenalisedBody(const Domain& dom)

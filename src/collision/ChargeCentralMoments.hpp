@@ -103,8 +103,7 @@ struct ChargeCentralMoments {
   static constexpr int NM = Basis::NM;
 
   static_assert(Basis::enabled,
-                "ChargeCentralMoments needs a product lattice (D2Q9 or D3Q27); "
-                "D3Q19 has no product basis.");
+                "ChargeCentralMoments needs a product lattice: D2Q9 or D3Q27.");
 
   Real omega = Real(1);          // relaxes the flux, and so sets the diffusivity
 

@@ -73,8 +73,8 @@ WHAT THIS FILE DOES NOT DO, and why nothing needs changing because of it.
   The value of the expansion is as the PROOF that the three-line write is exact,
   and as the instrument that sizes what BGK and TRT give up by not having it.
 
-  It also does not touch the D3Q19 case.  That lattice is not a product lattice
-  and has no such basis; see CLAUDE.md.
+  It also does not touch a non-product lattice, which has no such basis at all;
+  see CLAUDE.md.
 """
 import itertools
 import sys

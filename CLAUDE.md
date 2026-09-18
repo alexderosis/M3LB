@@ -15,7 +15,7 @@ first — it frequently already says why the obvious change is wrong.
 
 | | what it is | when to use |
 |---|---|---|
-| `src/` + `validation/` | the main solver, Kokkos, five lattices, four collision operators, thermal + MHD + multiphase + free surface | default; anything on CPU; anything needing the full physics |
+| `src/` + `validation/` | the main solver, Kokkos, four lattices, four collision operators, thermal + MHD + multiphase + free surface | default; anything on CPU; anything needing the full physics |
 | `GPU/` | a second implementation written directly in CUDA, sharing **no headers** with the first | GPU runs, or cross-checking one implementation against the other |
 
 They deliberately duplicate the physics. That is the point: they agree where they
@@ -173,7 +173,7 @@ t_phys = steps * dt
   D3Q7. Use `omega_from_*`, which reads the lattice's own `cs2`; keep the closed
   form only for a printed diagnostic on a `cs2 = 1/3` lattice. The literal
   `0.25` in `demonstrator/urban.cpp:253` is this, in the open: it is correct
-  only because that case is D3Q7, and copying the line to a D3Q19 or D3Q27
+  only because that case is D3Q7, and copying the line to a D3Q27
   scalar would be wrong by 4/3 without failing.
 - **Halving `u0` at fixed Re and N hurts twice**: it doubles the steps to the
   same convective time *and* halves ν, pushing τ toward 1/2. Raising `N` instead
@@ -199,12 +199,17 @@ These produce plausible, converged, wrong answers rather than crashes.
   `RawPopulations`. `FreeSurfaceSolver` `static_assert`s *against* Esoteric Pull
   and needs `TwoLattice`, because it reads a neighbour's post-collision state
   while writing its own.
-- **D3Q19 is not a product lattice.** It is D3Q27 minus its corners, so it uses a
-  generated monomial basis. Neither `MultiphaseCentralMoments` nor
-  `PhaseFieldCentralMoments` runs on it at all (both `static_assert` on
-  `ProductBasis::enabled`, so it is a compile error rather than a wrong answer),
-  and its MHD Maxwell sum leaves a ghost-mode residual. Prefer D3Q27 for
-  anything above second order.
+- **EVERY LATTICE HERE IS NOW A PRODUCT LATTICE.** D3Q19 was the one that was
+  not -- D3Q27 minus its corners, reached through a generated monomial basis --
+  and it was removed on 2026-09-18 along with `MonomialBasis.hpp` and
+  `MATLAB/D3Q19_CM.m`. `SelectBasis` therefore always returns `ProductBasis`,
+  and the operators that need the factorised transform
+  (`MultiphaseCentralMoments`, `PhaseFieldCentralMoments`, `ChargeCentralMoments`,
+  `FreeSurfaceSolver`) still `static_assert` on `ProductBasis::enabled`, which is
+  now a guard against a future lattice rather than against D3Q19. If you add a
+  non-product lattice, that assertion is what will catch it -- a compile error
+  rather than a wrong answer. Historical measurements on D3Q19 are kept in
+  `results/`, `doc/fig/` and the README tables and are marked as such.
 - **A published moment list belongs to a basis.** `ProductBasis` is *shifted*,
   phi_2 = C^2 - cs2; most papers tabulate *monomial* central moments, and the
   same physics occupies different slots in the two. De Rosis & Enan's Eq. (61)
@@ -573,7 +578,7 @@ Do not spend time on these without saying so first; several are deliberate.
   regularised (on-node) velocity walls, and `hartmann` — so a wall-bounded MHD
   benchmark now runs there too.
   What it still lacks: an open boundary for the FLUID (the parent's `NrmOutXp` /
-  `NrmOutFree`), D3Q19, raw MRT, and a moving obstacle in the free surface — the
+  `NrmOutFree`), raw MRT, and a moving obstacle in the free surface — the
   last deliberately, see that module's banner and the entry above.
   As of 2026-09-04 the D3Q7 scalar also has a **regularised collision**
   (`collide_scalar_regularised`, `ScalarOp::Regularised`) beside BGK: it relaxes

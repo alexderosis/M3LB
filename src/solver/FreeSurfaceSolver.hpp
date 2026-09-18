@@ -228,11 +228,9 @@ class FreeSurfaceSolver {
   static_assert(L::supports_navier_stokes,
                 "the free surface is a Navier-Stokes solver and needs a lattice "
                 "with isotropic fourth-order moments.");
-  // D3Q19 is deferred, not excluded on principle: the solver's own machinery is
-  // lattice-generic and was measured on it, but the central-moment operator
-  // reaches D3Q19 through the monomial basis rather than the product one, and
-  // that pairing has not been exercised here. D2Q9 and D3Q27 are the product
-  // lattices and are what this runs on.
+  // The solver's own machinery is lattice-generic, but the central-moment
+  // operator needs the factorised transform, so this runs on the product
+  // lattices: D2Q9 and D3Q27.
   static_assert(ProductBasis<L>::enabled,
                 "the free surface currently pairs with the product-basis central "
                 "moment operator: D2Q9 or D3Q27.");

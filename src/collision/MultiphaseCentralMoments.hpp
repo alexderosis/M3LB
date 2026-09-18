@@ -145,8 +145,7 @@ struct MultiphaseCentralMoments {
   static_assert(L::supports_navier_stokes,
                 "the multiphase fluid operator needs a Navier-Stokes lattice.");
   static_assert(Basis::enabled,
-                "this operator needs a product lattice (D2Q9 or D3Q27); D3Q19 "
-                "would need the monomial basis and its own equilibrium moments.");
+                "this operator needs a product lattice: D2Q9 or D3Q27.");
 
   // Phase field and its derivatives, owned by PhaseFieldSolver.
   View1D<Real> phi, Gx, Gy, Gz, Lap;

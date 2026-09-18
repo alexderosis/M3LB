@@ -9,7 +9,7 @@ searchable and citable.
 
 Modular lattice Boltzmann solver in C++20 on Kokkos.
 
-**Status: Milestone 8.** D2Q9/D3Q19/D3Q27 BGK fluid solver, **Esoteric Pull**
+**Status: Milestone 8.** D2Q9/D3Q27 BGK fluid solver, **Esoteric Pull**
 in-place streaming (one population set) cross-checked bit-for-bit against the
 two-lattice reference, **shifted populations** for usable FP32, halfway
 bounce-back, Guo forcing. Validated against analytic Poiseuille flow to machine
@@ -126,7 +126,7 @@ enstrophy decay. Roughly 25-40 minutes, nearly all of it compiling.
 
 | path | contents |
 |---|---|
-| `src/lattice/`     | D2Q5, D2Q9, D3Q7, D3Q19, D3Q27 descriptors; lattice identities checked at compile time |
+| `src/lattice/`     | D2Q5, D2Q9, D3Q7, D3Q27 descriptors; lattice identities checked at compile time |
 | `src/core/`        | scalar types, Kokkos aliases, layout policy |
 | `src/grid/`        | `Domain`: padded Cartesian block with halo |
 | `src/memory/`      | streaming schemes (`TwoLattice`, `EsotericPull`) and the raw/shifted storage tags |
@@ -207,7 +207,7 @@ asserts that gain rather than merely tolerating its absence.
 |---|---|---|
 | `BGK`             | [BGK.hpp](src/collision/BGK.hpp) | single relaxation time |
 | `TRT`             | [TRT.hpp](src/collision/TRT.hpp) | symmetric/antisymmetric split, magic parameter |
-| `MRT` / `CentralMoments` | [MomentCollision.hpp](src/collision/MomentCollision.hpp) | one implementation, `Central` toggle; D2Q9, D3Q19, D3Q27 |
+| `MRT` / `CentralMoments` | [MomentCollision.hpp](src/collision/MomentCollision.hpp) | one implementation, `Central` toggle; D2Q9, D3Q27 |
 
 `MRT` and `CentralMoments` differ only in the velocity the moment basis is built
 at -- `u_b = 0` for raw moments, `u_b = u` for central -- which is exactly the
@@ -221,25 +221,13 @@ moment and **exactly zero in all 26 others**, so no equilibrium populations are
 ever formed and no `K_eq` vector is stored. Shifted storage is handled by
 subtracting the moments of `w`, which factorise too.
 
-**D3Q19 is not a product lattice** (it is D3Q27 minus its eight corners), so it
-uses a generated 19-monomial basis instead --
-[MonomialBasis.hpp](src/collision/MonomialBasis.hpp). `SelectBasis` picks the
-right one per lattice and the operator itself is basis-generic. Verified in
-exact rational arithmetic before the header was generated: M is invertible on
-D3Q19, the monomial set is downward closed so the binomial central-moment shift
-needs nothing outside the basis, the shift matches direct central summation and
-round-trips exactly, and -- the useful surprise -- the equilibrium raw moments
-come out **exactly product-form**, `m_eq = rho P(p,ux)P(q,uy)P(r,uz)` with
-`P = {1, u, cs2+u^2}`, so the equilibrium central moments are the Maxwellian ones
-on all 19 representable monomials, the same structure as D3Q27. (D3Q19's known
-equilibrium defects live at monomials such as (300) and (111), which the lattice
-cannot represent at all and which are not in the basis.)
-
-Also settled: `D3Q19_CM.m`'s **ortho and non-ortho branches define the identical
-operator**. Both relax positions 6..10 at omega and everything else at 1; in
-either basis those five span the deviatoric second-order subspace and position 5
-spans the trace, and sending independent combinations to equilibrium is the same
-as sending the subspace to equilibrium. There is no choice to make.
+**D3Q19 WAS REMOVED ON 2026-09-18** and every lattice here is now a product
+lattice, so `SelectBasis` always returns `ProductBasis` and the generated
+19-monomial basis it used to select (`MonomialBasis.hpp`, `MATLAB/D3Q19_CM.m`)
+is gone with it. D3Q19 is D3Q27 minus its eight corners, which is exactly why it
+had no factorised transform. Measurements taken on it are left in place in
+`results/`, `doc/fig/` and in the tables below, and are marked as historical
+where they appear; nothing in the tree can be run on that lattice any more.
 
 ### The magic parameter, and what each operator fixes
 
@@ -380,17 +368,17 @@ relative to D3Q19+BGK:
 |---|---|---|---|
 | 1.00x | **1.52x** | 1.12x | 1.38x |
 
-**D3Q19 with central moments is the most isotropic combination of the four** --
-better than D3Q27 with central moments, and 1.7x faster. That inverts the usual
-assumption that more velocities means more isotropy: D3Q27's central-moment
-operator has 20 higher moments forced to equilibrium at rate 1 against D3Q19's 9,
-and each of those carries its own error. Measured on one case (diagonal shear
-wave, tau = 0.8) and not to be over-generalised, but it does mean D3Q19 + CM
-deserves to be on the table rather than dismissed.
+**D3Q19 with central moments was the most isotropic combination of the four**
+-- better than D3Q27 with central moments, and 1.7x faster. That inverted the
+usual assumption that more velocities means more isotropy: D3Q27's
+central-moment operator has 20 higher moments forced to equilibrium at rate 1
+against D3Q19's 9, and each of those carries its own error. Measured on one case
+(diagonal shear wave, tau = 0.8). Recorded rather than actionable: the lattice
+was removed on 2026-09-18, so the comparison cannot be re-run here.
 
 Neither operator dominates everywhere; which one wins depends on the flow.
 
-Plus: D2Q9/D3Q19/D3Q27 agree on the same 2D field to 3.9e-14, and all four
+Plus: D2Q9/D3Q27 agree on the same 2D field to 3.9e-14, and all four
 streaming/storage combinations agree to 1.8e-14 on the ABC flow.
 
 ## Thermal module
@@ -567,7 +555,8 @@ The lattice-to-lattice spread converges away at second order (0.13/0.26/0.42
 percentage points at N=256 becoming 0.03/0.07/0.10 at N=512), so all three
 converge to the same answer. The magnetic lattice matters more than the fluid
 one: swapping D2Q5 for D3Q7 moves j_max by ~0.25 points, unsurprising given
-cs2 = 1/3 against 1/4. Select with `orszag_tang -lat d3q19|d3q27 [-maglat d2q5]`.
+cs2 = 1/3 against 1/4. Select with `orszag_tang -lat d3q27 [-maglat d2q5]`;
+the D3Q19 column above is historical, from before that lattice was removed.
 
 ### A coupling error that does not refine away
 
@@ -600,10 +589,11 @@ Collision operator (Esoteric Pull + shifted, FP64):
 | D3Q27 | 14.2 | 11.4 | 5.9 | 5.9 |
 
 Central moments cost 3.2x BGK on D3Q19 and 2.4x on D3Q27, in line with the extra
-arithmetic. **D3Q19 + CM is 1.6x faster than D3Q27 + CM** -- its transform is
-sparser (M has 127/361 nonzeros, M^-1 91/361, plus 72 shift terms, about 290
-operations against D3Q27's 648) and it moves 30% fewer bytes. Combined with the
-isotropy result above, D3Q19 + CM is the combination to try first for 3D. **Treat these ratios with care**: this machine is nowhere near
+arithmetic. **D3Q19 + CM was 1.6x faster than D3Q27 + CM** -- its transform was
+sparser (M had 127/361 nonzeros, M^-1 91/361, plus 72 shift terms, about 290
+operations against D3Q27's 648) and it moved 30% fewer bytes; that row is
+historical, since the lattice was removed on 2026-09-18. **Treat these ratios
+with care**: this machine is nowhere near
 memory-bound at these rates (~1.4 GB/s against ~68 GB/s available), so the
 collision cost shows in full. On a GPU, where the kernel is bandwidth-bound,
 most of it should hide behind the memory traffic. Re-run `lbm_app` on the target
@@ -619,7 +609,7 @@ Three optimisations found through this harness, all measured rather than assumed
   Replacing it with a precomputed table took the moment operators from 1.8 to
   6.6 MLUPS -- a **3.7x** defect, not a design cost.
 - Hoisting the equilibrium evaluation out of TRT's pair loop (which does not
-  vectorise) gained 37% on D3Q27 and 45% on D3Q19.
+  vectorise) gained 37% on D3Q27 and 45% on D3Q19 (as it then was).
 
 - The same class of defect reappeared in the basis-generic refactor: `p_of(n)`
   computed as `n / 9`, `(n / 3) % 3` costs three integer divisions per moment with
@@ -627,9 +617,10 @@ Three optimisations found through this harness, all measured rather than assumed
 
 Compacting the neighbour list to the odd half was also tried, made no measurable
 difference, and was reverted. Making the operator basis-generic (so one
-implementation serves the product basis and D3Q19's monomial basis) costs about
-7% on D3Q27 against the previous hardcoded version -- a fair trade for not
-maintaining two copies of the relaxation.
+implementation served the product basis and D3Q19's monomial basis) cost about
+7% on D3Q27 against the previous hardcoded version. With D3Q19 removed there is
+only one basis left, and the indirection is kept because the operator reaches
+the basis only through it.
 
 ## Roadmap
 
@@ -651,10 +642,10 @@ raised are resolved and the scripts corrected in place; `MATLAB/original/` keeps
 them as they were.
 
 1. **D3Q19 defined the equilibrium twice.** The `if/elseif` block was silently
-   overwritten by a later `nnz` chain. The `nnz` chain is removed and the first
-   block kept: comparing equilibrium central moments against the continuous
-   Maxwellian, it deviates in 10 of 35 moments (to 4th order) versus 25 for the
-   one that was winning.
+   overwritten by a later `nnz` chain; the `nnz` chain was removed and the first
+   block kept. Both that script and its `original/` copy were deleted with the
+   lattice on 2026-09-18, so this entry is a record of what was found, not of a
+   file still in the tree.
 2. **D3Q27 dropped `(1-omega) k_pre` on three second-order moments.** `L` relaxes
    1-based positions 5..10 but `K_pre` was assigned only at 1, 8, 9, 10, so the
    three normal second-order central moments were driven to equilibrium at rate 1
@@ -667,5 +658,5 @@ drops straight into `src/lattice/Lattices.hpp`'s convention. `esopull_ordering.m
 carries the permutation vectors for converting previously generated output.
 
 Bulk viscosity is now an explicit `omega_bulk` on `MomentCollision`, defaulting
-to `omega` (D3Q27's ortho convention); set it to 1 for the D2Q9/D3Q19 convention.
+to `omega` (D3Q27's ortho convention); set it to 1 for the D2Q9 convention.
 It is no longer an accident of which basis toggle is set.

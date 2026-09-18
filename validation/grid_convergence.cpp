@@ -5,10 +5,10 @@
 //  regression check; `decaying_flows` is the one that asserts.
 //
 //  Two cases, both with exact Navier-Stokes solutions:
-//    taylor_green  a z-independent field, so it runs on D2Q9, D3Q19 and D3Q27
-//                  alike and is the only case that lets all three be compared
-//                  on the same problem;
-//    abc           genuinely 3D, so D3Q19 and D3Q27 only.
+//    taylor_green  a z-independent field, so it runs on D2Q9 and D3Q27 alike
+//                  and is the only case that lets both be compared on the same
+//                  problem;
+//    abc           genuinely 3D, so D3Q27 only.
 //
 //  Diffusive scaling U ~ 1/N keeps the Mach-number error second order alongside
 //  the spatial error, so a clean slope of -2 on a log-log plot of error against
@@ -65,28 +65,18 @@ int main(int argc, char** argv) {
     const std::vector<int> tg = {16, 24, 32, 48, 64};
     const std::vector<int> ab = {16, 24, 32, 48};
 
-    // ---- Taylor-Green: all three Navier-Stokes lattices ----
+    // ---- Taylor-Green: both Navier-Stokes lattices ----
     tg_ladder<D2Q9,  ops::Bgk>("BGK", ops::plain, tg);
     tg_ladder<D2Q9,  ops::Trt>("TRT", ops::trt,   tg);
     tg_ladder<D2Q9,  ops::Mrt>("MRT", ops::plain, tg);
     tg_ladder<D2Q9,  ops::Cm >("CM",  ops::plain, tg);
-
-    tg_ladder<D3Q19, ops::Bgk>("BGK", ops::plain, tg);
-    tg_ladder<D3Q19, ops::Trt>("TRT", ops::trt,   tg);
-    tg_ladder<D3Q19, ops::Mrt>("MRT", ops::plain, tg);
-    tg_ladder<D3Q19, ops::Cm >("CM",  ops::plain, tg);
 
     tg_ladder<D3Q27, ops::Bgk>("BGK", ops::plain, tg);
     tg_ladder<D3Q27, ops::Trt>("TRT", ops::trt,   tg);
     tg_ladder<D3Q27, ops::Mrt>("MRT", ops::plain, tg);
     tg_ladder<D3Q27, ops::Cm >("CM",  ops::plain, tg);
 
-    // ---- ABC/Beltrami: genuinely 3D, so the 3D lattices only ----
-    abc_ladder<D3Q19, ops::Bgk>("BGK", ops::plain, ab);
-    abc_ladder<D3Q19, ops::Trt>("TRT", ops::trt,   ab);
-    abc_ladder<D3Q19, ops::Mrt>("MRT", ops::plain, ab);
-    abc_ladder<D3Q19, ops::Cm >("CM",  ops::plain, ab);
-
+    // ---- ABC/Beltrami: genuinely 3D, so the 3D lattice only ----
     abc_ladder<D3Q27, ops::Bgk>("BGK", ops::plain, ab);
     abc_ladder<D3Q27, ops::Trt>("TRT", ops::trt,   ab);
     abc_ladder<D3Q27, ops::Mrt>("MRT", ops::plain, ab);

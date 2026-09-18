@@ -96,7 +96,6 @@ template <class L> struct GradientLatticeOf;
 template <> struct GradientLatticeOf<D2Q5>  { using type = D2Q9;  };
 template <> struct GradientLatticeOf<D2Q9>  { using type = D2Q9;  };
 template <> struct GradientLatticeOf<D3Q7>  { using type = D3Q27; };
-template <> struct GradientLatticeOf<D3Q19> { using type = D3Q19; };
 template <> struct GradientLatticeOf<D3Q27> { using type = D3Q27; };
 
 template <class L, class Streaming, class Collision,

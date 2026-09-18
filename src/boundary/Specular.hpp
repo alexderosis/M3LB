@@ -283,7 +283,6 @@ constexpr bool mirror_is_permutation() {
 
 static_assert(mirror_is_permutation<D2Q9>(),  "D2Q9 mirror is not a permutation");
 static_assert(mirror_is_permutation<D3Q27>(), "D3Q27 mirror is not a permutation");
-static_assert(mirror_is_permutation<D3Q19>(), "D3Q19 mirror is not a permutation");
 static_assert(mirror_is_permutation<D2Q5>(),  "D2Q5 mirror is not a permutation");
 static_assert(mirror_is_permutation<D3Q7>(),  "D3Q7 mirror is not a permutation");
 
