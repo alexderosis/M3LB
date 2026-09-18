@@ -83,7 +83,9 @@
 //
 //  The driver prints the evidence rather than the claim. Three estimators:
 //
-//    Nu_vol  = 1 + H <v T> / (alpha dT),   the volume average;
+//    Nu_vol  = 1 + H <v' T'> / (alpha dT), the volume average -- on the
+//              FLUCTUATIONS, <v T> - <v><T>, which is what the code computes
+//              and what the raw form above said until 2026-09-18;
 //    Nu_bot  = H (T_hot - <T>_{y=1}) / (0.5 dT),   the plate gradient below;
 //    Nu_top  = H (<T>_{y=H} - T_cold) / (0.5 dT),  and above.
 //

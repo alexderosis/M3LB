@@ -24,14 +24,19 @@
 //  things in Ra and the onset would come out wrong by O(1/H) -- which looks like
 //  ordinary discretisation error and is not.
 //
-//  Nu = 1 + H <u_y T> / (D dT), averaged over the fluid: total heat flux over
-//  the flux conduction alone would carry.
+//  Nu = 1 + H <u_y' T'> / (D dT), averaged over the fluid: total heat flux over
+//  the flux conduction alone would carry. On the FLUCTUATIONS -- see the note at
+//  the diagnostic itself for why <u_y T> is the wrong form to write here.
 //
 //  A NOTE ON RESOLUTION. Ra_c on a lattice of H layers differs from 1707.762 by
 //  O(1/H^2), so bracketing it at H = 12 is a demonstration and at H = 48 a
 //  measurement. Run two H before quoting a number.
 //
 //    usage: rayleigh_benard [-h H] [-ra RA] [-pr PR] [-nu NU] [-op bgk|cm]
+//           -aspect is a DOUBLE: the box is periodic, so its width in units of H
+//           IS the imposed wavelength, and k H = 2 pi / aspect. The default 2
+//           gives k H = 3.1416 against the critical 3.117; pass 2.0158 for the
+//           box that holds exactly one critical cell.
 //                           [-steps N] [-aspect A]
 //==============================================================================
 #include "lbm/backend.cuh"
@@ -74,7 +79,14 @@ struct StratifiedInit {
 };
 
 int main(int argc, char** argv) {
-  int H = 32, aspect = 2;
+  int H = 32;
+  // ASPECT IS A double, and it is the same trap rb_high_ra.cu's banner records:
+  // std::atoi truncates without complaint. The box is periodic, so its width IS
+  // the imposed horizontal wavelength, and the two values this case actually
+  // wants -- the single-critical-cell 2 pi / (k_c H) = 2.0158 and the usual
+  // reference 2.02 -- both became 2, as did anything else non-integral. It was
+  // measured at -aspect 2, 2.0158 and 2.5 all giving nx = 64 at H = 32.
+  double aspect = 2.0;
   double Ra = 5000.0, Pr = 1.0, nu = 0.02, amp = 0.01;
   std::string op = "cm";
   std::size_t T = 0;
@@ -86,7 +98,7 @@ int main(int argc, char** argv) {
     if (a == "-pr"     && i + 1 < argc) Pr     = std::atof(argv[++i]);
     if (a == "-nu"     && i + 1 < argc) nu     = std::atof(argv[++i]);
     if (a == "-op"     && i + 1 < argc) op     = argv[++i];
-    if (a == "-aspect" && i + 1 < argc) aspect = std::atoi(argv[++i]);
+    if (a == "-aspect" && i + 1 < argc) aspect = std::atof(argv[++i]);
     if (a == "-amp"    && i + 1 < argc) amp    = std::atof(argv[++i]);
     if (a == "-steps"  && i + 1 < argc) T      = std::size_t(std::atol(argv[++i]));
   }
@@ -94,7 +106,7 @@ int main(int argc, char** argv) {
   const double D  = nu / Pr;
   const double dT = 1.0;                       // plates at +1/2 and -1/2
   const double g  = Ra * nu * D / (dT * double(H) * double(H) * double(H));
-  const int nx = aspect * H, nz = 4, ny = H + 2;
+  const int nx = int(aspect * double(H) + 0.5), nz = 4, ny = H + 2;
   const Op which = (op == "bgk") ? Op::BGK : Op::CentralMoments;
 
   // The thermal diffusion time across the layer. Growth near onset is slow --
@@ -106,7 +118,8 @@ int main(int argc, char** argv) {
   std::printf("Rayleigh-Benard   %s   D3Q27 fluid / D3Q7 scalar   operator %s   %s\n",
               backend::on_device ? "CUDA native" : "HOST reference",
               which == Op::BGK ? "bgk" : "cm", sizeof(Real) == 4 ? "FP32" : "FP64");
-  std::printf("  H = %d   %d x %d x %d   Ra = %.1f   Pr = %.2f\n", H, nx, ny, nz, Ra, Pr);
+  std::printf("  H = %d   %d x %d x %d   aspect = %.4f (k H = %.4f)   Ra = %.1f   Pr = %.2f\n",
+              H, nx, ny, nz, aspect, 2.0 * M_PI / (double(nx) / double(H)), Ra, Pr);
   std::printf("  nu = %.6f (tau %.4f)   D = %.6f (tau %.4f)   g beta dT = %.4e\n",
               nu, 3.0 * nu + 0.5, D, 4.0 * D + 0.5, g);
   std::printf("  Ra_c = 1707.762 between rigid plates;  this run is %s it\n",
@@ -149,21 +162,37 @@ int main(int argc, char** argv) {
   auto diagnose = [&](double& nu_number, double& umax) {
     fl.macroscopic_to_host(rho, ux, uy, uz);
     sc.field_to_host(Tf);
-    double flux = 0, peak = 0;
+    double flux = 0, peak = 0, mv = 0, mt = 0;
     long cells = 0;
     for (int z = 0; z < nz; ++z)
       for (int y = 1; y <= H; ++y)
         for (int x = 0; x < nx; ++x) {
           const std::size_t n = std::size_t(node_id(x, y, z, nx, ny));
           flux += double(uy[n]) * double(Tf[n]);
+          mv   += double(uy[n]);
+          mt   += double(Tf[n]);
           const double s = std::sqrt(double(ux[n]) * double(ux[n]) +
                                      double(uy[n]) * double(uy[n]) +
                                      double(uz[n]) * double(uz[n]));
           peak = std::fmax(peak, s);
           ++cells;
         }
+    // ON THE FLUCTUATIONS, <v' T'> = <v T> - <v><T>, which is what the Kokkos
+    // twin and rb_high_ra.cu both compute. The textbook <v T> is equivalent only
+    // where <v> = 0, and the velocity this scheme REPORTS is not that one: Guo's
+    // half shift adds F/(2 rho), so a layer whose mean temperature differs from
+    // T0 carries a vertical offset belonging to the forcing scheme rather than
+    // to any mass flux. It is ~0 for the cases in this file, because they start
+    // from the conduction profile and settle hydrostatically -- measured at
+    // Ra = 1500, -amp 0, converging to Nu = 0.999989 with the textbook form. It
+    // is NOT small for an initial condition whose mean is not zero: a cold start
+    // at Ra = 1e14 made the textbook form read 53.77 with the fluid AT REST
+    // (demonstrator/rb_high_ra.cpp records the arithmetic). Writing it correctly
+    // costs two accumulators and removes the trap rather than documenting it.
     flux /= double(cells);
-    nu_number = 1.0 + double(H) * flux / (D * dT);
+    mv   /= double(cells);
+    mt   /= double(cells);
+    nu_number = 1.0 + double(H) * (flux - mv * mt) / (D * dT);
     umax = peak;
   };
 
