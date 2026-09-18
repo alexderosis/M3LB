@@ -404,10 +404,34 @@ LBM_HD LBM_INLINE Real eq_moment(Real rho, const Real Qf[3][3], int n) {
 //  p_of/q_of/r_of are plain arithmetic (n/9, (n/3)%3, n%3), so that half of the
 //  mechanism never applied -- the array spill is the whole of it.
 //
-//  UNVERIFIED ON A DEVICE. There is no nvcc on the machine this was written on,
-//  so this is a structural guarantee replacing a reliance on the optimiser, not
-//  a measured speedup. The instrument is -DLBM_PTXAS_VERBOSE=ON: read the local
-//  memory and register columns, not the wall clock.
+//  MEASURED ON A T4, AND IT BOUGHT NOTHING. THAT IS THE RESULT, NOT A CAVEAT.
+//  Written first as a structural guarantee with the device untested, then
+//  tested: Tesla T4 (sm_75, 15 GB), nvcc 12.8, -DLBM_GPU_ARCH=75
+//  -DLBM_PTXAS_VERBOSE=ON, `bench` built at this commit and at its parent.
+//
+//    stack frames  NONE in EITHER build -- not one kernel of the 633 ptxas
+//                  records spills a byte to local memory, before or after.
+//    MLUPS (CM)    before 935.69 / 928.15 / 953.13 / 929.58
+//                  after  907.89 / 932.09 / 957.32 / 934.31   at 64/96/128/160^3
+//
+//  So nvcc 12.8 was ALREADY fully unrolling the 27-trip loop and keeping k[27],
+//  Qf and Aw in registers: the runtime form cost nothing on this compiler and
+//  this card. The three larger grids move by +0.4 %, +0.5 %, +0.5 % and 64^3 by
+//  -3.0 %, against a BGK run-to-run reproducibility of 0.2 % between the same
+//  two builds -- i.e. the only point outside the noise has the WRONG SIGN for
+//  the hypothesis. Performance-neutral, and kept for the guarantee alone: a
+//  future arch, a future nvcc, or one more live variable in this function can
+//  each withdraw an unrolling the source never asked for.
+//
+//  TWO CLAIMS THIS MEASUREMENT RETIRES, both of which motivated the change.
+//  The 47x stands -- it was measured on the COLOUR GRADIENT, which has the
+//  largest frame in the tree and which `bench` never runs -- but it does NOT
+//  generalise to these two operators, which is what was assumed here. And the
+//  "central-moment collapse" does not reproduce in THIS codebase at all: CM is
+//  99-100 % of BGK on the T4 (907-957 against 912-966 MLUPS), both of them near
+//  200 GB/s of the card's 320 GB/s peak, i.e. bandwidth-bound as they should
+//  be. That collapse was recorded against the KOKKOS-CUDA build, and nothing
+//  here reproduces it.
 //
 //  The runtime `cm_eq_moment` is deliberately NOT kept. Nothing outside this
 //  file called it, and leaving it would let a future edit reintroduce the loop

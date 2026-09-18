@@ -422,12 +422,22 @@ LBM_HD LBM_INLINE void mp_weight_factors(const Real u[3], Real Aw[3][3]) {
 // THE MOMENT INDEX IS A TEMPLATE PARAMETER, for the reason argued at length
 // above cm_eq_moment in core.cuh: k[27] and Aw[3][3] are per-thread arrays, and
 // a subscript the compiler cannot fold moves the whole of k[] into per-thread
-// LOCAL memory. Bit-identical either way, so no test can see it; CLAUDE.md
-// measures the mechanism at 47x in this codebase's colour gradient. The parent
+// LOCAL memory. Bit-identical either way, so no test can see it. The parent
 // tree's MultiphaseCentralMoments was fixed on 2026-09-04 and this twin was
-// not. Unverified on a device -- there is no nvcc here, so this is a structural
-// guarantee replacing a reliance on the optimiser; -DLBM_PTXAS_VERBOSE=ON is
-// the instrument.
+// not.
+//
+// MEASURED ON A T4 AND IT BOUGHT NOTHING -- see the long note above
+// cm_eq_moment in core.cuh for the numbers. nvcc 12.8 at sm_75 already unrolled
+// the loop: no kernel spilled a byte of local memory before OR after, and the
+// fluid twin's throughput moved by less than the run-to-run noise. This is kept
+// as a guarantee against a future arch or compiler withdrawing an unrolling the
+// source never asked for, not as a speedup. -DLBM_PTXAS_VERBOSE=ON is the
+// instrument; read the local-memory column, not the wall clock.
+//
+// NOT SEPARATELY MEASURED. `bench` runs the single-phase fluid only, so the
+// numbers above are core.cuh's. This operator is the same construction on the
+// same lattice and is assumed to behave the same way -- an assumption, and
+// labelled as one.
 template <int N>
 LBM_HD LBM_INLINE Real mp_eq_moment(Real p_tilde, const Real Aw[3][3]) {
   constexpr int p = p_of(N), q = q_of(N), r = r_of(N);
