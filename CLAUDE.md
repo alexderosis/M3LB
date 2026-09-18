@@ -70,7 +70,7 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 | + charge carriers in an electric field | `ScalarSolver` + `ChargeCentralMoments` | D3Q27, advects at the **drift** velocity `u + KE`, not at `u` |
 | + electric potential (Poisson) | `ScalarSolver` + `ScalarBGK` + `add_source` | no new solver — see `validation/ehd_hydrostatic.cpp` |
 | + magnetic field | `MagneticSolver` | Dellar vector distribution |
-| two-phase, diffuse interface | `PhaseFieldSolver` | conservative Allen–Cahn, prescribed interface width, density ratio ~100 |
+| two-phase, diffuse interface | `PhaseFieldSolver` + `MultiphaseCentralMoments` | conservative Allen–Cahn, prescribed interface width, density ratio ~100. **3-D is D3Q27 + D3Q27, not D3Q27 + D3Q7** — see the rule below |
 | two-phase, diffuse, high ratio | `ColourGradientSolver` | no interface equation; width is an *outcome*; 1000 in the source paper's own static tests |
 | liquid + void, sharp interface | `FreeSurfaceSolver` | gas not resolved; infinite ratio by construction |
 
@@ -85,6 +85,54 @@ The two immiscible models do not dominate each other. On a matched static drople
 the colour gradient is more accurate on Laplace's law at every density ratio
 measured; the phase field carries a spurious current 3× to 118× smaller. That is
 one static case, not a flow.
+
+**Standing rule: the phase field's fluid operator is `MultiphaseCentralMoments`,
+and in 3-D the pair is D3Q27 + D3Q27.** There are THREE multiphase fluid
+operators and they are two physics tiers, not three collisions of one model:
+
+| operator | model | when |
+|---|---|---|
+| `MultiphaseCentralMoments` | pressure-based, density + viscosity ratio, central moments | **the default** |
+| `MultiphasePotentialBGK` | the same model and field set, BGK | only to attribute a difference to the collision; this is what `-op bgk` selects |
+| `MultiphaseBGK` | **matched density**, surface tension as a capillary *stress* | a different equation of state. Carries no `rho_L`/`rho_H`, `mu_L`/`mu_H` or `Lap`, so substituting it does not compile rather than running wrong. `validation/laplace.cpp` wants it, deliberately |
+
+The FLUID lattice is not a choice: all three `static_assert`
+`supports_navier_stokes`, false on D3Q7, so a 3-D phase-field fluid is D3Q27 and
+a D3Q7 one is a compile error. The PHASE lattice is a separate, free choice, and
+D3Q7 is legal there — but only under `PhaseFieldBGK`, because
+`PhaseFieldCentralMoments` needs a product basis and D3Q7 is not a product
+lattice. So **D3Q27 + D3Q7 is the THERMAL scalar's pairing, not this one**, and
+it buys nothing here anyway: `GradientLatticeOf<D3Q7>` is D3Q27, so the
+27-neighbour gradient gather is paid either way. The one case in either codebase
+still running D3Q27 + D3Q7 is `GPU/src/bubble.cu`.
+
+**Both defaults now exist in code rather than as a habit.** In `src/`,
+`PhaseFieldSolver`'s collision template argument defaults to
+`DefaultPhaseCollision<L>` — `PhaseFieldCentralMoments<L>` on a product lattice,
+`PhaseFieldBGK<L>` on D3Q7/D2Q5, because a flat default would turn "omit the
+operator" into a compile error on exactly the lattices entitled to omit it. The
+fluid side is the alias `DefaultMultiphaseCollision<L>`; it is deliberately NOT a
+default on `FluidSolver`, which is shared with single-phase flow where the
+standing rule above forbids a multiphase operator. Both live in
+`src/solver/PhaseFieldSolver.hpp`. Adding them changed no existing case: all 13
+instantiations in the tree name their operator explicitly.
+
+In `GPU/` the defaults are runtime members, `MultiOp fluid_op_` and
+`PhaseOp phase_op_` (`phasefield.cuh`, `hostsim.hpp`), both moved to central
+moments on 2026-09-18. `phase_op_` is lattice dependent for the same reason as
+the parent's trait, and that is a correctness point rather than a nicety:
+`pf_phase_node`'s central-moment branch sits inside an `if constexpr (Q == 27)`,
+so on D3Q7 a CM request does not fail, it EVAPORATES — and the guard in
+`set_phase_op` cannot catch it, because a member initialiser never reaches the
+setter.
+Flipping it moved `bubble.cu`, the only driver that inherited it and solves a
+flow: Laplace tension went from −19.62 % to −9.40 % of the requested sigma and the
+spurious current from 1.361e-05 to 1.281e-05 at 48³, R = 16, 2000 steps, FP64.
+`newpaths.cu` also inherits it and does NOT move, because its slab rows are
+density-matched and force-free, so the fluid populations stay identically zero
+— verified, both rows still 4.44951. In `src/` there is no library default to
+change: each driver names its own `using FColl = ...`, and every one that
+couples a flow already names the central-moment operator.
 
 ---
 
@@ -199,10 +247,21 @@ These produce plausible, converged, wrong answers rather than crashes.
   `RawPopulations`. `FreeSurfaceSolver` `static_assert`s *against* Esoteric Pull
   and needs `TwoLattice`, because it reads a neighbour's post-collision state
   while writing its own.
-- **EVERY LATTICE HERE IS NOW A PRODUCT LATTICE.** D3Q19 was the one that was
-  not -- D3Q27 minus its corners, reached through a generated monomial basis --
-  and it was removed on 2026-09-18 along with `MonomialBasis.hpp` and
-  `MATLAB/D3Q19_CM.m`. `SelectBasis` therefore always returns `ProductBasis`,
+- **EVERY NAVIER-STOKES LATTICE HERE IS NOW A PRODUCT LATTICE, AND THE REDUCED
+  ONES NEVER WERE.** D2Q9 and D3Q27 are product lattices; **D2Q5 and D3Q7 are
+  NOT**, and no removal changed that -- `ProductBasis::is_product_lattice()`
+  demands all 9 or all 27 sign combinations, which a 5- or 7-velocity set simply
+  does not have. An earlier version of this entry said "EVERY LATTICE", which is
+  the sentence a reader would use to conclude a D3Q7 scalar or phase field could
+  take a central-moment operator. It cannot: that is the `static_assert` below,
+  and it is why a 3-D phase field wanting central moments must run its transport
+  on D3Q27 rather than D3Q7. `doc/m3lb.tex`'s "Both three-dimensional lattices in
+  this tree satisfy it" carries the same error and is not yet fixed.
+  What D3Q19's removal changed is narrower: it was the one NAVIER-STOKES lattice
+  that was not a product set -- D3Q27 minus its corners, reached through a
+  generated monomial basis -- and it went on 2026-09-18 along with
+  `MonomialBasis.hpp` and `MATLAB/D3Q19_CM.m`. `SelectBasis` therefore always
+  returns `ProductBasis`,
   and the operators that need the factorised transform
   (`MultiphaseCentralMoments`, `PhaseFieldCentralMoments`, `ChargeCentralMoments`,
   `FreeSurfaceSolver`) still `static_assert` on `ProductBasis::enabled`, which is

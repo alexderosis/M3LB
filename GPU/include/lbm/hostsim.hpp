@@ -756,9 +756,11 @@ class PhaseField {
 
   void enable_viscous_force(bool on) { viscous_ = on; }
 
-  // Same contract as the device class: independent operators, both BGK by
-  // default, and the phase field's central-moment form refused on a lattice
-  // that cannot carry it -- with a message, at setup.
+  // Same contract as the device class: independent operators, both defaulting to
+  // central moments wherever the lattice can carry them (the phase field's
+  // default is lattice dependent, since D3Q7 has no product basis), and the
+  // phase field's central-moment form refused on a lattice that cannot carry
+  // it -- with a message, at setup.
   void set_phase_op(PhaseOp op) {
     if (op == PhaseOp::CentralMoments && PL::Q != 27) {
       std::fprintf(stderr,
@@ -917,8 +919,20 @@ class PhaseField {
   std::function<void()> pre_fluid_;
   bool has_geometry_ = false;
   bool viscous_ = false;
-  PhaseOp phase_op_ = PhaseOp::BGK;
-  MultiOp fluid_op_ = MultiOp::BGK;
+  // CM where the lattice can carry it, BGK where it cannot. NOT a convenience:
+  // the central-moment phase collision exists only on a product lattice, and
+  // DefaultPhaseLattice is D3Q7 -- so a flat CentralMoments default would be
+  // SILENTLY IGNORED there. `pf_phase_node`'s branch is inside an
+  // `if constexpr (Q == 27)`, so on D3Q7 the request does not fail, it
+  // evaporates, and the setter's guard cannot catch it because a member
+  // initialiser never reaches the setter. Making the default depend on PL is
+  // what closes that. The parent expresses the same rule as
+  // DefaultPhaseCollisionOf<L> in solver/PhaseFieldSolver.hpp.
+  static constexpr PhaseOp default_phase_op() {
+    return (PL::Q == 27) ? PhaseOp::CentralMoments : PhaseOp::BGK;
+  }
+  PhaseOp phase_op_ = default_phase_op();
+  MultiOp fluid_op_ = MultiOp::CentralMoments;
   std::size_t t_ = 0;
 };
 

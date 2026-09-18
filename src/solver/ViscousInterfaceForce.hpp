@@ -38,7 +38,7 @@
 #include "core/Types.hpp"
 #include "grid/Domain.hpp"
 #include "lattice/Lattices.hpp"
-#include "solver/PhaseFieldSolver.hpp"
+#include "lattice/GradientLattice.hpp"
 
 namespace lbm {
 

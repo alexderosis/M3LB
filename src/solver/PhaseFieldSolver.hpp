@@ -64,15 +64,45 @@
 //  error in the bandwidth budget; they are the price of not differentiating
 //  populations.
 //
+//  WHICH FLUID OPERATOR TO PAIR THIS WITH, AND THE ANSWER IS NOT MultiphaseBGK.
+//
+//  There are THREE multiphase fluid operators and they are two different physics
+//  tiers, not three collisions of one model:
+//
+//   * MultiphaseCentralMoments -- pressure-based, density AND viscosity ratio,
+//     central moments. THE DEFAULT. This is what every case in the tree that
+//     couples a phase field to a flow uses, and it is what De Rosis & Enan run.
+//   * MultiphasePotentialBGK   -- the same model and the same field set, BGK.
+//     Reach for it only to attribute a difference to the collision; it is what
+//     the `-op bgk` flag selects in the cases that offer one.
+//   * MultiphaseBGK            -- MATCHED DENSITY, surface tension as a capillary
+//     STRESS rather than a body force. A different equation of state, not a
+//     cheaper version of the other two, and NOT interchangeable with them: it
+//     carries no rho_L/rho_H, no mu_L/mu_H and no Lap, so swapping it in does
+//     not compile rather than running wrong. validation/laplace.cpp is the one
+//     case that wants it, deliberately.
+//
+//  An earlier version of this banner said the solver "pairs with MultiphaseBGK,
+//  which is matched-density" and listed DENSITY AND VISCOSITY CONTRAST under NOT
+//  IMPLEMENTED. Both statements were true for about half a minute: the two
+//  pressure-form operators landed in the same commit, and every phase-field case
+//  written since carries a ratio. The entry is deleted rather than corrected in
+//  place, because what it told a reader not to look for is the thing this solver
+//  is now mostly used for.
+//
+//  THE FLUID LATTICE IS NOT A CHOICE IN 3-D. All three operators static_assert
+//  L::supports_navier_stokes, which is false for D3Q7 -- so the fluid is D3Q27,
+//  and a D3Q7 fluid is a compile error rather than a wrong answer. The PHASE
+//  lattice is a free and separate choice: D3Q7 is legal, but only under
+//  PhaseFieldBGK, since PhaseFieldCentralMoments needs a product basis and D3Q7
+//  is not a product lattice. So a 3-D run that wants central moments on BOTH
+//  distributions is D3Q27 + D3Q27, which is what every such case here is; the
+//  D3Q27 + D3Q7 pairing that the THERMAL scalar uses buys nothing here, because
+//  GradientLatticeOf<D3Q7> is D3Q27 and the 27-neighbour gradient gather is paid
+//  either way.
+//
 //  NOT IMPLEMENTED, so that nobody looks for it:
 //
-//   * DENSITY AND VISCOSITY CONTRAST. This solver pairs with MultiphaseBGK,
-//     which is matched-density: phi enters the flow only through the capillary
-//     stress. A density ratio needs the fluid distribution to carry pressure
-//     rather than density -- ShiftedPopulations assumes rho_ref is exactly 1
-//     (see Storage.hpp), and at a ratio of 10 the stored g_i are no longer
-//     small, so the shift stops buying anything. A viscosity contrast is
-//     closer: MultiphaseBGK::omega_n takes a per-node rate already.
 //   * WETTING. PhaseWall is zero-flux on the populations, which is right for
 //     the transport, but it sets no contact angle: that needs a condition on
 //     grad phi at the wall, and the gradient stencil currently reads whatever
@@ -80,25 +110,53 @@
 //   * OPEN BOUNDARIES for phi. The scalar's donor machinery would port, with
 //     the same second pass and the same fence.
 //==============================================================================
+#include "collision/MultiphaseCentralMoments.hpp"
 #include "collision/PhaseFieldBGK.hpp"
+#include "collision/PhaseFieldCentralMoments.hpp"
 #include "core/Types.hpp"
 #include "grid/Domain.hpp"
+#include "lattice/GradientLattice.hpp"
 #include "lattice/Lattices.hpp"
 
 namespace lbm {
 
 //------------------------------------------------------------------------------
-// Which lattice the gradient stencil runs on. Isotropy of this stencil is what
-// sets the spurious-current floor, so the default is the richest velocity set
-// of the same dimension, not the phase field's own.
+// THE DEFAULT PAIRING: central moments on BOTH distributions.
+//
+// Named here rather than repeated in every driver, so that "the tree's default"
+// is a thing that exists in the code instead of a habit fourteen files happen to
+// share, and so that changing it is one edit.
+//
+// THE PHASE FIELD'S DEFAULT IS LATTICE DEPENDENT, AND THAT IS NOT A
+// CONVENIENCE. PhaseFieldCentralMoments static_asserts a product basis, and
+// D3Q7 and D2Q5 are not product lattices -- so a flat default would turn
+// "omit the operator" into a compile error on exactly the lattices that are
+// entitled to omit it. The reduced lattices fall back to PhaseFieldBGK, which
+// is the only operator they can carry. Ask for central moments on a D3Q7 phase
+// field explicitly and you still get the static_assert, which is right: that is
+// a request the lattice cannot honour, and it should not be silently downgraded.
+//
+// There is no matching default on FluidSolver, deliberately. FluidSolver is
+// shared with single-phase flow, and defaulting its operator to a multiphase one
+// would violate the standing rule in CLAUDE.md -- the multiphase path redefines
+// the zeroth moment as a pressure. A multiphase case names
+// DefaultMultiphaseCollision<L>; a single-phase one is untouched by any of this.
 //------------------------------------------------------------------------------
-template <class L> struct GradientLatticeOf;
-template <> struct GradientLatticeOf<D2Q5>  { using type = D2Q9;  };
-template <> struct GradientLatticeOf<D2Q9>  { using type = D2Q9;  };
-template <> struct GradientLatticeOf<D3Q7>  { using type = D3Q27; };
-template <> struct GradientLatticeOf<D3Q27> { using type = D3Q27; };
+template <class L> using DefaultMultiphaseCollision = MultiphaseCentralMoments<L>;
 
-template <class L, class Streaming, class Collision,
+template <class L, bool Prod = ProductBasis<L>::enabled>
+struct DefaultPhaseCollisionOf;
+template <class L> struct DefaultPhaseCollisionOf<L, true> {
+  using type = PhaseFieldCentralMoments<L>;
+};
+template <class L> struct DefaultPhaseCollisionOf<L, false> {
+  using type = PhaseFieldBGK<L>;
+};
+template <class L>
+using DefaultPhaseCollision = typename DefaultPhaseCollisionOf<L>::type;
+
+template <class L, class Streaming,
+          class Collision = DefaultPhaseCollision<L>,
           class GL = typename GradientLatticeOf<L>::type>
 class PhaseFieldSolver {
  public:

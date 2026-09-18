@@ -884,6 +884,18 @@ last two report rows agree to the digit):
 | 10 | nu matched | 9.569894e-04 | −4.30% | 2.249e-06 |
 | 100 | nu matched | 9.625386e-04 | −3.75% | 5.685e-07 |
 
+**THESE ROWS WERE MEASURED ON THE BGK FLUID AND HAVE NOT BEEN RE-RUN.** `bubble.cu`
+names no fluid operator, so it takes the library default in `phasefield.cuh`, and
+that default changed from `MultiOp::BGK` to `MultiOp::CentralMoments` on
+2026-09-18. It is the only driver in `GPU/` that both inherits the default and
+solves a flow, so it is the only table here the change touches. The direction is
+known and it is an improvement, but only from the host reference: at 48³, R = 16,
+W = 4, gamma = 1, 2000 steps, FP64, the Laplace error went from −19.62 % to
+−9.40 % and the spurious current from 1.361e-05 to 1.281e-05. That is a different
+grid, precision and step count from the table above and is NOT a substitute for
+re-running it — the table wants a T4, 64³, FP32, 40000 steps. Until somebody does
+that, read these five rows as the BGK fluid's numbers.
+
 **The divergence at a ratio of 100 was the viscosity choice, not the model.**
 Matching the DYNAMIC viscosity across a ratio of 100 leaves the heavy phase with
 a hundred-fold smaller kinematic viscosity, and

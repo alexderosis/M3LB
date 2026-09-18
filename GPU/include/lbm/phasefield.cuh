@@ -23,7 +23,10 @@
 //    grad phi and lap phi on D3Q27, by stencil from the phi FIELD
 //
 //  TWO OPERATORS FOR EACH DISTRIBUTION, chosen independently: PhaseOp and
-//  MultiOp, both BGK by default. See the block above PhaseModel.
+//  MultiOp. BOTH default to CENTRAL MOMENTS where the lattice can carry them --
+//  the fluid always, since it is always D3Q27; the phase field only on D3Q27,
+//  falling back to BGK on the D3Q7 default lattice, which has no product basis.
+//  See the block above PhaseModel.
 //
 //  WHY THE ZEROTH MOMENT CARRIES PRESSURE. At a density ratio rho is no longer
 //  a small perturbation about 1 and a density-carrying distribution stops being
@@ -947,8 +950,14 @@ class PhaseFieldSolver {
   void enable_viscous_force(bool on) { viscous_ = on; }
 
   //--------------------------------------------------------------------------
-  // Which collision each distribution runs. Independent, and BOTH default to
-  // BGK so that an existing case keeps its numbers.
+  // Which collision each distribution runs. Independent, and both default to
+  // CENTRAL MOMENTS wherever the lattice can carry them -- the tree's standing
+  // default operator, and what De Rosis & Enan run. The fluid is always D3Q27,
+  // so its central-moment branch is always available; the phase field's default
+  // lattice is D3Q7, which has no product basis, so ITS default is lattice
+  // dependent (see default_phase_op). Asking for it explicitly on D3Q7 is still
+  // refused by the setter below, which is right: that is a request the lattice
+  // cannot honour, and it should fail rather than be silently downgraded.
   //
   // The phase field's central-moment operator needs a product lattice, which
   // is a property of PL and therefore known at compile time -- but the OPERATOR
@@ -1105,8 +1114,20 @@ class PhaseFieldSolver {
   std::function<void()> pre_fluid_;
   bool has_geometry_ = false;
   bool viscous_ = false;
-  PhaseOp phase_op_ = PhaseOp::BGK;
-  MultiOp fluid_op_ = MultiOp::BGK;
+  // CM where the lattice can carry it, BGK where it cannot. NOT a convenience:
+  // the central-moment phase collision exists only on a product lattice, and
+  // DefaultPhaseLattice is D3Q7 -- so a flat CentralMoments default would be
+  // SILENTLY IGNORED there. `pf_phase_node`'s branch is inside an
+  // `if constexpr (Q == 27)`, so on D3Q7 the request does not fail, it
+  // evaporates, and the setter's guard cannot catch it because a member
+  // initialiser never reaches the setter. Making the default depend on PL is
+  // what closes that. The parent expresses the same rule as
+  // DefaultPhaseCollisionOf<L> in solver/PhaseFieldSolver.hpp.
+  static constexpr PhaseOp default_phase_op() {
+    return (PL::Q == 27) ? PhaseOp::CentralMoments : PhaseOp::BGK;
+  }
+  PhaseOp phase_op_ = default_phase_op();
+  MultiOp fluid_op_ = MultiOp::CentralMoments;
   std::size_t t_ = 0;
 };
 
