@@ -747,7 +747,7 @@ int main(int argc, char** argv) {
       }
     });
 
-    if (!ok) { std::printf("\n  unknown lattice/operator\n"); Kokkos::finalize(); return 1; }
+    if (!ok) { Kokkos::finalize(); return 1; }
 
     const double u_scale = dx / dt;
     std::printf("\n  RUN\n");

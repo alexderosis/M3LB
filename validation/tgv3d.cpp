@@ -115,6 +115,14 @@ int main(int argc, char** argv) {
       if (a == "-op"   && i + 1 < argc) op  = argv[++i];
     }
 
+    // Refuse BEFORE the header: it names the lattice, and a header claiming
+    // `lattice d3q19` above an empty run is worse than no output at all.
+    if (!known_configuration(lat, op)) {
+      reject_configuration(lat, op);
+      Kokkos::finalize();
+      return 1;
+    }
+
     const Real nu = Real(double(u0) * double(D) / Re);
     const std::size_t T = std::size_t(tmax * double(D) / double(u0));
 
@@ -127,7 +135,7 @@ int main(int argc, char** argv) {
 
     const bool ok = dispatch(lat, op,
         TaylorGreen3D{D, Re, tmax, u0, nu, T, lat, op});
-    if (!ok) std::printf("unknown lattice/operator\n");
+    if (!ok) { Kokkos::finalize(); return 1; }
   }
   Kokkos::finalize();
   return 0;

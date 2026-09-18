@@ -151,6 +151,13 @@ int main(int argc, char** argv) {
       if (a == "-op"   && i + 1 < argc) op   = argv[++i];
     }
 
+    // Refuse BEFORE the header, which names the lattice: see tgv3d.cpp.
+    if (!known_configuration(lat, op)) {
+      reject_configuration(lat, op);
+      Kokkos::finalize();
+      return 1;
+    }
+
     // THE WHOLE POINT OF THIS FILE. Re is defined on L = D/(2 pi), not on D.
     const double L  = double(D) / (2.0 * M_PI);
     const Real   nu = Real(double(u0) * L / Re);
@@ -167,8 +174,10 @@ int main(int argc, char** argv) {
     std::printf("  NOTE: tgv3d.cpp's Re = u0 D/nu would be %.0f for this nu.\n\n",
                 double(u0) * double(D) / double(nu));
 
-    if (!dispatch(lat, op, TaylorGreenBench{D, Re, tmax, u0, nu, T, lat, op}))
-      std::printf("  unknown lattice/operator combination\n");
+    if (!dispatch(lat, op, TaylorGreenBench{D, Re, tmax, u0, nu, T, lat, op})) {
+      Kokkos::finalize();
+      return 1;
+    }
   }
   Kokkos::finalize();
   return 0;

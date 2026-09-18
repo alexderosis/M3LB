@@ -332,7 +332,7 @@ int main(int argc, char** argv) {
       }
       else      std::printf("  no verified reference table for Re = %.0f; profiles written only\n", Re);
     });
-    if (!ok) std::printf("unknown lattice/operator\n");
+    if (!ok) { Kokkos::finalize(); return 1; }
   }
   Kokkos::finalize();
   return 0;

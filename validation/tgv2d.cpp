@@ -68,7 +68,7 @@ int main(int argc, char** argv) {
       const std::size_t T = std::size_t(1.0 / (2.0 * xi * xi * double(nu)));
       double err = NAN, nu_eff = NAN;
 
-      dispatch(lat, op, [&](auto coll) {
+      if (!dispatch(lat, op, [&](auto coll) {
         using Coll = decltype(coll);
         using LL   = typename Coll::Lattice;
         Domain d(N, N, 1, true, true, true);
@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
             den += ax * ax + ay * ay;
           }
         err = std::sqrt(num / den);
-      });
+      })) { Kokkos::finalize(); return 1; }
 
       const double ord = prevN ? std::log(prev / err) / std::log(double(N) / double(prevN)) : NAN;
       if (prevN) std::printf("  %5d %11.6f %11zu %13.5e %9.3f",

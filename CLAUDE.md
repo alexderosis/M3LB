@@ -210,6 +210,16 @@ These produce plausible, converged, wrong answers rather than crashes.
   non-product lattice, that assertion is what will catch it -- a compile error
   rather than a wrong answer. Historical measurements on D3Q19 are kept in
   `results/`, `doc/fig/` and the README tables and are marked as such.
+  **A STALE `-lat d3q19` IS NOW A HARD ERROR, because it briefly was not.**
+  D3Q19 was `tgv3d`'s DEFAULT and a documented `orszag_tang` option, so every
+  saved command line carried it. `campaign::dispatch` returned false quietly and
+  the callers disagreed about what that meant: two dropped the bool entirely,
+  four printed a line and returned 0, and `tgv3d` printed a header naming
+  `lattice d3q19` above a run that never happened. It now names the valid sets
+  on stderr, says NOTHING WAS RUN, is `[[nodiscard]]`, and every caller exits 1;
+  the two cases whose banner names the lattice check `known_configuration()`
+  BEFORE printing it. `orszag_tang` has its own else-chain and validates `-lat`,
+  `-maglat` and `-op` up front rather than falling through to D2Q9.
 - **A published moment list belongs to a basis.** `ProductBasis` is *shifted*,
   phi_2 = C^2 - cs2; most papers tabulate *monomial* central moments, and the
   same physics occupies different slots in the two. De Rosis & Enan's Eq. (61)

@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
       if (f) { std::fprintf(f, "# %s\n", blow < 0 ? "COMPLETED" : "DIVERGED"); std::fclose(f); }
       std::printf("\n  %s\n", blow < 0 ? "completed t/t0 = 1" : "DIVERGED");
     });
-    if (!ok) { std::printf("unknown lattice/operator\n"); }
+    if (!ok) { Kokkos::finalize(); return 1; }
   }
   Kokkos::finalize();
   return 0;

@@ -135,7 +135,7 @@ int main(int argc, char** argv) {
       }
       if (f) std::fclose(f);
     });
-    if (!ok) std::printf("unknown lattice/operator\n");
+    if (!ok) { Kokkos::finalize(); return 1; }
   }
   Kokkos::finalize();
   return 0;

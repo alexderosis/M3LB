@@ -37,9 +37,44 @@ template <class L> using OpBGK = BGK<L, HighOrderEquilibrium<L>, NoForcing, Shif
 template <class L> using OpMRT = MRT<L, NoForcing, ShiftedPopulations>;
 template <class L> using OpCM  = CentralMoments<L, NoForcing, ShiftedPopulations>;
 
+//------------------------------------------------------------------------------
+// AN UNRECOGNISED -lat OR -op IS A HARD ERROR, AND THAT IS NEW.
+//
+// It used to return false quietly and leave the caller to decide, which was
+// fine while every string anyone typed was still valid. Removing D3Q19 on
+// 2026-09-18 ended that: it was `tgv3d`'s DEFAULT and a documented
+// `orszag_tang` option, so every saved command line and every old script now
+// carries a lattice that no longer exists. Measured on the callers as they
+// then stood -- `poiseuille_inlet` and `tgv2d` discarded the bool outright,
+// four more printed a line and returned 0, and `tgv3d` printed a header
+// claiming `lattice d3q19` before running nothing at all. A stale flag
+// therefore produced an empty or mislabelled result that a script read as
+// success, which is the silent-wrong-answer class this tree writes banners
+// about rather than a missing feature.
+//
+// So the diagnostic lives HERE, once, naming the valid sets and saying
+// explicitly that nothing ran; `[[nodiscard]]` stops a future caller dropping
+// the result on the floor; and every caller turns false into a non-zero exit.
+// The message names D3Q19 on purpose -- "no such lattice" is not a useful
+// answer to someone whose script worked last week.
+//------------------------------------------------------------------------------
+inline bool known_configuration(const std::string& lat, const std::string& op) {
+  return (lat == "d2q9" || lat == "d3q27") &&
+         (op == "bgk" || op == "mrt" || op == "cm");
+}
+
+inline void reject_configuration(const std::string& lat, const std::string& op) {
+  std::fprintf(stderr,
+      "\nERROR: unknown configuration  -lat %s  -op %s\n"
+      "  lattices : d2q9 d3q27      (D3Q19 was removed on 2026-09-18)\n"
+      "  operators: bgk mrt cm\n"
+      "NOTHING WAS RUN.\n\n",
+      lat.c_str(), op.c_str());
+}
+
 // fn is a generic lambda: fn(Collision{}) with Collision deduced.
 template <class Fn>
-bool dispatch(const std::string& lat, const std::string& op, Fn&& fn) {
+[[nodiscard]] bool dispatch(const std::string& lat, const std::string& op, Fn&& fn) {
   auto pick = [&](auto lattice) {
     using L = decltype(lattice);
     if (op == "bgk") { fn(OpBGK<L>{}); return true; }
@@ -47,9 +82,11 @@ bool dispatch(const std::string& lat, const std::string& op, Fn&& fn) {
     if (op == "cm")  { fn(OpCM<L>{});  return true; }
     return false;
   };
-  if (lat == "d2q9")  return pick(D2Q9{});
-  if (lat == "d3q27") return pick(D3Q27{});
-  return false;
+  const bool ok = (lat == "d2q9")  ? pick(D2Q9{})
+                : (lat == "d3q27") ? pick(D3Q27{})
+                                   : false;
+  if (!ok) reject_configuration(lat, op);
+  return ok;
 }
 
 //------------------------------------------------------------------------------

@@ -419,6 +419,33 @@ int main(int argc, char** argv) {
       if (a == "-maglat" && i + 1 < argc) maglat = argv[++i];
       if (a == "-eq2") eq2 = true;
     }
+    // An unrecognised -lat or -maglat is a hard error, not a fall-through to the
+    // D2Q9 default. This dispatcher is an else-chain, so before D3Q19 was removed
+    // on 2026-09-18 a stale `-lat d3q19` silently ran D2Q9 and reported it as a
+    // D2Q9 run -- no warning, exit 0, and a plausible answer to a question nobody
+    // asked. Validate the strings up front, where the valid sets can be named.
+    if (lat != "d2q9" && lat != "d3q27") {
+      std::fprintf(stderr,
+          "\nERROR: unknown -lat %s   (lattices: d2q9 d3q27; "
+          "D3Q19 was removed on 2026-09-18)\nNOTHING WAS RUN.\n\n", lat.c_str());
+      Kokkos::finalize();
+      return 1;
+    }
+    if (maglat != "" && maglat != "d2q5" && maglat != "d3q7") {
+      std::fprintf(stderr,
+          "\nERROR: unknown -maglat %s   (magnetic lattices: d2q5 d3q7)\n"
+          "NOTHING WAS RUN.\n\n", maglat.c_str());
+      Kokkos::finalize();
+      return 1;
+    }
+    if (op != "bgk" && op != "cm") {
+      std::fprintf(stderr,
+          "\nERROR: unknown -op %s   (operators: bgk cm)\nNOTHING WAS RUN.\n\n",
+          op.c_str());
+      Kokkos::finalize();
+      return 1;
+    }
+
     std::printf("Orszag-Tang vortex vs De Rosis, Leveque & Chahine (2018), Table 1\n");
     std::printf("backend %s   precision %s\n", ExecSpace::name(), precision_name());
     std::printf("equilibrium: %s\n\n",

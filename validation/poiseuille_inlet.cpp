@@ -153,7 +153,7 @@ int main(int argc, char** argv) {
       if (lxfac > 0) Lx = Index(lxfac) * Ly;
       double err = NAN, resid = NAN, secs = 0; std::size_t taken = 0;
 
-      dispatch(lat, op, [&](auto coll) {
+      if (!dispatch(lat, op, [&](auto coll) {
         using Coll = decltype(coll);
         using LL   = typename Coll::Lattice;
         Domain d(Lx, Ly, Lz, /*x*/ false, /*y*/ false, /*z*/ true);
@@ -290,7 +290,7 @@ int main(int argc, char** argv) {
           }
           std::printf("\n");
         }
-      });
+      })) { Kokkos::finalize(); return 1; }
 
       const double tau_d = Re * double(Ly) / double(U0);
       const double ord = prevL ? std::log(prev / err) / std::log(double(Ly) / double(prevL)) : NAN;
