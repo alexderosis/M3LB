@@ -16,6 +16,7 @@
   --yawrate D  --yaw0 D  --elev D    camera, degrees (default 3/frame, 35, 22)
   --title S                          banner line (default names the case)
   --spin z|y                         axis the camera orbits (default z)
+  --ramp emissive|inferno            colour ramp (default emissive)
   --vscale S                MIP samples per voxel, splat is ceil(S) wide
                             (default 4; drop to 2 for ~2x the speed)
   --size PX                 target panel width (default 440)
@@ -264,6 +265,40 @@ def read_volume(path):
                      % (path, len(d)))
 
 
+def times_from_log(in_dir, nframes):
+    """Frame times read from a driver log, for dumps whose meta.txt carries no
+    per-frame rows.
+
+    GPU/src/mhd_jet.cu writes the geometry into meta.txt but not the table --
+    its times live in log.txt, which render_jet.py already reads for the
+    slices. Without this the volume frames say 'frame index only' while the
+    slice frames beside them are labelled, which on a case whose whole point is
+    WHEN the current sheet goes three-dimensional is the one label you cannot
+    do without.
+
+    The dump stride is recovered by COUNTING, never assumed: the driver dumps
+    every -dump-th probe and the log holds every probe, so 276 rows against 138
+    frames gives 2. A log from a different run gives a stride that does not
+    divide and the times come back None rather than wrong."""
+    for cand in (os.path.join(in_dir, '..', 'log.txt'),
+                 os.path.join(in_dir, 'log.txt')):
+        if not os.path.exists(cand):
+            continue
+        rows = []
+        for line in open(cand):
+            f = line.split()
+            if len(f) >= 10:
+                try:
+                    rows.append(float(f[0]))
+                except ValueError:
+                    pass
+        if len(rows) < nframes:
+            continue
+        stride = max(1, int(round((len(rows) - 1) / float(max(1, nframes - 1)))))
+        return [rows[min(k * stride, len(rows) - 1)] for k in range(nframes)], cand
+    return None, None
+
+
 def read_meta(path):
     """meta.txt: 'N <int>', 'R <float>', 'frames <int>', and per frame
     'frame <i> <t/Te> <E_u> <E_b>'. Absent or partial is not fatal -- every
@@ -359,9 +394,30 @@ def draw_text(buf, W, H, x0, y0, s, col, sc=1):
 # indigo where the current is weak, through teal and amber to near-white in the
 # sheet cores, against a dark ground because an emissive volume composited over
 # white washes out and no transfer function recovers it.
-RAMP = [(0.00, (38, 44, 96)), (0.18, (52, 104, 176)), (0.38, (48, 168, 198)),
-        (0.58, (110, 214, 168)), (0.74, (232, 206, 112)), (0.88, (250, 160, 88)),
-        (1.00, (255, 248, 236))]
+RAMPS = {}
+RAMPS['emissive'] = [
+    (0.00, (38, 44, 96)), (0.18, (52, 104, 176)), (0.38, (48, 168, 198)),
+    (0.58, (110, 214, 168)), (0.74, (232, 206, 112)), (0.88, (250, 160, 88)),
+    (1.00, (255, 248, 236))]
+
+# Matplotlib's inferno, sampled at nine stops. IT SUITS A MIP BETTER THAN THE
+# RAMP ABOVE, for the reason the foot comment below spends a paragraph working
+# around: inferno STARTS at (0, 0, 4), which is already the ground, so a weak
+# voxel contributes nothing without any fade being applied to it. The emissive
+# ramp starts at a visible indigo and needs its bottom fifth faded by hand or
+# the silhouette fills in solid.
+#
+# The cost is that inferno carries the low end in BRIGHTNESS where the emissive
+# ramp carries it in HUE, so a decaying field reads as dimming rather than as
+# a colour change, and two frames a factor of ten apart are harder to tell
+# apart at a glance. Which is the right trade depends on whether the film is
+# about the decay or about the structure at one instant.
+RAMPS['inferno'] = [
+    (0.000, (0, 0, 4)),     (0.125, (31, 12, 72)),   (0.250, (85, 15, 109)),
+    (0.375, (136, 34, 106)), (0.500, (186, 54, 85)),  (0.625, (227, 89, 51)),
+    (0.750, (249, 140, 10)), (0.875, (249, 201, 50)), (1.000, (252, 255, 164))]
+
+RAMP = RAMPS['emissive']
 BG = (10, 11, 18)          # ground / outside the sphere
 RING = (74, 82, 104)       # sphere silhouette
 FG = (206, 212, 226)
@@ -422,9 +478,28 @@ def _shade(t, dfar):
 
 # SHADE[d * NLUT + t] -> the final RGB. Precomputed once, so the inner blit does
 # two integer indexes and no arithmetic; it is why the depth cue is free.
-SHADE = [_shade(t / (NLUT - 1.0), d / (NDEP - 1.0))
-         for d in range(NDEP) for t in range(NLUT)]
-SHADE_FLAT = [_shade(t / (NLUT - 1.0), 0.0) for t in range(NLUT)]
+def build_shade():
+    """Rebuild the two lookup tables from whatever RAMP currently is. They are
+    built at import for the default and again after the arguments are parsed,
+    because --ramp chooses between ramps and _shade() closes over RAMP through
+    _emit() rather than taking it as an argument."""
+    global SHADE, SHADE_FLAT
+    SHADE = [_shade(t / (NLUT - 1.0), d / (NDEP - 1.0))
+             for d in range(NDEP) for t in range(NLUT)]
+    SHADE_FLAT = [_shade(t / (NLUT - 1.0), 0.0) for t in range(NLUT)]
+
+
+def set_ramp(name):
+    global RAMP
+    if name not in RAMPS:
+        return False
+    RAMP = RAMPS[name]
+    build_shade()
+    return True
+
+
+SHADE = SHADE_FLAT = None
+build_shade()
 
 
 # ------------------------------------------------------------- sphere geometry
@@ -806,7 +881,7 @@ def main(argv):
 
     # 'decades': 0 means "size the log ramp to this run's own decay" -- see the
     # block in main() that sets it, and pass --decades N to pin it instead.
-    opt = {'title': '', 'spin': 'z',
+    opt = {'title': '', 'spin': 'z', 'ramp': 'emissive',
            'scale': 'log', 'decades': 0.0, 'yawrate': 3.0, 'yaw0': 35.0,
            'elev': 22.0, 'size': 440, 'vscale': 4.0, 'fps': 12, 'every': 1,
            'limit': 0, 'R': 0.0, 'nodepth': False, 'nosmooth': False,
@@ -834,6 +909,9 @@ def main(argv):
         else:
             pos.append(s)
         i += 1
+
+    if not set_ramp(opt['ramp']):
+        die('unknown --ramp %s (have %s)' % (opt['ramp'], ', '.join(sorted(RAMPS))))
 
     here = os.path.dirname(os.path.abspath(__file__))
     in_dir = pos[0] if len(pos) > 0 else here
@@ -980,7 +1058,12 @@ def main(argv):
         eu = [meta['rows'][idx[k]][1] if k < len(idx) else None for k in range(len(files))]
         eb = [meta['rows'][idx[k]][2] if k < len(idx) else None for k in range(len(files))]
     else:
-        ts = [None] * len(files)
+        ts, src = times_from_log(in_dir, len(files))
+        if ts and not opt['quiet']:
+            print('  frame times from %s (meta.txt carries no table)'
+                  % os.path.relpath(src, in_dir))
+        if ts is None:
+            ts = [None] * len(files)
         eu = eb = None
 
     series = [('|J| P99.5', p995, SERIES_COL[0])]
