@@ -21,6 +21,15 @@ first — it frequently already says why the obvious change is wrong.
 They deliberately duplicate the physics. That is the point: they agree where they
 overlap, and disagreement is a bug in one of them. Do not "de-duplicate" them.
 
+**One overlap is now enforced rather than checked by hand.** `tests/cross_colour`
+drives BOTH colour-gradient operators through 320 identical randomised states —
+two `namespace lbm`s in separate translation units joined by `extern "C"` — and
+diffs all 27 populations: worst difference **0 exactly**, at both precisions. It
+lives in the parent because the parent already links Kokkos and `GPU/`
+deliberately does not; making `GPU/`'s CMake acquire Kokkos to be cross-checked
+would spend the independence that makes the comparison worth anything. The
+pattern generalises to any other operator the two trees share.
+
 `GPU/` compiles as plain C++ too (`-DLBM_HOST_ONLY=ON`), so every CUDA driver can
 be built and run on a laptop before it touches a device. Do that first — it is
 how wrong initial conditions and wrong diagnostics get found cheaply.
