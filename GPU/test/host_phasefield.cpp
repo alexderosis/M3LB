@@ -19,6 +19,7 @@
 #include "lbm/phasefield.cuh"
 #include "lbm/hostsim.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -713,6 +714,262 @@ int main() {
     // physics, which here is the equilibrium profile width.
     check(std::fabs(wb - wc) / wb < 0.05,
           "and the two operators agree on it to 5%", (wb - wc) / wb);
+  }
+
+  //===========================================================================
+  std::printf("\n9. THE ZERO-FLUX WALL, WHICH NOTHING HERE USED TO TOUCH\n\n");
+  //===========================================================================
+  //
+  // Every other block in this file is periodic in all three directions and says
+  // so, which left PhaseWall and PhaseExcluded executed by NO test in GPU/ --
+  // host or device. That is exactly the gap the parent records: its own
+  // validation/phase_wall.cpp banner says "Every other phase-field check in
+  // this tree is periodic in every direction ... so PhaseWall was exercised by
+  // no test at all. This is the gap that let the bug below live." The bug it
+  // means was found only by diffing phi node-by-node against THIS port, so the
+  // port inheriting the same blind spot is worth closing.
+  //
+  // THE CASE, ported from the parent so the two are comparable: a closed box
+  // holding ONE phase uniformly at rest. phi = 1 everywhere, PhaseWall on the
+  // two y planes, no interface anywhere. A uniform field is an EXACT stationary
+  // solution of the conservative Allen-Cahn equation -- grad phi is zero, so the
+  // diffusive and anti-diffusive fluxes both vanish identically -- and a
+  // zero-flux wall cannot change that. So phi must stay 1 at every bulk node,
+  // forever, to round-off. The tolerance below is round-off, not an accuracy
+  // claim.
+  //
+  // WALL NODES ARE EXCLUDED FROM THE CHECK, not asserted about. A PhaseWall node
+  // never collides, so its slots hold whatever a neighbour emitted toward it one
+  // step ago; pf_field_node leaves its phi at the initialised value rather than
+  // giving it a meaningless one. What phi() reports there is not a physical
+  // value, the same trap the parent's ScalarSolver::temperature() carries.
+  //
+  // THE NORMAL-VELOCITY CASE IS PRINTED AND NOT ASSERTED. A uniform velocity
+  // normal to an impermeable wall is not a well-posed input -- the wall blocks a
+  // flux the interior keeps supplying -- so phi genuinely has nowhere to go. It
+  // is NOT a ringing, which an early draft of the parent's banner called it:
+  // measured, it is a monotone, antisymmetric, mass-conserving pile-up, phi
+  // draining from the upstream wall into the downstream one, linear in v0
+  // (error/v0 = -40.3, -40.0, -39.6, -38.6 over v0 = 0.0005 .. 0.004) and
+  // saturating in time as diffusion comes into balance. Both codebases produce
+  // it identically, to every printed digit.
+  {
+    const int nx = 8, ny = 32, nz = 8;
+    const long N = long(nx) * ny * nz;
+    const std::size_t NN = std::size_t(N);
+
+    // THE PASSES ARE DRIVEN DIRECTLY, not through host::PhaseField, and that is
+    // forced rather than chosen. The parent's PhaseFieldSolver is a standalone
+    // solver whose velocity is an INPUT, so its phase_wall.cpp can prescribe a
+    // uniform u. This port fuses the fluid and the phase field into one step(),
+    // and the fluid pass writes the velocity array before the phase pass reads
+    // it -- so a hand-written velocity is erased in the same step. Driving
+    // pf_field_node / pf_derivatives_node / pf_phase_node here is the only way
+    // to reach the port's own arithmetic on the parent's own input, and it is
+    // the same thing sections 6 and 7 do with the free functions.
+    std::vector<Real> h(std::size_t(27 * N), Real(0));
+    std::vector<Real> fld(std::size_t(5 * N), Real(0));      // phi, gx, gy, gz, lap
+    const std::uint8_t bulk = PhaseBulk, wall = PhaseWall;
+    std::vector<std::uint8_t> pfl(NN, bulk);
+    for (long n = 0; n < N; ++n) {
+      int x, y, z;
+      coords(n, nx, ny, x, y, z);
+      if (y == 0 || y == ny - 1) pfl[std::size_t(n)] = wall;
+    }
+
+    auto run = [&](PhaseOp op, const char* name, int steps, double omega,
+                   double u0, double v0) {
+      std::fill(h.begin(), h.end(), Real(0));
+      std::fill(fld.begin(), fld.end(), Real(0));
+      std::vector<Real> ux(NN, Real(u0)), uy(NN, Real(v0)), uz(NN, Real(0));
+      for (long n = 0; n < N; ++n) {
+        int x, y, z;
+        coords(n, nx, ny, x, y, z);
+        Real e0[27];
+        for (int i = 0; i < 27; ++i) e0[i] = D3Q27::w(i) * Real(1);   // eq at phi=1, u=0
+        init_scatter<0, D3Q27>(h.data(), N, x, y, z, nx, ny, nz, e0);
+        fld[std::size_t(n)] = Real(1);
+      }
+      PfParamsT<D3Q27> p;
+      p.h = h.data();
+      p.phi = &fld[0];
+      p.gx = &fld[std::size_t(N)];      p.gy = &fld[std::size_t(2 * N)];
+      p.gz = &fld[std::size_t(3 * N)];  p.lap = &fld[std::size_t(4 * N)];
+      p.ux = ux.data();  p.uy = uy.data();  p.uz = uz.data();
+      p.pflags = pfl.data();
+      p.nx = nx;  p.ny = ny;  p.nz = nz;
+      p.pm.width = Real(4);
+      p.pm.omega = Real(omega);
+      p.pop = op;
+
+      for (long i = 0; i < N; ++i) pf_derivatives_node<true>(p, i);
+      for (int t = 0; t < steps; ++t) {
+        if (t % 2 == 0) {
+          for (long i = 0; i < N; ++i) pf_field_node<0, true>(p, N, i);
+          for (long i = 0; i < N; ++i) pf_derivatives_node<true>(p, i);
+          for (long i = 0; i < N; ++i) pf_phase_node<0, true>(p, N, i);
+        } else {
+          for (long i = 0; i < N; ++i) pf_field_node<1, true>(p, N, i);
+          for (long i = 0; i < N; ++i) pf_derivatives_node<true>(p, i);
+          for (long i = 0; i < N; ++i) pf_phase_node<1, true>(p, N, i);
+        }
+      }
+      if (steps % 2 == 0) for (long i = 0; i < N; ++i) pf_field_node<0, true>(p, N, i);
+      else                for (long i = 0; i < N; ++i) pf_field_node<1, true>(p, N, i);
+
+      double worst = 0;
+      int worst_y = 0;
+      for (long n = 0; n < N; ++n) {
+        int x, y, z;
+        coords(n, nx, ny, x, y, z);
+        if (y == 0 || y == ny - 1) continue;              // bulk only
+        const double e = std::fabs(double(fld[std::size_t(n)]) - 1.0);
+        if (e > worst) { worst = e; worst_y = y; }
+      }
+      std::printf("        %-26s max|phi - 1| = %.3e  at y = %d\n",
+                  name, worst, worst_y);
+      return worst;
+    };
+
+    // A uniform field is EXACT for this scheme, so this is round-off. FP32
+    // carries ~1e-7 per operation and 1000 steps of it, hence the split bar --
+    // the same one the parent's phase_wall.cpp uses.
+    const double tol = (sizeof(Real) == 4) ? 1e-4 : 1e-10;
+    const double a = run(PhaseOp::BGK,            "BGK,  omega 1.0",  100, 1.0, 0.0, 0.0);
+    const double b = run(PhaseOp::CentralMoments, "CM,   omega 1.0",  100, 1.0, 0.0, 0.0);
+    const double c = run(PhaseOp::CentralMoments, "CM,   omega 1.8",  100, 1.8, 0.0, 0.0);
+    const double e = run(PhaseOp::CentralMoments, "CM,   1000 steps", 1000, 1.0, 0.0, 0.0);
+    const double f = run(PhaseOp::CentralMoments, "CM,   u tangential 0.02",
+                         100, 1.0, 0.02, 0.0);
+    check(a < tol, "D3Q27 BGK: a uniform phase holds against a zero-flux wall", a);
+    check(b < tol, "D3Q27 CM:  the same", b);
+    check(c < tol, "D3Q27 CM:  and at omega = 1.8", c);
+    check(e < tol, "D3Q27 CM:  and over 1000 steps", e);
+    check(f < tol, "D3Q27 CM:  and under a TANGENTIAL uniform flow", f);
+
+    // AND THE CROSS-CODE NUMBER, which is the point of having two codebases.
+    // The parent's validation/phase_wall.cpp prints 7.915e-02 on this exact
+    // input in FP64. It is NOT asserted as physics -- the input is not well
+    // posed -- but the two implementations agreeing on it IS assertable, and it
+    // is the only quantitative tie between the two wall implementations.
+    const double g = run(PhaseOp::CentralMoments, "CM,   u NORMAL 0.002", 100, 1.0,
+                         0.0, 0.002);
+    if (sizeof(Real) == 8) {
+      const double parent = 7.915e-02;
+      check(std::fabs(g - parent) / parent < 1e-3,
+            "and the NORMAL-velocity pile-up matches the parent's 7.915e-02",
+            (g - parent) / parent);
+    }
+    std::printf("        (the last row is a pile-up, not a ringing: phi drains from the\n"
+                "         upstream wall into the downstream one, linear in v0 and\n"
+                "         saturating in time, with the population sum conserved.)\n");
+  }
+
+  //===========================================================================
+  std::printf("\n10. F_nu IS BUILT FROM u(t), NOT u(t-1)\n\n");
+  //===========================================================================
+  //
+  // A GUARD ON THE PASS ORDER, because the order is the whole content and
+  // nothing else in this file can see it. Until 2026-09-19 the macroscopic pass
+  // ran only for a pre-fluid hook and ran AFTER the viscous pass, so F_nu was
+  // built from the previous step's velocity. Moving it ahead changed a droplet
+  // in a shear layer by 0.02 % to 0.12 %, growing with the density ratio -- real
+  // but far too small to notice by eye, which is why it wants an assertion
+  // rather than a printed number.
+  //
+  // THE TEST IS DIFFERENTIAL, and it has to be. Start from rest and step ONCE.
+  // With the correct order the macroscopic pass runs first, so the velocity
+  // array holds u(t) -- which is still zero at t = 0, and F_nu with it. That
+  // tells us nothing. So instead: write a velocity field by hand, zero F_nu,
+  // and run the single pass pair. If the macro pass runs FIRST it overwrites the
+  // hand-written velocity with u from the populations (zero), and F_nu comes out
+  // zero; if it runs SECOND, F_nu is built from the hand-written field and comes
+  // out non-zero. The two orders therefore differ by everything, not by 0.1 %.
+  {
+    const int n = 16;
+    const long N = long(n) * n * n;
+    std::vector<Real> f(std::size_t(27 * N), Real(0));
+    std::vector<Real> h(std::size_t(27 * N), Real(0));
+    std::vector<Real> fld(std::size_t(15 * N), Real(0));
+
+    const double R = 5.0, W = 4.0, c = 0.5 * n;
+    for (long id = 0; id < N; ++id) {
+      int x, y, z;
+      coords(id, n, n, x, y, z);
+      const double dx = x - c, dy = y - c, dz = z - c;
+      const double r = std::sqrt(dx * dx + dy * dy + dz * dz);
+      const Real ph = Real(0.5 * (1.0 - std::tanh(2.0 * (r - R) / W)));
+      Real g0[27];
+      for (int i = 0; i < 27; ++i) g0[i] = Real(0);
+      init_scatter<0, FluidLattice>(f.data(), N, x, y, z, n, n, n, g0);
+      Real e0[27];
+      for (int i = 0; i < 27; ++i) e0[i] = FluidLattice::w(i) * ph;
+      init_scatter<0, D3Q27>(h.data(), N, x, y, z, n, n, n, e0);
+      fld[std::size_t(id)] = ph;
+    }
+
+    PfParamsT<D3Q27> p;
+    p.f = f.data();  p.h = h.data();
+    p.phi = &fld[0];
+    p.gx = &fld[std::size_t(N)];      p.gy = &fld[std::size_t(2 * N)];
+    p.gz = &fld[std::size_t(3 * N)];  p.lap = &fld[std::size_t(4 * N)];
+    p.ux = &fld[std::size_t(5 * N)];  p.uy = &fld[std::size_t(6 * N)];
+    p.uz = &fld[std::size_t(7 * N)];  p.pt = &fld[std::size_t(8 * N)];
+    p.vx = &fld[std::size_t(9 * N)];  p.vy = &fld[std::size_t(10 * N)];
+    p.vz = &fld[std::size_t(11 * N)];
+    p.nx = n;  p.ny = n;  p.nz = n;
+    p.fm.rho_L = Real(1);  p.fm.rho_H = Real(10);
+    p.fm.mu_L = Real(0.05);  p.fm.mu_H = Real(0.5);
+
+    for (long i = 0; i < N; ++i) pf_derivatives_node<false>(p, i);
+
+    // A shear the populations do NOT carry: grad u is large at the interface,
+    // which is the only place F_nu lives. The populations are at rest, so the
+    // macroscopic pass will erase this if it runs first -- which is the point.
+    const double A = 0.05, k = 2.0 * 3.14159265358979323846 / n;
+    auto write_shear = [&]() {
+      for (long id = 0; id < N; ++id) {
+        int x, y, z;
+        coords(id, n, n, x, y, z);
+        p.ux[id] = Real(A * std::sin(k * y));
+        p.uy[id] = Real(0);  p.uz[id] = Real(0);
+      }
+    };
+    auto fnu_max = [&]() {
+      double m = 0;
+      for (long i = 0; i < N; ++i)
+        m = std::fmax(m, std::sqrt(double(p.vx[i]) * double(p.vx[i])
+                                 + double(p.vy[i]) * double(p.vy[i])
+                                 + double(p.vz[i]) * double(p.vz[i])));
+      return m;
+    };
+    auto clear_fnu = [&]() {
+      for (long i = 0; i < N; ++i) { p.vx[i] = Real(0); p.vy[i] = Real(0); p.vz[i] = Real(0); }
+    };
+
+    // ORDER AS SHIPPED: macro, then viscous. The macro pass replaces the shear
+    // with u from the populations, which is zero, so F_nu must vanish.
+    write_shear();  clear_fnu();
+    for (long i = 0; i < N; ++i) pf_macro_node<0, false>(p, N, i);
+    for (long i = 0; i < N; ++i) pf_viscous_node<false>(p, i);
+    const double with_macro_first = fnu_max();
+
+    // THE OLD ORDER, for contrast: viscous first, so F_nu is built from a
+    // velocity field the populations never had.
+    write_shear();  clear_fnu();
+    for (long i = 0; i < N; ++i) pf_viscous_node<false>(p, i);
+    const double with_viscous_first = fnu_max();
+
+    std::printf("        max|F_nu| with macro first  = %.6e  (u from the populations)\n",
+                with_macro_first);
+    std::printf("        max|F_nu| with viscous first = %.6e  (u from the stale array)\n",
+                with_viscous_first);
+    check(with_macro_first < 1e-14,
+          "macro-before-viscous: F_nu sees u(t), which is zero here",
+          with_macro_first);
+    check(with_viscous_first > 1e-6,
+          "and the old order would have seen the stale field instead",
+          with_viscous_first);
   }
 
   std::printf("\n[phasefield] %d failure(s)\n", failures);
