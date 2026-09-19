@@ -3127,19 +3127,51 @@ the usual situation with this family of methods; the draft is likewise resolved
 only to the interface width. There is no collision model: two bodies, or a body
 meeting a wall, will simply interpenetrate, because nothing here computes a
 contact force, and the floor stop in \code{demonstrator/water\_entry} is a clamp in
-the driver rather than physics. The scheme is two-dimensional, and says so in the
-compiler's voice --- a \code{static\_assert} on $D=2$, because on a 3D lattice it
-would silently model an infinite prism in $z$ with a rigid-body solve carrying one
-angle where it needs three. Three dimensions is a $6\times6$ with a rotating
-inertia tensor and a quaternion, a different piece of work; the fluid side would
-not change at all. And the body is of uniform density: its centre of mass is taken
-to be the centre of the rectangle, which is exactly what lets its own weight drop
-out of the roll equation. Ballast low in the hull is the standard way to make a
-tall body float upright, and it is precisely what this cannot express --- it would
-need a second centre, a $\overline{BG}$ that no longer follows from the draft, and
-a weight torque restored to the third row. The rectangle is also the only
-indicator provided, though anything carrying a signed distance function drops
-straight in.
+the driver rather than physics.
+
+\paragraph{Three solves, chosen by the shape.} This used to be a planar scheme and
+is not one any more; an earlier version of this paragraph said ``the scheme is
+two-dimensional, and says so in the compiler's voice --- a \code{static\_assert}
+on $D=2$'', and described the three-dimensional work as something that had not
+been done. The assertion is now
+\code{static\_assert(L::D == 2 || Shape::three\_d)}, which is the same defence
+pointed the other way: a planar shape on a 3-D lattice would silently model an
+infinite prism in $z$, so it is refused, and a three-dimensional shape is let
+through. Five indicators are provided, sorting into three solves:
+\begin{center}\small
+\begin{tabular}{llll}
+\toprule
+shape & geometry & rigid-body solve & driver \\
+\midrule
+\code{Rect}, \code{Wedge} & planar prism & $3\times3$: $x$, $y$, $\theta_z$ & \code{floating\_body}, \code{enan\_wedge} \\
+\code{Sphere}             & 3-D          & $3$ translations, no rotation    & \code{sphere\_entry} \\
+\code{Box}, \code{Disc}   & 3-D          & full $6\times6$, quaternion pose & \code{cube\_entry}, \code{stone\_skip} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\code{Sphere} is the row worth reading twice: it is three-dimensional in geometry
+and \emph{not} a 6-DOF body. It declares \code{six\_dof = false} and carries three
+translations with no quaternion and no rotating inertia tensor, which is exact for
+an axial entry --- there is no torque about any axis --- and would not be for
+anything else. The full $6\times6$ with the inertia tensor held in the body frame
+and rotated out each step is \code{RigidBody3D.hpp}, reached by \code{Box} and
+\code{Disc}. The two paths are separate rather than layered: calling
+\code{refresh()} on a \code{Box} or \code{refresh6()} on a \code{Rect} is a
+compile error rather than a wrong answer. What has \emph{not} changed is that the
+fluid side needed no modification for any of it.
+
+\paragraph{Uniform density, which is still a real limit.} The body's centre of
+mass is taken to be its geometric centre, which is exactly what lets its own
+weight drop out of the roll equation. Ballast low in the hull is the standard way
+to make a tall body float upright, and it is precisely what this cannot express:
+it would need a second centre, a $\overline{BG}$ that no longer follows from the
+draft, and a weight torque restored to the third row. The same assumption has a
+sharper edge on the 6-DOF path --- \code{set\_uniform\_density6} measures the
+inertia in the world frame and stores it in the body frame, and using the planar
+\code{set\_uniform\_density} on a 6-DOF body fills the mass and leaves the tensor
+at \emph{zero}, which makes the angular half singular and produces a plausible
+tumble rather than a failure. Anything carrying a signed distance function drops
+straight in as a sixth shape.
 
 
 \subsection{A second immiscible model: the colour gradient}\label{sec:colour}
@@ -4781,9 +4813,11 @@ which this formulation cannot produce because it has no contact line and
 therefore no surface-tension contribution to the draft at all. Ballast, since the
 body's centre of mass is taken to be the centre of the rectangle --- which is
 what lets its own weight drop out of the roll equation, and is exactly the
-standard way of making a tall body float upright that this cannot express. And
-any of it in three dimensions, where the rigid-body solve would be a $6\times6$
-with a rotating inertia tensor and a quaternion; the fluid side would not change.
+standard way of making a tall body float upright that this cannot express. Three
+dimensions is no longer on that list: the $6\times6$ with a rotating inertia
+tensor and a quaternion pose is \code{RigidBody3D.hpp}, reached by \code{Box} and
+\code{Disc} (\S\ref{sec:penalisation}). What this case does not do in 3-D is its own
+\emph{validation} --- see the entry in \S\ref{sec:known}.
 
 %------------------------------------------------------------------------------
 \subsubsection{A published multiphase campaign: De Rosis and Enan (2021)}
@@ -9976,10 +10010,13 @@ the fitted rate is blamed on the scheme.
   angular velocity about $z$; the six-degree-of-freedom path
   (\code{src/solver/RigidBody3D.hpp}) carries a quaternion and an inertia tensor
   held in the body frame and rotated out each step. They are chosen by the
-  shape: \code{Rect} and \code{Wedge} declare \code{six\_dof = false} and use the
-  validated $3\times3$, \code{Box} and \code{Sphere} are three-dimensional, and
-  mixing a shape with the wrong solve is a compile error rather than a wrong
-  answer. \code{tests/test\_rigid3d} pins the $6\times6$ against that $3\times3$
+  shape, and there are THREE groups rather than two. \code{Rect} and \code{Wedge}
+  are planar prisms and use the validated $3\times3$. \code{Box} and \code{Disc}
+  declare \code{six\_dof = true} and take the $6\times6$. \code{Sphere} is neither:
+  three-dimensional in geometry but \code{six\_dof = false}, carrying three
+  translations and no rotation at all, which is exact for an axial entry and for
+  nothing else. Mixing a shape with the wrong solve is a compile error rather than
+  a wrong answer. \code{tests/test\_rigid3d} pins the $6\times6$ against that $3\times3$
   on a planar problem to $1.7\times10^{-18}$, so the generalisation carries the
   older code's validation --- but only for the planar limb. What the new three
   degrees of freedom do in a flow has \emph{no} closed-form check in this tree:
