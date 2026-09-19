@@ -2,7 +2,7 @@
 
 Lattice Boltzmann solver, C++20 on Kokkos. Read this before proposing changes or
 writing a case; most of it is knowledge that is otherwise spread across
-`doc/m3lb.pdf` (152 pages) and the banner comments at the top of each header.
+`doc/m3lb.pdf` (153 pages) and the banner comments at the top of each header.
 
 **The banners are the documentation.** Every non-obvious decision in this tree is
 argued at the top of the file that implements it, usually with the measurement

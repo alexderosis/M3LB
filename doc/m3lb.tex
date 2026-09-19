@@ -2617,6 +2617,136 @@ only. The shifted convention centres the stored variable on $\tilde p = 1$, whic
 is precisely the pressure gauge that must be avoided at a density ratio --- the
 subject of \S\ref{sec:gauge}.
 
+\subsection{Central moments for the phase field}\label{sec:acecm}
+
+\S\ref{sec:ace} gives this paper's \emph{physics} for $h_i$ --- the equilibrium,
+$\tau_\phi = M/\cs^2$, the anti-diffusion source --- and presents BGK as the
+collision. Their Sec.~II.D is a different collision for the same physics, and it
+is implemented here as \code{PhaseFieldCentralMoments}. Since 2026-09-18 it is
+also the \emph{default} on any product lattice: \code{PhaseFieldSolver}'s
+collision template argument defaults to \code{DefaultPhaseCollision}, which is
+this operator on D2Q9 and D3Q27 and \code{PhaseFieldBGK} on D3Q7 and D2Q5. The
+campaign of \S\ref{sec:enan} runs it throughout.
+
+\paragraph{Why it exists, and the ceiling is not the same one the fluid has.} The
+mobility fixes the rate outright,
+$M = \cs^2(1/\omega_\phi - \tfrac12)$, so $\omega_\phi = (M/\cs^2 + \tfrac12)^{-1}$;
+and an interface-capture test fixes the mobility through its P\'eclet number. A
+high P\'eclet number is a low mobility is $\omega_\phi\to2$, and under BGK there
+is nothing to trade against it, because BGK relaxes the ghost modes at that same
+rate. The moment form relaxes only the three first-order moments at $\omega_\phi$
+and sends everything else to equilibrium at $1$.
+
+\paragraph{A retraction, and it matters because it was the justification.} An
+earlier version of this section reported that the operator completes the
+reference's Table~III at $\mathrm{Pe} = 80$, $400$, $800$ and $4000$ where BGK
+reaches $10^{300}$ on the last three, and read that as a stability ceiling the
+central-moment form lifts. The P\'eclet number had been read as
+$\mathrm{Pe} = U_0\xi/M$, which is what their text says; their drivers all compute
+$M = U_{\rm ref}\,d/\mathrm{Pe}$ with $d$ the \emph{domain size}. On Table~III at
+$\mathrm{Pe}=80$ that is $M = 0.0497$ and $\omega_\phi = 1.54$, where the
+interface-width reading gives $M = 7.5\e{-4}$ and $\omega_\phi = 1.991$. BGK was
+being run $66$ times short of mobility, hard against its own stability edge, and
+it diverged for that reason rather than for anything intrinsic at their operating
+point --- across every case in the paper their $\omega_\phi$ never exceeds
+$1.988$. So this operator has \emph{no measured advantage over BGK recorded here},
+and the mobility ladder that used to appear in this section described a regime the
+paper does not visit. The numbers were real measurements of the wrong thing.
+
+\paragraph{The equilibrium is one slot.} Not an approximation --- in this basis it
+is exact:
+\begin{equation}
+  k^{\rm eq} = (\phi,\,0,\,0,\,\ldots,\,0).
+  \label{eq:acekeq}
+\end{equation}
+The reference tabulates five nonzero entries in the \emph{monomial} central
+moments (its Eq.~54): $k_0 = \phi$, $k_4 = \phi$ and
+$k_{16}=k_{17}=k_{18}=\phi\cs^4$. \code{ProductBasis} is shifted,
+$\varphi_2 = C^2-\cs^2$, and all four of the non-zeroth ones collapse in it:
+\[
+  k_4' = k_4 - 3\cs^2k_0 = \phi - \phi = 0,
+  \qquad
+  k_{16}' = \phi\cs^4 - \phi\cs^4 - \phi\cs^4 + \phi\cs^4 = 0 .
+\]
+So no equilibrium table is stored at all: \code{eq\_populations} writes $\phi$
+into the $(0,0,0)$ slot and inverse-transforms. Note what that inverse transform
+returns --- the product-form (sixth-order) equilibrium, not the second-order
+truncation \eqref{eq:so} that \S\ref{sec:ace} gives for BGK. The two differ at
+$O(u^3)$, and the test suite pins exactly that: the post-collision states of the
+two operators at matched $\omega$ agree to $1.084\e{-4}$ against
+$|\uu|^3 = 2.342\e{-4}$, while $\phi$ and the first moment agree to
+$2.2\e{-16}$ and $1.0\e{-17}$.
+
+\paragraph{Relaxation, and where the mobility lives.} Eq.~(55) of the reference is
+$K_\phi = \mathrm{diag}[1,\omega_\phi,\omega_\phi,\omega_\phi,1,\ldots,1]$:
+\begin{equation}
+\begin{aligned}
+  \text{order }0:&\quad k^{\star} = \phi \quad\text{--- conserved} \\
+  \text{order }1:&\quad k^{\star} = (1-\omega_\phi)\,k
+                   + \big(1-\tfrac{\omega_\phi}{2}\big)\cs^2 A_a \\
+  \text{order}\geq2:&\quad k^{\star} = 0 .
+\end{aligned}
+\label{eq:acekstar}
+\end{equation}
+Twenty-three of the twenty-seven moments are annihilated, against seventeen for
+the fluid operator of \S\ref{sec:mpcm}, and the difference is instructive: the
+fluid's viscosity lives at order $2$, so its order-$2$ slots must be relaxed
+rather than zeroed, whereas the phase field's mobility lives at order $1$ and
+leaves order $2$ free. The other asymmetry is that the fluid's first-order update
+is an \emph{assignment} \eqref{eq:mpk1} and the phase field's is a genuine
+relaxation --- which is the same statement, from the other side.
+
+\paragraph{The source occupies three slots, and the reference lists nine.} With
+$\sum_i S_i = 0$ and $\sum_i \ci S_i = \cs^2(1-\omega_\phi/2)\,\theta\nn$, the
+source is first order in $\ci$, so its central and raw first moments differ by
+$\uu$ times its zeroth, which vanishes. It is therefore added to $k_1,k_2,k_3$
+directly, with the same $(1-\omega_\phi/2)$ prefactor \S\ref{sec:ace} derives and
+for the same reason.
+
+The $\cs^2$ in \eqref{eq:acekstar} is not decoration. \code{PhaseFieldBGK} adds
+$S_i = (1-\omega_\phi/2)\,w_i(\ci\!\cdot\!\bm{A})$ to the \emph{populations},
+whose first moment is $(1-\omega_\phi/2)\cs^2\bm{A}$ because
+$\sum_i w_i c_{ia}c_{ib} = \cs^2\delta_{ab}$. Writing $\bm{A}$ here without it
+makes the anti-diffusion three times too weak on a $\cs^2=1/3$ lattice, which
+neither blows up nor looks wrong --- the interface simply spreads, the way it does
+when the prefactor is got wrong in the other direction.
+
+The reference's Eq.~(61) lists nine nonzero entries: $R_{1,2,3}$ and, at third
+order, $R_{10}=R_{15}=\cs^2A_y$, $R_{11}=R_{13}=\cs^2A_x$,
+$R_{12}=R_{14}=\cs^2A_z$. Those six are not missing here; they are \emph{zero in
+this basis}. Eq.~(61) is written in monomial central moments, and in the shifted
+basis the $(a,a,b)$ slot is $(C_a^2-\cs^2)C_b$, to which the same source
+contributes $\cs^4A_b - \cs^2\!\cdot\!\cs^2A_b = 0$. Transcribing the list
+slot-for-slot would double-count; deleting the entries from a monomial
+implementation would lose them. Neither fails visibly, so
+\code{tests/test\_phase\_field.cpp} pins \emph{both} directions: the raw moments
+reproduce Eq.~(61) exactly, and the shifted moments outside the first three come
+out at $4.1\e{-20}$.
+
+\paragraph{That cancellation is at $\uu=0$, and the qualifier is the honest part.}
+Transform $S_i$ at a general velocity and $26$ of the $27$ shifted moments are
+nonzero, not $3$: the sparsity is a property of the rest frame. The reference's
+drivers add a $\uu$-independent source and so does this, so both truncate the
+source's central moments at $\uu=0$ --- a shared approximation rather than an
+identity, and \code{MATLAB/D3Q27\_CM\_phase.m} prints both forms so the difference
+stays visible. The discarded terms are $O(|\uu|\,A)$, the same order as the
+equilibrium gap against BGK above. A \code{full\_source} switch transforms the
+source at the actual velocity; it is kept because the reasoning that says it
+should matter is sound, and defaulted off because measurement says it does not.
+On the advected flat slab of \code{validation/phase\_flat} --- $50\,000$ steps,
+$W=3$, the case most able to see it --- the width drift is $-4.58\e{-2}$
+truncated against $-4.52\e{-2}$ transformed at $\omega_\phi = 1.9881$, and
+$+7.43\e{-1}$ against $+7.45\e{-1}$ at $1.9940$: $1.3\%$ and $0.3\%$ apart. It is
+simply not what limits this operator.
+
+\paragraph{Two constraints, the same two the fluid operator has.} A product
+lattice --- D2Q9 or D3Q27, enforced by a static assertion, so a D3Q7 phase field
+must use \code{PhaseFieldBGK} and a request for central moments there is a compile
+error rather than a silent downgrade. And raw storage, for the reason
+\S\ref{sec:ace} gives: $\phi$ is $O(1)$ on $[0,1]$, there is no cancellation to
+protect against, and \code{RawPopulations} is the right answer rather than a
+placeholder.
+
 \subsection{The pressure gauge, and two normalisations}\label{sec:gauge}
 
 This is the most consequential finding in the module, and it is a conditioning
