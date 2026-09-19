@@ -11,7 +11,7 @@
 //
 //  A THIN PERIODIC SLAB, and that is a deliberate compromise. The colour-
 //  gradient operator is D3Q27 and there is no two-dimensional version of it --
-//  phi_i, B_i and sigma = 4 A tau / 9 are all derived for that lattice. Running
+//  phi_i, B_i and sigma = 2 A tau / 9 are all derived for that lattice. Running
 //  the full three-dimensional problem would be the honest thing and it is also
 //  fifty times the work; a slab four cells deep and periodic in z carries the
 //  same physics as long as nothing breaks the symmetry in z, and nothing here
@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   {
     int W = 64, nz = 4, nframes = 90;
-    double At = 0.5, Re = 256, U = 0.04, A = 2e-4, iw = 5.0, tmax = 3.0;
+    double At = 0.5, Re = 256, U = 0.04, A = 4e-4, iw = 5.0, tmax = 3.0;
     std::string dump;
     for (int i = 1; i < argc; ++i) {
       auto num = [&](double& v) { if (i + 1 < argc) v = std::atof(argv[++i]); };
@@ -124,7 +124,7 @@ int main(int argc, char** argv) {
                 "   Re = %.0f   nu = %.3e\n",
                 int(nx), int(ny), nz, At, gamma, Re, nu);
     std::printf("g = %.3e   U = %.3f   tau = %.4f   A = %.2e   sigma = %.3e\n",
-                g, U, tau, A, 4.0 * A * tau / 9.0);
+                g, U, tau, A, double(CG::sigma_from_A(Real(A), Real(tau))));
     std::printf("t* = %.1f is %zu steps (t_ref = %.1f)\n\n", tmax, nsteps, t_ref);
 
     Domain d(nx, ny, Index(nz), /*periodic x*/ true, /*y*/ false, /*z*/ true);

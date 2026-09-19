@@ -3177,10 +3177,21 @@ straight in as a sixth shape.
 \subsection{A second immiscible model: the colour gradient}\label{sec:colour}
 
 Everything above carries the interface in a field with its own advection
-equation. The colour-gradient model of Saito \emph{et al.}\ (Phys.\ Rev.\ E
-\textbf{98}, 013305, 2018), implemented in \code{ColourGradient.hpp} and
+equation. The colour-gradient model, implemented in \code{ColourGradient.hpp} and
 \code{ColourGradientSolver.hpp}, reaches the same physics with no interface
 equation at all, and it is in the tree because the two fail differently.
+
+\textbf{The reference changed on 2026-09-19.} The implementation followed Saito
+\emph{et al.}\ (Phys.\ Rev.\ E \textbf{98}, 013305, 2018) and now follows
+Appendix~D of De Rosis, Huang \& Coreixas (Phys.\ Fluids \textbf{31}, 117102,
+2019), whose equations are cited below as (D$n$). Three things differ, and only
+the first is a change of physics: the equilibrium is the complete sixth-order
+Hermite set of Eq.~(D5) rather than Saito's third-order truncation; the rest
+term's $\alpha$ is interpolated by Eq.~(D13) rather than taken per colour
+(\S\ref{sec:cgalpha}); and the perturbation carries $A/2$ colour-blind,
+Eq.~(D14), so $\sigma = 2A\tau/9$ where Saito's Eq.~(32) gives $4A\tau/9$ for
+the same symbol --- a normalisation of $A$, reached through
+\code{A\_from\_sigma()} so that it never has to be compared across the two.
 
 Two distribution sets $f_i^r$ and $f_i^b$ are carried. The interface is wherever
 both are non-zero, and it is held together by a \emph{recolouring} step that
@@ -3246,22 +3257,31 @@ $\nabla\rho$ because it goes into the equilibrium rather than into $F$. It is
 also the term most easily dropped by accident, and dropping it changes nothing
 that any static test checks.
 
-\paragraph{A factor of two that a running simulation would absorb.} The
-perturbation is written per colour in Eq.~(30) as
-$(A_k/2)|\nabla\phi|[w_i(\ci\cdot\nn)^2 - B_i]$, and Eq.~(39) sums the capillary
-stress over $k$ as well as over $i$ with $A = A_r = A_b$. Applied to the
-colour-blind population --- which is what the paper's own text says is done ---
-the two halves add and the coefficient is $A$, not $A/2$. The distinction is not
-cosmetic, and it was settled by deriving $\sigma$ from Eq.~(39) rather than
-copying Eq.~(32): for a flat interface
+\paragraph{A factor of two, and what it is and is not.} The implementation now
+follows Eq.~(D14), which is written \emph{colour-blind} and carries $A/2$:
 \begin{equation}
-  \sigma = \int (S_{tt} - S_{nn})\,\mathrm{d}n
-         = \frac{2A\tau}{9}\,\Delta\phi
-         = \frac{4A\tau}{9},
+  \big(\Omega_i\big)^{(2)} = \frac{A}{2}\,|\nabla\phi|
+      \Big[ w_i \frac{(\ci\cdot\nabla\phi)^2}{|\nabla\phi|^2} - B_i \Big],
+  \qquad
+  \sigma = \int (S_{tt} - S_{nn})\,\mathrm{d}n = \frac{A\tau}{9}\,\Delta\phi
+         = \frac{2A\tau}{9},
 \end{equation}
-since $\phi$ runs from $-1$ to $+1$. That is Eq.~(32) exactly. With $A/2$ it
-would have come out half as large, and a static droplet would have reported a
-surface tension $50\%$ low with every other property of the model intact.
+since $\phi$ runs from $-1$ to $+1$. Saito \emph{et al.}\ write the perturbation
+\emph{per colour} in their Eq.~(30) with $A_k/2$, and their Eq.~(39) sums the
+capillary stress over $k$ as well as over $i$; applied to the colour-blind
+population the two halves add, giving $A$ and their Eq.~(32),
+$\sigma = 4A\tau/9$. This document previously argued that reading at length and
+called the difference ``not cosmetic''.
+
+\textbf{It is a normalisation of the symbol $A$, and nothing computed depends on
+it.} Both pairs are internally consistent; what a simulation is given is
+$\sigma$, and \code{A\_from\_sigma()} and \code{sigma\_from\_A()} convert with
+whichever pair is in force. The three drivers that set $A$ by hand had it doubled
+when the convention changed, so their surface tension did not move and an
+old-versus-new comparison measures the equilibrium alone. What \emph{would} be a
+real error is mixing the two --- taking $A$ from one paper and $\sigma$ from the
+other --- and that is exactly what routing every driver through the converters
+prevents.
 
 The perturbation conserves mass and momentum exactly and acts only across the
 interface: $\sum_i w_i (\ci\cdot\nn)^4 = 3\cs^4 = 1/3$ cancels
@@ -3300,6 +3320,71 @@ it reaches $1000$ in the paper's own static tests, where the pressure form of
 \S\ref{sec:cgvspf} measures both on one case.
 
 %==============================================================================
+\paragraph{Which $\alpha$ the rest term sees, and the one mechanism that was
+diagnosed.}\label{sec:cgalpha}
+Both readings of Eq.~(D6) are the \emph{same functional form}. $\varphi_i$ is
+affine in $\alpha$ --- its rest slot is $\alpha$ and every other slot a fixed
+multiple of $(1-\alpha)$ --- so, identically, population by population,
+\begin{equation}
+  \sum_k \rho_k \varphi_i(\alpha_k) \;\equiv\; \rho\, \varphi_i(\alpha_P),
+  \qquad \alpha_P = 1 - \frac{19 P}{9\rho}, \qquad P = \sum_k \rho_k c_{s,k}^2 .
+\end{equation}
+The per-colour reading is therefore Eq.~(D6)'s own single-$\alpha$ form with
+$\alpha$ chosen to make the pressure continuous, and the entire difference
+between the two is the \emph{interpolation rule}: linear in the order parameter,
+Eq.~(D13), or $\alpha_P$. \code{tests/test\_colour\_gradient.cpp} block~2 pins
+that identity at $2.6\e{-15}$.
+
+The linear rule is not free. $c_s^2$ is linear in $\alpha$ while $\rho$ is not
+correspondingly interpolated, so at a symmetric interface's midpoint
+($\phi = 0$, $\bar\alpha = (\alpha_r+\alpha_b)/2$, $\rho = (\gamma+1)/2$) the
+pressure is
+\begin{equation}
+  \frac{p_{\mathrm{mid}}}{p_{\mathrm{bulk}}} = \frac{(\gamma+1)^2}{4\gamma},
+\end{equation}
+i.e.\ $1.00$, $3.03$, $25.50$ and $250.50$ at $\gamma = 1, 10, 100, 1000$
+against a bulk of $1/3$. Measured on \code{validation/static\_droplet} at
+$48^3$, $R = 16$, $\tau = 1$, $\sigma$ held fixed, \emph{converged} (32\,000
+steps), the Laplace error is
+
+\begin{center}\small
+\begin{tabular}{lrrrrr}
+\toprule
+rest term & $\gamma = 1$ & $10$ & $20$ & $100$ & $1000$ \\
+\midrule
+\code{PerColour} (default) & $0.88\%$ & $0.68\%$ & $0.46\%$ & $3.21\%$ & comes apart \\
+\code{AlphaBar}, Eq.~(D6)  & $0.88\%$ & $3.34\%$ & $1.51\%$ & NaN & NaN \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Run at a \emph{matched} 1500 steps --- unconverged, but the same
+protocol on both sides, which is what an A/B needs --- Saito's \emph{third-order}
+equilibrium with \code{PerColour} reads $0.23 / 0.95 / 493.49 / 3871.32$ against
+the sixth-order one's $0.23 / 0.95 / 493.50 / 3871.32$, agreeing to four or five
+significant figures at every ratio: \textbf{the equilibrium order is not what is
+at stake here, and an earlier version of this section said it was.} That wrong attribution came from an isolation run in which
+the collision's rest term was changed while the solver's seed and the recolouring
+were left on the other reading --- a $3\times$ pressure mismatch at the interface
+on step~0, which returned NaN and looked like the model failing. The operator now
+owns the split, so the solver cannot disagree with it.
+
+\textbf{The step count has to scale with $\gamma$.} Relaxation slows as the ratio
+grows while $\tau$ is held at 1, so a ladder quoted at one fixed step count
+measures the transient. Here $\gamma \le 20$ is converged by 8000 steps
+($0.04$ points of drift out to 32\,000) while $\gamma = 100$ reads $2.12\%$ at
+8000, $3.11\%$ at 16\,000 and $3.21\%$ at 32\,000. An earlier version of this
+table carried $493\%$ and $3871\%$ from a 1500-step run, which was pure
+transient. At $\gamma = 1000$ it is not slow convergence but a qualitative
+failure: the measured Laplace jump crosses \emph{zero}
+($+4.84\e{-3}$, $+1.20\e{-3}$, $-2.34\e{-4}$ at 8000/16\,000/32\,000) while the
+interface widens from $4.92$ to $5.47$ cells. Nothing is quotable there, and the
+cause is not diagnosed.
+\code{ColourGradient::RestTerm} selects the reading and
+\code{static\_droplet -rest bar|percolour} measures the gap. Note that at
+$\gamma = 1$ the two are algebraically identical, so no matched-density test can
+see any of this.
+
 \section{Free-surface flow}
 \label{sec:freesurface}
 
@@ -8581,8 +8666,23 @@ larger one can --- a GPU thread has up to 255 registers where arm64 has 32. What
 it buys is that the device question is now one bounded confirmation run
 (\S\ref{sec:cmbench}) rather than a diagnosis. \code{tests/frame\_check.sh}
 re-measures the table above at both precisions; the same construct was found and
-fixed in \code{MultiphaseCentralMoments} and remains in \code{ColourGradient},
-which carries the largest frame in the tree.
+fixed in \code{MultiphaseCentralMoments}.
+
+\textbf{\code{ColourGradient} carried the largest frame in the tree, and
+unrolling could not have fixed it (2026-09-19).}\label{sec:cmframe} Its two
+live arrays were not a
+loop's working set but a whole equilibrium and perturbation \emph{moment set},
+built as populations and transformed --- there was nothing to unroll them into.
+What removed them is the closed-form derivation \code{GPU/}'s sibling already
+carried (\S\ref{sec:cudamp}), ported to \code{src/}: the host frame falls from
+$1200$ to $480$ bytes in FP64 and $624$ to $416$ in FP32, the surviving loop
+goes, and the six register-indexed accesses that remain are the six genuine
+$\nabla\phi$ and $\nabla\rho$ field loads rather than demoted arrays.
+\code{tests/test\_colour\_gradient.cpp} block 6 keeps the population path as
+\code{reference\_collide()} and asserts the two agree to $4.2\e{-16}$ relative
+over 60 states carrying a density ratio up to 30, a live perturbation, a density
+gradient and a body force --- which is what makes this the same operator rather
+than a cheaper one.
 
 \subsection{The answer}
 
@@ -9009,6 +9109,11 @@ every digit printed, on the device and on the host, so this is the same operator
 and not a cheaper approximation of it: \code{test/host\_colour.cpp} keeps the old
 path as \code{reference\_collide()} and asserts the two agree over 60 states to
 $5.9\e{-16}$ in FP64 and $2.1\e{-07}$ in FP32, about one ulp.
+
+The parent's \code{ColourGradient.hpp} now carries the same derivation, ported
+in 2026-09-19 with the host-side measurement recorded in \S\ref{sec:cmframe};
+that is the one place in this tree where a finding travelled from \code{GPU/}
+back to \code{src/} rather than the other way.
 
 The phase field was written afterwards and therefore written already knowing
 this. It ran at \textbf{354.6}~MLUPS with \textbf{0 bytes} of stack frame on

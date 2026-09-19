@@ -8,10 +8,13 @@
 //      dp = 2 sigma / R,
 //
 //  so the measured tension is 0.5 (p_in - p_out) R, and it is compared against
-//  the sigma the model was ASKED for through sigma = 4 A tau / 9, Eq. (32).
-//  Getting the perturbation coefficient wrong -- A/2 instead of A, which is what
-//  Eq. (30) literally reads -- halves the answer here and changes nothing else
-//  in the model, which is exactly why this case exists.
+//  the sigma the model was ASKED for through sigma = 2 A tau / 9, Eq. (D14).
+//  Getting the perturbation coefficient wrong by a factor of two halves the
+//  answer here and changes nothing else in the model, which is exactly why this
+//  case exists. NOTE this driver takes -sigma and never names A: it reaches it
+//  through ColourModel::A_from_sigma(), which is why the 2026-09-19 change of
+//  convention (Saito's sigma = 4 A tau / 9 to Eq. (D14)'s 2 A tau / 9) required
+//  no edit here at all. A driver that set A by hand would have needed one.
 //
 //  THE PRESSURE IS p = sum_k rho_k cs_k^2, Eq. (26), each phase with its own
 //  alpha. That is the same combination the equilibrium's rest term carries, and
@@ -50,13 +53,26 @@
 //  gamma = 1, and that gap sat in the README as an open question about the
 //  model rather than being chased. It was the seed.
 //
-//  WHAT THE PARENT MEASURED, and what this is expected to reproduce: gamma = 1
-//  within 0.87% and gamma = 10 within 0.77%. AT gamma = 100 AND 1000 THE PARENT
-//  OVERESTIMATES sigma and the cause is not settled -- four hypotheses were
-//  tested and falsified there (shrinkage, negative densities, phi overshoot,
-//  core contamination). Do not read a large-ratio number off this driver as a
-//  property of the GPU port; it is a property of the model as implemented, and
-//  the two codes should agree on being wrong together.
+//  EVERY NUMBER IN THE TABLE ABOVE PREDATES THE APPENDIX D PORT (2026-09-19) and
+//  was measured with Saito et al.'s third-order equilibrium, the per-colour rest
+//  term as the only reading, and sigma = 4 A tau / 9. The model changed under
+//  them; they are kept because the SEED bug they diagnose is real and the
+//  diagnosis still stands, but they are not this driver's current output and
+//  must not be quoted as such.
+//
+//  WHAT THE PARENT MEASURES NOW, converged at 32000 steps, 48^3 / R=16 / tau=1:
+//  gamma = 1 0.88%, gamma = 10 0.68%, gamma = 20 0.46%, gamma = 100 3.21%.
+//  gamma <= 20 is already there by 8000 steps (0.04 points of drift); gamma =
+//  100 is not, reading 2.12% at 8000 and 3.11% at 16000 before it settles.
+//  AT gamma = 1000 THE DROPLET COMES APART: the
+//  measured Laplace jump crosses zero (+4.84e-3, +1.20e-3, -2.34e-4 at
+//  8000/16000/32000) while the interface widens from 4.92 to 5.47 cells. That is
+//  a qualitative failure, not a slow transient, and it is unexplained.
+//
+//  THE STEP COUNT HAS TO SCALE WITH GAMMA. A ladder quoted at one fixed step
+//  count across a gamma sweep is meaningless here -- the parent's first attempt
+//  read 493% at gamma = 100 purely because 1500 steps was nowhere near the
+//  relaxation time. Check the series is flat before reading a number off it.
 //
 //  Runs on the host with no GPU, at a smaller grid:
 //     c++ -std=c++17 -O2 -Iinclude -x c++ src/droplet.cu -o droplet

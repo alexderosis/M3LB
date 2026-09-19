@@ -643,10 +643,14 @@ class Colour {
       Real rr = Real(1), rb = Real(0);
       init(x, y, z, rr, rb);
       Real gr[27], gb[27];
-      for (int i = 0; i < 27; ++i) {
-        gr[i] = rr * ColourModel::phi_i(i, model.alpha_r);
-        gb[i] = rb * ColourModel::phi_i(i, model.alpha_b);
-      }
+      // Through the model's own seed_at_rest, NOT a second copy of the formula:
+      // which alpha the rest term sees is ColourModel::rest's to decide, and a
+      // seed that picks the other reading puts the interface out of equilibrium
+      // on step 0. This line used to inline the per-colour form, which was right
+      // only because that happened to be the sole reading. See colour.cuh.
+      const Real ph = model.order_parameter(rr, rb);
+      for (int i = 0; i < 27; ++i)
+        model.seed_at_rest(i, rr, rb, ph, gr[i], gb[i]);
       init_scatter<0, ColourLattice>(fr_.data(), N_, x, y, z, nx_, ny_, nz_, gr);
       init_scatter<0, ColourLattice>(fb_.data(), N_, x, y, z, nx_, ny_, nz_, gb);
     }

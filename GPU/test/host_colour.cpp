@@ -6,7 +6,7 @@
 //  THE PHYSICS half re-derives the model's invariants from the code as written:
 //  that phi_i is a weight set whose second moment is the phase's sound speed,
 //  that the equilibrium carries rho and rho u with Phi_i included, that the
-//  perturbation is a pure second-moment source delivering sigma = 4 A tau / 9,
+//  perturbation is a pure second-moment source delivering sigma = 2 A tau / 9,
 //  and that recolouring is an exact partition. These mirror the parent's
 //  tests/test_colour_gradient.cpp, because the failure they guard against is a
 //  port silently reverting one of the three readings that had to be worked out
@@ -52,10 +52,9 @@ static double worst(double a, double b) { return std::fabs(a) > std::fabs(b) ? a
 //  live 27-arrays and three of the four transforms. That is only worth doing if
 //  the two agree, so the old path lives here and section 6 asserts it.
 //==============================================================================
-static void reference_collide(const ColourModel& m, Real f[27], Real rho_r,
-                              Real rho_b, const Real u[3], Real p,
+static void reference_collide(const ColourModel& m, Real f[27], Real rho,
+                              const Real u[3], Real p,
                               const Real g[3], const Real dr[3]) {
-  const Real rho   = rho_r + rho_b;
   const Real nubar = m.nu_at(p);
   const Real omega = m.omega_at(p);
 
@@ -66,7 +65,7 @@ static void reference_collide(const ColourModel& m, Real f[27], Real rho_r,
   const Real udrho = u[0] * dr[0] + u[1] * dr[1] + u[2] * dr[2];
 
   Real fe[27];
-  m.equilibrium(fe, rho_r, rho_b, u, G, nubar, udrho);
+  m.equilibrium(fe, rho, p, u, G, nubar, udrho);
 
   const Real gm2 = g[0] * g[0] + g[1] * g[1] + g[2] * g[2];
   Real pert[27];
@@ -76,7 +75,10 @@ static void reference_collide(const ColourModel& m, Real f[27], Real rho_r,
     for (int i = 0; i < 27; ++i) {
       const Real cn = Real(D3Q27::cx(i)) * nh[0] + Real(D3Q27::cy(i)) * nh[1]
                     + Real(D3Q27::cz(i)) * nh[2];
-      pert[i] = m.A * gm * (D3Q27::w(i) * cn * cn - ColourModel::B_i(i));
+      // Eq. (D14)'s A/2, through the model's own accessor so the reference
+      // cannot drift from the operator silently.
+      pert[i] = ColourModel::perturbation_coefficient(m.A) * gm
+              * (D3Q27::w(i) * cn * cn - ColourModel::B_i(i));
     }
   } else {
     for (int i = 0; i < 27; ++i) pert[i] = Real(0);
@@ -189,7 +191,7 @@ int main() {
     const Real nubar = Real(1.0 / 6.0);
 
     Real fe[27];
-    m.equilibrium(fe, rr, rb, u, G, nubar, udrho);
+    m.equilibrium(fe, rr + rb, m.order_parameter(rr, rb), u, G, nubar, udrho);
     const double rho = double(rr) + double(rb);
     double s = 0, mom[3] = {0, 0, 0};
     for (int i = 0; i < 27; ++i) {
@@ -206,7 +208,7 @@ int main() {
     // Phi_i alone: the same equilibrium with G and udrho zeroed.
     Real Z[3][3] = {{0}};
     Real f0[27];
-    m.equilibrium(f0, rr, rb, u, Z, nubar, Real(0));
+    m.equilibrium(f0, rr + rb, m.order_parameter(rr, rb), u, Z, nubar, Real(0));
     double dm = 0, dp[3] = {0, 0, 0}, sxy = 0;
     for (int i = 0; i < 27; ++i) {
       const double d = double(fe[i]) - double(f0[i]);
@@ -223,16 +225,42 @@ int main() {
           "Phi_i DOES change the stress (it would be dead code otherwise)", sxy);
     std::printf("        (its xy stress contribution is %.4e)\n", sxy);
 
-    // At rest, p = sum_k rho_k cs_k^2 -- the per-colour rest term, which is the
-    // reading that keeps pressure continuous through the interface.
+    // At rest, p = the trace of the rest term, Eq. (D12). NOTE THE ARGUMENTS:
+    // eq_at_rest takes (i, rho, phi) and NOT (i, rho_r, rho_b). Those have the
+    // same arity and the same type, so passing the old pair still compiles and
+    // silently computes something else -- which is exactly what happened when
+    // this file was ported on 2026-09-19, and what this check caught.
+    const Real ph = m.order_parameter(rr, rb);
     double tr = 0;
-    for (int i = 0; i < 27; ++i) {
-      const double e = m.eq_at_rest(i, rr, rb);
-      tr += e * (D3Q27::cx(i) * D3Q27::cx(i));
-    }
+    for (int i = 0; i < 27; ++i)
+      tr += double(m.eq_at_rest(i, rr + rb, ph)) * (D3Q27::cx(i) * D3Q27::cx(i));
     const double want = double(rr) * ColourModel::cs2_of_alpha(m.alpha_r)
                       + double(rb) * ColourModel::cs2_of_alpha(m.alpha_b);
-    check(std::fabs(tr - want) < 1e-5 * want, "p = sum_k rho_k cs_k^2 at rest", tr - want);
+    check(std::fabs(tr - want) < 1e-5 * want,
+          "p = sum_k rho_k cs_k^2 at rest (PerColour, the default)", tr - want);
+    // ... and the SAME populations under the other reading are Eq. (D6)'s, which
+    // at gamma = 10 differ by a factor that is not small.
+    ColourModel mb = m;
+    mb.rest = ColourModel::RestTerm::AlphaBar;
+    double trb = 0;
+    for (int i = 0; i < 27; ++i)
+      trb += double(mb.eq_at_rest(i, rr + rb, ph)) * (D3Q27::cx(i) * D3Q27::cx(i));
+    const double wantb = (double(rr) + double(rb))
+                       * double(ColourModel::cs2_of_alpha(mb.alpha_at(ph)));
+    check(std::fabs(trb - wantb) < 1e-5 * std::fabs(wantb),
+          "RestTerm::AlphaBar gives rho cs^2(alpha-bar) instead", trb - wantb);
+    std::printf("        (PerColour %.8f, AlphaBar %.8f, %+.1f%%)\n",
+                tr, trb, 100.0 * (trb / tr - 1.0));
+    // The parent's identity: the two readings are the same functional form, and
+    // differ only in the rule for alpha.  alpha_P = 1 - 19 P / (9 rho).
+    const double P = want, rho_t = double(rr) + double(rb);
+    const Real aP = Real(1.0 - 19.0 * P / (9.0 * rho_t));
+    double wid = 0;
+    for (int i = 0; i < 27; ++i)
+      wid = worst(wid, double(m.eq_at_rest(i, rr + rb, ph))
+                     - rho_t * double(ColourModel::phi_i(i, aP)));
+    check(std::fabs(wid) < ceps * rho_t,
+          "per-colour rest term == rho phi_i(alpha_P), population by population", wid);
   }
 
   //===========================================================================
@@ -276,7 +304,7 @@ int main() {
     check(std::fabs(wnn) < ceps, "normal capillary stress vanishes, every direction of n", wnn);
     check(tanmin > 1e-3, "but the tangential one does not", tanmin);
 
-    // sigma = 4 A tau / 9, Eq. (32). The capillary stress of a flat interface is
+    // sigma = 2 A tau / 9, Eq. (D14). The capillary stress of a flat interface is
     // -tau sum_i Omega^(2) c_i c_i; integrating (S_tt - S_nn) across the
     // interface turns |grad phi| dn into dphi, which runs -1 to +1, so the
     // integral contributes a factor of 2.
@@ -288,14 +316,19 @@ int main() {
       Txx += s * cx * cx;
       Tyy += s * cy * cy;
     }
-    const double sigma = -tau * A * (Tyy - Txx) * 2.0;
+    // THROUGH THE ACCESSOR, not a hardcoded A: this line used to read
+    // `-tau * A * ...` while comparing against sigma_from_A(), so changing the
+    // convention left the two sides on different ones and the check reported a
+    // factor of two that was the test's own.
+    const double coef = double(ColourModel::perturbation_coefficient(Real(A)));
+    const double sigma = -tau * coef * (Tyy - Txx) * 2.0;
     const double want = ColourModel::sigma_from_A(Real(A), Real(tau));
     check(std::fabs(sigma - want) < ceps * std::fabs(want),
-          "capillary stress gives sigma = 4 A tau / 9, Eq. (32)", (sigma - want) / want);
-    std::printf("        (sigma = %.8e, 4 A tau / 9 = %.8e)\n", sigma, want);
-    // And the factor that a port is most likely to revert.
-    check(ColourModel::perturbation_coefficient(Real(A)) == Real(A),
-          "the perturbation coefficient is A, not A/2");
+          "capillary stress gives sigma = 2 A tau / 9, Eq. (D14)", (sigma - want) / want);
+    std::printf("        (sigma = %.8e, 2 A tau / 9 = %.8e)\n", sigma, want);
+    // The factor a port is most likely to revert -- now A/2, Eq. (D14).
+    check(ColourModel::perturbation_coefficient(Real(A)) == Real(0.5) * Real(A),
+          "the perturbation coefficient is A/2, Eq. (D14)");
   }
 
   //===========================================================================
@@ -309,7 +342,7 @@ int main() {
     Real f[27];
     for (int i = 0; i < 27; ++i) f[i] = Real(D3Q27::w(i) * (1.0 + 0.01 * i));
     Real fr[27], fb[27];
-    colour_recolour(m, f, rr, rb, g, fr, fb);
+    colour_recolour(m, f, rr, rb, m.order_parameter(rr, rb), g, fr, fb);
     double wsum = 0, mass = 0, momw = 0, moved = 0;
     double mr = 0, mb = 0, p0[3] = {0, 0, 0}, p1[3] = {0, 0, 0};
     for (int i = 0; i < 27; ++i) {
@@ -343,10 +376,10 @@ int main() {
       const Real zero[3] = {Real(0), Real(0), Real(0)};
       Real G[3][3] = {{0}};
       Real fe[27];
-      m.equilibrium(fe, rr, rb, u, G, m.nu_at(Real(ph)), Real(0));
+      m.equilibrium(fe, rr + rb, Real(ph), u, G, m.nu_at(Real(ph)), Real(0));
       Real f[27];
       for (int i = 0; i < 27; ++i) f[i] = fe[i];
-      colour_collide(m, f, rr, rb, u, Real(ph), zero, zero);
+      colour_collide(m, f, rr + rb, u, Real(ph), zero, zero);
       double w = 0;
       for (int i = 0; i < 27; ++i) w = worst(w, double(f[i]) - double(fe[i]));
       char buf[80];
@@ -368,7 +401,7 @@ int main() {
         m0 += f[i];
         p0[0] += f[i] * D3Q27::cx(i); p0[1] += f[i] * D3Q27::cy(i); p0[2] += f[i] * D3Q27::cz(i);
       }
-      colour_collide(m, f, rr, rb, u, Real(0.2), g, dr);
+      colour_collide(m, f, rr + rb, u, Real(0.2), g, dr);
       double m1 = 0, p1[3] = {0, 0, 0};
       for (int i = 0; i < 27; ++i) {
         m1 += f[i];
@@ -422,8 +455,8 @@ int main() {
                            * (1.0 + 0.03 * std::sin(1.7 * i + 0.4 * gg + 0.9 * uu));
             fa[i] = Real(v);  fb[i] = Real(v);
           }
-          colour_collide(m, fa, rr, rb, u, ph, g, dr);
-          reference_collide(m, fb, rr, rb, u, ph, g, dr);
+          colour_collide(m, fa, rr + rb, u, ph, g, dr);
+          reference_collide(m, fb, rr + rb, u, ph, g, dr);
 
           double scale = 0;
           for (int i = 0; i < 27; ++i) scale = std::max(scale, std::fabs(double(fb[i])));

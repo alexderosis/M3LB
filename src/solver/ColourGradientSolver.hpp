@@ -64,7 +64,7 @@
 //   * NO SHIFTED STORAGE. Two colours summing to rho leave nothing sensible to
 //     shift by, so RawPopulations it is, and the FP32 accuracy argument that
 //     motivates shifted storage elsewhere in this code does not apply.
-//   * D3Q27 ONLY. phi_i, B_i and sigma = 4 A tau / 9 are all derived for D3Q27
+//   * D3Q27 ONLY. phi_i, B_i and sigma = 2 A tau / 9 are all derived for D3Q27
 //     in the source paper, and the operator static_asserts it.
 //   * NO MASS-CONSERVING RECOLOURING GUARANTEE PER COLOUR. The partition
 //     conserves the TOTAL exactly (f^r + f^b = f identically), but individual
@@ -149,13 +149,14 @@ class ColourGradientSolver {
       const Real rho = c.red + c.blue;
       const Real p = coll.order_parameter(c.red, c.blue);
       Real fr[Q], fb[Q];
-      // Each colour seeded with its OWN alpha, so that the initial pressure
-      // sum_k rho_k cs_k^2 is continuous through the interface.
-      for (int i = 0; i < Q; ++i) {
-        fr[i] = c.red  * Collision::phi_i(i, coll.alpha_r);
-        fb[i] = c.blue * Collision::phi_i(i, coll.alpha_b);
-      }
-      (void)p;
+      // Seeded at f_i^eq(rho, u = 0), Eq. (D5) at rest, split between the two
+      // colours so that they sum to it exactly. THE OPERATOR DOES THE SPLIT,
+      // because which alpha the rest term sees is its switch to make: a seed
+      // that picks the other reading puts the interface out of equilibrium on
+      // step 0, and that reads as a failing model rather than as a mismatched
+      // initial condition. See ColourGradient.hpp's RestTerm banner.
+      for (int i = 0; i < Q; ++i)
+        coll.seed_at_rest(i, c.red, c.blue, p, fr[i], fb[i]);
       Neighbours<L> nb;
       d.template fill_neighbours<L, NF, NS>(n, nb);
       accr.store_rest(nb, fr[0]);
@@ -333,7 +334,7 @@ class ColourGradientSolver {
         const Real u[3] = {ux(n), uy(n), uz(n)};
         const Real p = phi(n);
 
-        coll.collide(f, srr, srb, u, p, n);
+        coll.collide(f, srr + srb, u, p, n);
         coll.recolour(f, srr, srb, p, n, fr, fb);
 
         accr.store_rest(nb, fr[0]);

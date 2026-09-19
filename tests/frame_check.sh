@@ -27,31 +27,40 @@
 #                 up to 255 registers, so a frame that is only pressure may
 #                 vanish on a device where a runtime-indexed one cannot.
 #
-#  Reference table, clang -O3, arm64, 2026-09-04.  frame bytes / loops / regidx:
+#  Reference table, clang -O3, arm64, 2026-09-04 (ColourGradient 2026-09-19).
+#  frame bytes / loops / regidx:
 #
 #      operator                   FP64 before   FP64 after  FP32 before  FP32 after
 #      BGK                           0 / 2 /10   (untouched)   0 / 1 / 6  (untouched)
 #      MomentCollision             464 / 1 / 4   368 / 0 / 0  320 / 1 / 4  224 / 0 / 0
 #      MultiphaseCentralMoments    400 / 1 / 5   400 / 0 / 1  336 / 1 / 4  256 / 0 / 1
 #      PhaseFieldCentralMoments    656 / 1 / 1   (untouched)  432 / 0 / 0  (untouched)
-#      ColourGradient             1200 / 1 /10   (untouched)  624 / 0 / 6  (untouched)
+#      ColourGradient             1200 / 1 /10   480 / 0 / 6  624 / 0 / 6  416 / 0 / 6
 #
-#  The two fixed operators lost their surviving loop and all of their
+#  The three fixed operators lost their surviving loop and all of their
 #  register-indexed LOCAL accesses at both precisions. The one regidx left in
 #  MultiphaseCentralMoments is a genuine per-node field load, not a demoted
-#  array -- it reads `[x9, w3, sxtw #2]` with w3 the Index argument.
+#  array -- it reads `[x9, w3, sxtw #2]` with w3 the Index argument. The six left
+#  in ColourGradient are the same thing six times over: grad phi and grad rho,
+#  read as `[x8, w3, sxtw #3]` with w3 the Index argument. Read the column, then
+#  read the operand -- the count alone does not distinguish them.
 #
 #  BGK's own loops and regidx are its walk over f[i], a caller-provided pointer.
 #  Its frame is zero at both precisions, which is the contrast that matters.
 #
-#  TWO STILL OPEN, both recorded rather than half-fixed:
+#  COLOURGRADIENT IS DONE, AND IT NEEDED A DIFFERENT FIX (2026-09-19). Loop
+#  unrolling alone could not have helped it: its `ke` and `kp` arrays were whole
+#  equilibrium and perturbation moment sets, built as POPULATIONS and
+#  transformed, so there was nothing to unroll them into. What removed them is
+#  the closed-form derivation GPU/'s sibling already carried -- the operator
+#  measured there at 47x BGK (20.2 against 950 MLUPS) and recovered 12.5x by it.
+#  Ported to src/, the host frame goes 1200 -> 480 (FP64) and 624 -> 416 (FP32),
+#  the surviving loop goes, and what is left is register pressure plus the six
+#  genuine field loads named above. tests/test_colour_gradient.cpp block 6 keeps
+#  the population path and asserts the two agree to 4.2e-16 over 60 states, which
+#  is what makes this a rewrite rather than a different operator.
 #
-#  ColourGradient carries the largest frame in the tree, and it is the operator
-#  whose GPU/ sibling was measured at 47x BGK (20.2 against 950 MLUPS) and
-#  recovered 12.5x by deriving the equilibrium central moments in closed form.
-#  Its `ke`/`kp` arrays need that same derivation rather than the loop unrolling
-#  that fixed the other two, and that is a change with its own accuracy
-#  consequences.
+#  ONE STILL OPEN, recorded rather than half-fixed:
 #
 #  PhaseFieldCentralMoments keeps a loop at FP64 but not at FP32, on the same
 #  source -- so it is the register budget deciding whether to unroll, not an
@@ -99,8 +108,8 @@ extern "C" void probe_mpcm(Real* f, const Macro* m, const MpCM* c) { c->collide(
 extern "C" void probe_pfcm(Real* h, Real phi, const Real* u, const Real* A, const PfCM* c) {
   c->collide(h, phi, u, A);
 }
-extern "C" void probe_cg(Real* f, Real rr, Real rb, const Real* u, Real p, const CG* c) {
-  c->collide(f, rr, rb, u, p, 0);
+extern "C" void probe_cg(Real* f, Real rho, const Real* u, Real p, const CG* c) {
+  c->collide(f, rho, u, p, 0);
 }
 extern "C" void probe_mhds(Real* f, const Macro* m, const MhdS* c) { c->collide(f, *m, 0); }
 extern "C" void probe_mhdm(Real* f, const Macro* m, const MhdM* c) { c->collide(f, *m, 0); }

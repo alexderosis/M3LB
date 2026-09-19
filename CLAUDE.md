@@ -71,7 +71,7 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 | + electric potential (Poisson) | `ScalarSolver` + `ScalarBGK` + `add_source` | no new solver — see `validation/ehd_hydrostatic.cpp` |
 | + magnetic field | `MagneticSolver` | Dellar vector distribution |
 | two-phase, diffuse interface | `PhaseFieldSolver` + `MultiphaseCentralMoments` | conservative Allen–Cahn, prescribed interface width, density ratio ~100. **3-D is D3Q27 + D3Q27, not D3Q27 + D3Q7** — see the rule below |
-| two-phase, diffuse, high ratio | `ColourGradientSolver` | no interface equation; width is an *outcome*; 1000 in the source paper's own static tests |
+| two-phase, diffuse, high ratio | `ColourGradientSolver` | no interface equation; width is an *outcome*. **Sub-percent to γ = 20, ~3% at γ = 100, comes apart at γ = 1000** — and the steps needed scale with γ; see the rules below |
 | liquid + void, sharp interface | `FreeSurfaceSolver` | gas not resolved; infinite ratio by construction |
 
 **Standing rule: do not use a multiphase solver for single-phase or
@@ -288,6 +288,48 @@ These produce plausible, converged, wrong answers rather than crashes.
   the two cases whose banner names the lattice check `known_configuration()`
   BEFORE printing it. `orszag_tang` has its own else-chain and validates `-lat`,
   `-maglat` and `-op` up front rather than falling through to D2Q9.
+- **THE COLOUR GRADIENT'S ALPHA INTERPOLATION DECIDES WHETHER IT SURVIVES A
+  DENSITY RATIO, AND BOTH READINGS LOOK IDENTICAL AT gamma = 1.** The rest term
+  of the equilibrium is `rho phi_i(alpha)` under either reading — `phi_i` is
+  *affine* in alpha, so `sum_k rho_k phi_i(alpha_k) == rho phi_i(alpha_P)`
+  identically, with `alpha_P = 1 - 19P/(9 rho)` and `P = sum_k rho_k cs_k^2`
+  (pinned at 2.6e-15 in `tests/test_colour_gradient.cpp` block 2). So the ONLY
+  difference between De Rosis, Huang & Coreixas Eq. (D6)/(D13) and the
+  per-colour form is **the rule for interpolating alpha**: linear in the order
+  parameter, or `alpha_P`. Linear interpolation makes the interface pressure
+  spike by exactly **(gamma+1)^2 / (4 gamma)** — 1.00, 3.03, 25.50, 250.50 at
+  gamma = 1, 10, 100, 1000 — against a bulk of 1/3, because `cs^2` is linear in
+  alpha while `rho` is not correspondingly interpolated. Measured on
+  `validation/static_droplet` at 48^3, R = 16, tau = 1, **converged**, Laplace
+  error at gamma = 1 / 10 / 20 / 100 / 1000: `PerColour` gives
+  **0.88 / 0.68 / 0.46 / 3.21 % / comes apart**, `AlphaBar`
+  **0.88 / 3.34 / 1.51 % / NaN / NaN**. `ColourGradient::RestTerm` selects it,
+  **`PerColour` is the default**, and `static_droplet -rest bar|percolour`
+  measures the gap. At gamma = 1 the two are algebraically identical, so a
+  matched-density test cannot see any of this. **The sixth-order equilibrium is
+  NOT implicated**: holding it fixed and swapping only the reading reproduces
+  Saito et al.'s third-order ladder to four or five significant figures at every
+  ratio.
+- **THE COLOUR GRADIENT'S STEP COUNT SCALES WITH THE DENSITY RATIO, SO A LADDER
+  AT ONE STEP COUNT MEASURES THE TRANSIENT.** Relaxation slows as gamma grows
+  while tau is held at 1. Measured: gamma <= 20 is converged by 8000 steps (0.04
+  points of drift out to 32000), but gamma = 100 reads **2.12% at 8000, 3.11% at
+  16000 and 3.21% at 32000**. A 1500-step ladder gave 493% at gamma = 100, and
+  that number was written into three files as a property of the model before a
+  longer run contradicted it — the same mistake `ehd_cavity` already records,
+  made again. At gamma = 1000 it is not slow convergence at all: the Laplace
+  jump crosses **zero** (+4.84e-3, +1.20e-3, −2.34e-4 at 8000/16000/32000) while
+  the interface widens 4.92 → 5.47 cells, which is a droplet dissolving rather
+  than a transient. Quote nothing there.
+- **A SEED THAT DISAGREES WITH ITS OWN COLLISION READS AS A BROKEN MODEL.** The
+  first attempt at the isolation above changed the collision's rest term but left
+  `ColourGradientSolver`'s seed and the recolouring on the other reading. That
+  put a 3x pressure mismatch at the interface on step 0 and returned NaN at
+  gamma = 10 — and it looked exactly like the sixth-order equilibrium failing,
+  which is the conclusion it produced. The operator now owns the split
+  (`seed_at_rest`), so the solver cannot pick a different reading from the
+  collision. When a model has a switch, ask what ELSE reads it before attributing
+  anything to it.
 - **A published moment list belongs to a basis.** `ProductBasis` is *shifted*,
   phi_2 = C^2 - cs2; most papers tabulate *monomial* central moments, and the
   same physics occupies different slots in the two. De Rosis & Enan's Eq. (61)
@@ -523,10 +565,20 @@ These produce plausible, converged, wrong answers rather than crashes.
   except the compiler's own output. `tests/frame_check.sh` is that instrument:
   run it after touching a moment operator and look at the `loops` and `regidx`
   columns, not the wall clock. Fixed in `MomentCollision` and
-  `MultiphaseCentralMoments` (2026-09-04); still present in `ColourGradient`,
-  which has the largest frame in the tree and needs the closed-form derivation
-  rather than loop unrolling. Note that `static_assert` guards the `constexpr`
-  half of this but cannot guard the loop half — only the script can.
+  `MultiphaseCentralMoments` (2026-09-04) by unrolling, and in `ColourGradient`
+  (2026-09-19) — which needed a **different** fix, because its two live arrays
+  were a whole equilibrium and perturbation moment set built as POPULATIONS and
+  transformed, so there was nothing for unrolling to reach. The closed-form
+  central moments that `GPU/include/lbm/colour.cuh` already carried were ported
+  instead, and moving that operator to Eq. (D5) the same day shortened them
+  further — the total-order table and the second separable product exist only to
+  carry Saito's truncation residuals, which the complete Hermite set does not
+  have. Host frame 1200 → **480** (FP64) and 624 → **400** (FP32), the surviving
+  loop gone, and the six remaining `regidx` are the six genuine
+  grad-phi/grad-rho field loads rather than demoted arrays. `tests/test_colour_gradient.cpp`
+  block 6 keeps the population path and asserts the two agree to 4.2e-16 over 60
+  states. Note that `static_assert` guards the `constexpr` half of this but
+  cannot guard the loop half — only the script can.
 
 ---
 

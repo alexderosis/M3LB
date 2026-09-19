@@ -3,9 +3,23 @@
 //  Colour-gradient two-component flow with nonorthogonal central moments,
 //  on the GPU.
 //
-//  Saito, De Rosis, Festuccia, Kaneko, Abe & Koyama, Phys. Rev. E 98, 013305
-//  (2018). Equation numbers below are that paper's. D3Q27 only, which is what
-//  the paper derives and, conveniently, the only fluid lattice this code has.
+//  De Rosis, Huang & Coreixas, Phys. Fluids 31, 117102 (2019), APPENDIX D.
+//  Equation numbers of the form (Dn) are that appendix's. D3Q27 only, which is
+//  what the appendix derives and, conveniently, the only fluid lattice this code
+//  has. A few Saito et al. (Phys. Rev. E 98, 013305, 2018) numbers survive below
+//  where the two papers agree and the older one states it better.
+//
+//  PORTED TO APPENDIX D ON 2026-09-19, in step with the parent and on the same
+//  day, because the two code bases are only worth having if they solve the same
+//  problem. Three things changed and only the first is physics:
+//    * the equilibrium is Eq. (D5), the COMPLETE sixth-order Hermite set, where
+//      Saito's Eq. (18) truncated at third order in u;
+//    * the rest term's alpha became a switch, ColourModel::RestTerm, defaulting
+//      to PerColour -- see its banner, and the parent's, for the measurement;
+//    * the perturbation is Eq. (D14), colour-blind with A/2, so
+//      sigma = 2 A tau / 9 against Saito's 4 A tau / 9 for the same symbol.
+//      src/droplet.cu is unaffected: it takes -sigma and reaches A through
+//      A_from_sigma(), which is the whole point of that indirection.
 //
 //  A PORT OF ../src/collision/ColourGradient.hpp AND ../src/solver/
 //  ColourGradientSolver.hpp, and the first multiphase module here. The physics
@@ -63,10 +77,15 @@
 //      before   119 registers, 216 bytes stack frame,  20.2 MLUPS
 //      after    124 registers,   0 bytes stack frame, 252.5 MLUPS
 //
-//  FP64 results are unchanged to every digit printed, so this is the same
-//  operator rather than a cheaper approximation of it; test/host_colour.cpp
-//  keeps the old path and asserts the two agree to 5.9e-16 (FP64) over 60
-//  states.
+//  THOSE FIGURES PREDATE THE APPENDIX D PORT and have not been re-measured on a
+//  device since. The port can only have helped -- Eq. (D5) DELETED the
+//  total-order coefficient table and the second separable product, which existed
+//  solely to carry Saito's truncation residuals -- but "can only have helped" is
+//  not a measurement, and the T4 numbers above describe the operator as it was.
+//
+//  test/host_colour.cpp keeps the population path as reference_collide() and
+//  asserts the closed form reproduces it to 7.9e-16 in FP64 over 60 states,
+//  which is what makes the closed form a rewrite rather than a second model.
 //==============================================================================
 #include "streaming.cuh"
 
@@ -117,7 +136,7 @@ struct ColourModel {
   Real alpha_b = Real(8) / Real(27);
   Real nu_r = Real(1) / Real(6);       // kinematic viscosities, harmonic-mixed
   Real nu_b = Real(1) / Real(6);
-  Real A = Real(0);                    // interfacial tension strength, Eq. (32)
+  Real A = Real(0);                    // interfacial tension, Eq. (D14); sigma = 2 A tau / 9
   Real beta = Real(0.7);               // recolouring sharpness
   Real omega_bulk = Real(1);           // s2b
   Real bx = Real(0), by = Real(0), bz = Real(0);   // body force per unit mass
@@ -134,16 +153,52 @@ struct ColourModel {
   Real rho_r0 = Real(1);
   Real rho_b0 = Real(1);
 
-  //---- sigma = (4/9) A tau, Eq. (32) ----------------------------------------
+  //--------------------------------------------------------------------------
+  //  WHICH ALPHA THE REST TERM SEES. The parent's banner carries the argument in
+  //  full (src/collision/ColourGradient.hpp, RestTerm); the short form is:
+  //
+  //  Eq. (D6) writes phi_i(alpha-bar) with the single alpha of Eq. (D13), while
+  //  Eq. (D12) writes the pressure with BOTH rho and rho_k and calls cs^k "the
+  //  speed of sound of the fluid k". The two cannot both be right. They are the
+  //  same functional form -- phi_i is AFFINE in alpha, so
+  //
+  //      sum_k rho_k phi_i(alpha_k) == rho phi_i(alpha_P),
+  //      alpha_P = 1 - 19 P / (9 rho),   P = sum_k rho_k cs_k^2,
+  //
+  //  identically -- and differ ONLY in the rule for alpha. Eq. (D13)'s linear
+  //  rule makes the interface pressure spike by exactly (gamma+1)^2/(4 gamma):
+  //  1.00, 3.03, 25.50, 250.50 at gamma = 1, 10, 100, 1000, against a bulk of
+  //  1/3. Measured on the parent's static droplet, AlphaBar returns NaN at
+  //  gamma >= 100 where PerColour converges to 3.21 %.
+  //
+  //  PERCOLOUR IS THE DEFAULT, and it matches the parent's default so that the
+  //  two codebases still solve the same problem.
+  //--------------------------------------------------------------------------
+  enum class RestTerm { AlphaBar, PerColour };
+  RestTerm rest = RestTerm::PerColour;
+
+  // rho_r and rho_b recovered from (rho, phi). EXACT: phi fixes the ratio a:b
+  // with a = rho_r/rho_r0 and b = rho_b/rho_b0, and rho fixes the scale.
+  LBM_HD LBM_INLINE
+  void split_colours(Real rho, Real p, Real& rr, Real& rb) const {
+    const Real ha = Real(0.5) * (Real(1) + p), hb = Real(0.5) * (Real(1) - p);
+    const Real den = ha * rho_r0 + hb * rho_b0;
+    const Real sc  = (den > Real(0)) ? rho / den : Real(0);
+    rr = sc * ha * rho_r0;
+    rb = sc * hb * rho_b0;
+  }
+
+  //---- sigma = (2/9) A tau, Eq. (D14) ---------------------------------------
   static Real A_from_sigma(Real sigma, Real tau) {
-    return Real(9) * sigma / (Real(4) * tau);
+    return Real(9) * sigma / (Real(2) * tau);
   }
   static Real sigma_from_A(Real a, Real tau) {
-    return Real(4) * a * tau / Real(9);
+    return Real(2) * a * tau / Real(9);
   }
-  // The coefficient the colour-blind perturbation actually carries -- A, not
-  // A/2. Exposed so a test asserts the relation rather than the constant.
-  static constexpr Real perturbation_coefficient(Real a) { return a; }
+  // The coefficient the colour-blind perturbation carries: A/2, exactly as
+  // Eq. (D14) writes it -- that equation has no colour index, so no doubling is
+  // owed. Exposed so a test asserts the relation rather than the constant.
+  static constexpr Real perturbation_coefficient(Real a) { return Real(0.5) * a; }
 
   // cs^2 = 9(1-alpha)/19, the second moment of phi_i. NOT the lattice constant.
   static LBM_HD LBM_INLINE Real cs2_of_alpha(Real a) {
@@ -220,7 +275,7 @@ struct ColourModel {
   // because phi_i carries the density ratio and the equilibrium's trace follows
   // it. The VISCOUS STRESS does not: it comes from the non-equilibrium part,
   // whose second moment is governed by the standard weights w_i in the
-  // velocity-dependent terms of Eq. (18), and those carry cs^2 = 1/3 in every
+  // velocity-dependent terms of Eq. (D5), and those carry cs^2 = 1/3 in every
   // phase.
   //
   // Using the phase's cs^2 here was measured in the parent, and it fails in the
@@ -237,76 +292,89 @@ struct ColourModel {
   }
 
   //--------------------------------------------------------------------------
-  // THE REST TERM, AND THE ONE READING IN THIS PAPER THAT HAD TO BE WORKED OUT
-  // RATHER THAN COPIED.
-  //
-  // Eq. (18) writes the rest contribution as rho phi_i, and Eq. (27)
-  // interpolates alpha linearly in phi, which together read as
-  // rho phi_i(alpha-bar). That cannot be what is meant. The trace of THAT
-  // equilibrium is rho cs^2(alpha-bar), and with the tanh profiles of
-  // Eqs. (41)-(42) it is not continuous through the interface: at a ratio of 100
-  // the midpoint carries p = 8.5 against a bulk 1/3, a twenty-five-fold pressure
-  // spike two cells wide. Measured in the parent, that is exactly what happens
-  // -- gamma = 1 and 10 survive it, 100 and 1000 return NaN.
-  //
-  // The rest term is PER COLOUR, sum_k rho_k phi_i(alpha_k), whose trace is
-  // sum_k rho_k cs_k^2 and which is continuous by construction. It is also what
-  // Eq. (26) says, with the colour subscript it carries, and the only reading
-  // consistent with Eq. (25).
-  //
-  // At a matched ratio the two readings coincide exactly, which is why the error
-  // hides until a density ratio is asked for -- and why a port is exactly where
-  // it would come back.
+  // THE REST TERM, Eq. (D5)'s `rho phi_i`, under whichever reading `rest` names.
+  // See the RestTerm banner above for why there are two and why PerColour wins.
   //--------------------------------------------------------------------------
-  LBM_HD LBM_INLINE Real rest_term(int i, Real rho_r, Real rho_b) const {
-    return rho_r * phi_i(i, alpha_r) + rho_b * phi_i(i, alpha_b);
+  LBM_HD LBM_INLINE Real rest_term(int i, Real rho, Real p) const {
+    if (rest == RestTerm::PerColour) {
+      Real rr, rb;  split_colours(rho, p, rr, rb);
+      return rr * phi_i(i, alpha_r) + rb * phi_i(i, alpha_b);
+    }
+    return rho * phi_i(i, alpha_at(p));
   }
 
   //--------------------------------------------------------------------------
-  // The pressure, Eq. (26): p = sum_k rho_k cs_k^2, each phase with its own
-  // alpha. This is the trace of the rest term and the quantity that is
-  // continuous through the interface -- the whole reason that term is per
-  // colour. It is also what the closed-form central moments are written in.
+  // The pressure, Eq. (D12): the trace of the rest term, and the only place the
+  // density ratio enters the collision.
   //--------------------------------------------------------------------------
-  LBM_HD LBM_INLINE Real pressure(Real rho_r, Real rho_b) const {
-    return rho_r * cs2_of_alpha(alpha_r) + rho_b * cs2_of_alpha(alpha_b);
+  LBM_HD LBM_INLINE Real pressure(Real rho, Real p) const {
+    if (rest == RestTerm::PerColour) {
+      Real rr, rb;  split_colours(rho, p, rr, rb);
+      return rr * cs2_of_alpha(alpha_r) + rb * cs2_of_alpha(alpha_b);
+    }
+    return rho * cs2_of_alpha(alpha_at(p));
   }
 
-  // f_i^eq(rho_r, rho_b, u = 0): every other term of Eq. (18) carries a u or a
-  // G, and G vanishes with u, so the rest term is the whole equilibrium at rest.
-  // This is what the recolouring is written against.
-  LBM_HD LBM_INLINE Real eq_at_rest(int i, Real rho_r, Real rho_b) const {
-    return rest_term(i, rho_r, rho_b);
+  // Delta = P - rho cs^2: the rest term measured against the LATTICE weights.
+  // The single number by which Eq. (D5) differs from the plain product form,
+  // and zero exactly when the phases are matched.
+  LBM_HD LBM_INLINE Real delta_of(Real rho, Real p) const {
+    return pressure(rho, p) - rho * ColourLattice::cs2();
+  }
+
+  // f_i^eq(rho, u = 0): every other term of Eq. (D5) carries a u or a G, and G
+  // vanishes with u, so the rest term is the whole equilibrium at rest. This is
+  // what the recolouring of Eqs. (D16)-(D17) is written against.
+  LBM_HD LBM_INLINE Real eq_at_rest(int i, Real rho, Real p) const {
+    return rest_term(i, rho, p);
+  }
+
+  // The two colours' shares of f_i^eq(rho, u = 0), summing to eq_at_rest()
+  // exactly under either reading. THE SEED GOES THROUGH THIS, so the initial
+  // condition cannot pick a different reading from the collision: a mismatch
+  // there puts the interface out of equilibrium on step 0 and reads as a failing
+  // model. The parent records that as a real and costly mistake.
+  LBM_HD LBM_INLINE
+  void seed_at_rest(int i, Real rho_r, Real rho_b, Real p, Real& sr, Real& sb) const {
+    if (rest == RestTerm::PerColour) {
+      sr = rho_r * phi_i(i, alpha_r);
+      sb = rho_b * phi_i(i, alpha_b);
+    } else {
+      const Real w = phi_i(i, alpha_at(p));
+      sr = rho_r * w;
+      sb = rho_b * w;
+    }
   }
 
   //--------------------------------------------------------------------------
-  // The equilibrium, Eq. (18) with the Phi_i of Eq. (21). Third order in u, and
-  // that is deliberate in the source: the O(u^3) terms are what make the model
-  // Galilean invariant at a density ratio, which is the regime it exists for.
+  //  THE EQUILIBRIUM, Eq. (D5) with the Phi_i of Eq. (D7).
+  //
+  //  SIXTH-ORDER HERMITE, the complete set, where Saito et al.'s Eq. (18)
+  //  truncated at third order in u. On D3Q27 that complete series IS the
+  //  factorised product form -- core.cuh's product_equilibrium() builds it by
+  //  inverse-transforming k = (rho, 0, ..., 0), which is the same statement --
+  //  so Eq. (D5) reads
+  //
+  //      f_i^eq = rho w_i Pi_i(u) + [ rest_term - rho w_i ] + Phi_i,
+  //
+  //  i.e. the product form with its own `1` taken back out and phi_i put in its
+  //  place. Nothing is approximated by writing it that way.
   //--------------------------------------------------------------------------
   LBM_HD LBM_INLINE
-  void equilibrium(Real fe[27], Real rho_r, Real rho_b, const Real u[3],
+  void equilibrium(Real fe[27], Real rho, Real p, const Real u[3],
                    const Real G[3][3], Real nubar, Real udrho) const {
-    const Real rho = rho_r + rho_b;
-    const Real u2 = u[0] * u[0] + u[1] * u[1] + u[2] * u[2];
+    product_equilibrium(rho, u, fe);
     for (int i = 0; i < 27; ++i) {
-      const Real cx = Real(ColourLattice::cx(i)),
-                 cy = Real(ColourLattice::cy(i)),
-                 cz = Real(ColourLattice::cz(i));
-      const Real cu = cx * u[0] + cy * u[1] + cz * u[2];
-      const Real w  = ColourLattice::w(i);
-      Real e = rest_term(i, rho_r, rho_b)
-             + rho * w * (Real(3) * cu + Real(4.5) * cu * cu - Real(1.5) * u2
-                  + Real(4.5) * cu * cu * cu - Real(4.5) * cu * u2);
-      // Phi_i: the rest slot balances the rest, so that sum_i Phi_i = 0.
+      Real e = fe[i] + rest_term(i, rho, p) - rho * ColourLattice::w(i);
       const Real k = Phi_coeff(i);
       if (k == Real(0)) {
         e += Real(-3) * nubar * udrho;
       } else {
-        const Real c[3] = {cx, cy, cz};
+        const Real c[3] = {Real(ColourLattice::cx(i)), Real(ColourLattice::cy(i)),
+                           Real(ColourLattice::cz(i))};
         Real gcc = Real(0);
-        for (int p = 0; p < 3; ++p)
-          for (int q = 0; q < 3; ++q) gcc += G[p][q] * c[p] * c[q];
+        for (int a = 0; a < 3; ++a)
+          for (int b = 0; b < 3; ++b) gcc += G[a][b] * c[a] * c[b];
         e += k * nubar * gcc;
       }
       fe[i] = e;
@@ -325,37 +393,41 @@ struct ColourModel {
 //  119 registers and a 216-byte STACK FRAME -- two arrays that did not fit in
 //  registers and lived in local memory, read and written at every node.
 //
-//  So the equilibrium's and the perturbation's central moments are derived
-//  here instead. NOTHING BELOW IS ASSUMED FROM THE PRODUCT-FORM EQUILIBRIUM:
-//  Eq. (18) is not that equilibrium, so eq_moment() of core.cuh -- where every
-//  central moment above order 0 collapses to zero -- does not apply and would
-//  be silently wrong if reused. Each piece was derived symbolically over exact
-//  rationals and checked against the transform it replaces, and
-//  test/host_colour.cpp asserts that agreement on random states.
+//  So the equilibrium's and the perturbation's central moments are derived here
+//  instead. THE PRODUCT FORM IS USED, BUT ONLY FOR PART OF IT: Eq. (D5) is the
+//  product form with w_i replaced by phi_i in its REST slot, so core.cuh's
+//  eq_moment() -- where every central moment above order 0 collapses to zero --
+//  accounts for the first term and NOT for the rest difference. Reusing it alone
+//  would silently drop Delta, which is the entire density ratio. Each piece was
+//  derived symbolically over exact rationals and checked against the transform
+//  it replaces; test/host_colour.cpp asserts that agreement on random states.
 //
-//  THE THREE PIECES OF Eq. (18), each with its own structure.
+//  WHAT Eq. (D5) CHANGED, and it is a deletion. Under Saito's third-order
+//  equilibrium this section needed a total-order coefficient table (cg_cN) and a
+//  second separable product (cg_dfac) to carry the truncation residuals -- terms
+//  like -rho ux^2 uy^2 at order 4 and -10 rho ux^2 uy^2 uz^2 at order 6. Eq. (D5)
+//  is the COMPLETE sixth-order Hermite set, which on D3Q27 is the product form,
+//  and the product form's central moments in this basis are rho at slot 0 and
+//  EXACTLY ZERO everywhere else. Every residual vanished and all three helpers
+//  went with them.
 //
-//  (a) THE REST TERM, sum_k rho_k phi_i(alpha_k). Its raw moments are
-//      isotropic and, remarkably, GEOMETRIC in the number of squared indices:
-//      sum_i phi_i c_x^2 = cs_k^2, and then c_x^2 c_y^2 gives cs_k^2/3 and
-//      c_x^2 c_y^2 c_z^2 gives cs_k^2/9. That makes the central moments a
-//      difference of two separable products,
+//  THE TWO PIECES THAT REMAIN.
 //
-//          k = 3P * prod_a W(p_a) - 3S * prod_a D(p_a),
-//          W = (1, -u_a, u_a^2),   D = (1, -u_a, u_a^2 - cs^2),
+//  (a) THE REST DIFFERENCE, rho [phi_i(alpha) - w_i]. Both weight sets sum to
+//      one, so it has NO zeroth moment and never disturbs the density. Its raw
+//      moments are isotropic and GEOMETRIC in the number of squared indices:
+//      sum_i phi_i c_x^2 = cs^2(alpha), then c_x^2 c_y^2 gives cs^2(alpha)/3 and
+//      c_x^2 c_y^2 c_z^2 gives cs^2(alpha)/9, and likewise for w_i with
+//      cs^2 = 1/3. So with
 //
-//      with P = sum_k rho_k cs_k^2 the PRESSURE and S = P - rho cs^2. Note W is
-//      just (-u_a)^p, so the first product is (-1)^n prod u^p.
+//          Delta = rho [ cs^2(alpha) - 1/3 ] = P - rho cs^2,
 //
-//  (b) THE VELOCITY POLYNOMIAL, rho w_i (3cu + 4.5cu^2 - 1.5u^2 + 4.5cu^3
-//      - 4.5 cu u^2). Its central moments collapse to
+//      its raw moments are T_ab = Delta delta_ab, Q = Delta/3, R = 0,
+//      H = Delta/9, every odd one zero -- EXACTLY the shape of Phi_i and of the
+//      perturbation. It therefore needs no machinery of its own: it is added
+//      into the same CgSource and shifted by the same cg_source_high().
 //
-//          k = rho * C[p+q+r] * ux^p uy^q uz^r,   C = 0, 1, -1, 1, -2, 5, -11,
-//
-//      i.e. the coefficient depends only on the TOTAL order. That is a property
-//      of the third-order truncation on this lattice, not a general one.
-//
-//  (c) Phi_i of Eq. (21) AND the perturbation of Eq. (30) share a structure:
+//  (b) Phi_i of Eq. (D7) AND the perturbation of Eq. (D14) share a structure:
 //      every ODD raw moment vanishes, leaving a second-order tensor T, a
 //      fourth-order pair (Q, R) and a sixth-order scalar H. cg_source_high()
 //      below is the shift of exactly such a source, derived once and used for
@@ -369,10 +441,12 @@ struct ColourModel {
 //      to momentum and neither does the equilibrium -- so the first-order line
 //      of the collision carries only the body force. That is the "conserves
 //      momentum" property the test measures, here as an identity.
-//    * ORDER 2 OF THE EQUILIBRIUM IS S delta_ab + Psi_ab, with no u-dependence
-//      at all: the c_n and 3S products cancel exactly at second order. At a
-//      matched density S = 0 and the classical result -- equilibrium central
-//      moments vanish above order 0 -- is recovered as a special case.
+//    * ORDER 2 OF THE EQUILIBRIUM IS Delta delta_ab + Psi_ab, with no
+//      u-dependence at all -- the product form contributes nothing there. Under
+//      the third-order equilibrium that constancy came out of a cancellation
+//      between two u^2 terms; under Eq. (D5) it simply is. At a matched density
+//      Delta = 0 and the classical result -- equilibrium central moments vanish
+//      above order 0 -- comes back as the special case.
 //==============================================================================
 
 // The raw moments of a source whose odd moments all vanish. Both Phi_i and the
@@ -460,35 +534,6 @@ LBM_HD LBM_INLINE Real cg_source_high(int slot, const CgSource& s,
   }
 }
 
-//------------------------------------------------------------------------------
-// The per-axis factors of the rest term's two separable products, and the
-// total-order coefficient of the velocity polynomial. Written as ternaries
-// rather than indexed tables ON PURPOSE: a local array indexed by a runtime
-// value is placed in local memory, which is the very thing this rewrite exists
-// to remove.
-//------------------------------------------------------------------------------
-LBM_HD LBM_INLINE Real cg_upow(int e, Real u) {
-  return (e == 0) ? Real(1) : ((e == 1) ? u : u * u);
-}
-LBM_HD LBM_INLINE Real cg_dfac(int e, Real u) {
-  return (e == 0) ? Real(1)
-                  : ((e == 1) ? -u : u * u - ColourLattice::cs2());
-}
-// c_n = 3P(-1)^n + rho C_n, the rest term and the velocity polynomial combined.
-LBM_HD LBM_INLINE Real cg_cN(int ord, Real P3, Real rho) {
-  Real C;
-  switch (ord) {
-    case 0:  C = Real(0);   break;
-    case 1:  C = Real(1);   break;
-    case 2:  C = -Real(1);  break;
-    case 3:  C = Real(1);   break;
-    case 4:  C = -Real(2);  break;
-    case 5:  C = Real(5);   break;
-    default: C = -Real(11); break;
-  }
-  return ((ord & 1) ? -P3 : P3) + rho * C;
-}
-
 //==============================================================================
 //  Suboperators (1) and (2), on the colour-blind populations.
 //
@@ -501,9 +546,8 @@ LBM_HD LBM_INLINE Real cg_cN(int ord, Real P3, Real rho) {
 //  the closed forms above.
 //==============================================================================
 LBM_HD LBM_INLINE
-void colour_collide(const ColourModel& m, Real f[27], Real rho_r, Real rho_b,
+void colour_collide(const ColourModel& m, Real f[27], Real rho,
                     const Real u[3], Real p, const Real g[3], const Real dr[3]) {
-  const Real rho   = rho_r + rho_b;
   const Real nubar = m.nu_at(p);
   const Real omega = m.omega_at(p);
   const Real ux = u[0], uy = u[1], uz = u[2];
@@ -519,18 +563,15 @@ void colour_collide(const ColourModel& m, Real f[27], Real rho_r, Real rho_b,
   const Real Eyz = nubar * (uy * dr[2] + uz * dr[1]);
   const Real t3  = nubar * udr / Real(3);
 
-  //---- (2) THE PERTURBATION, Eq. (30), through its raw moments.
+  //---- (2) THE PERTURBATION, Eq. (D14), through its raw moments.
   //
-  // THE COEFFICIENT IS A, NOT A/2, and this is the reading most likely to be
-  // reverted by someone checking against the paper. Eq. (30) is written PER
-  // COLOUR and Eq. (39) sums the capillary stress over k as well as over i;
-  // applied to the colour-blind population the two halves add. Derived from
-  // Eq. (39), a flat interface gives sigma = (2 A tau / 9) delta(phi) with phi
-  // running -1 to +1, so delta = 2 and sigma = 4 A tau / 9, which is Eq. (32)
-  // exactly. With A/2 a static droplet reports a tension 50% low with every
-  // other property of the model intact.
+  // THE COEFFICIENT IS A/2, colour-blind, exactly as Eq. (D14) writes it: that
+  // equation carries no colour index k, so no doubling is owed. It gives
+  // sigma = 2 A tau / 9, half what Saito et al.'s Eq. (32) calls sigma for the
+  // same symbol A -- a normalisation of A, not a different surface tension.
+  // Reach A through A_from_sigma() and the two never have to be compared.
   //
-  // The second moment is (2/9) A |grad phi| (n_a n_b - delta_ab) with n the unit
+  // The second moment is (A/9) |grad phi| (n_a n_b - delta_ab) with n the unit
   // colour gradient -- so its NORMAL component vanishes identically for every
   // direction of n, and the tangential one does not. Writing it as
   // g_a g_b / |g| keeps the unit vector implicit and costs one reciprocal.
@@ -542,8 +583,8 @@ void colour_collide(const ColourModel& m, Real f[27], Real rho_r, Real rho_b,
   if (gm2 > Real(1e-24) && m.A != Real(0)) {
     const Real gm  = cg_sqrt(gm2);
     const Real inv = Real(1) / gm;
-    const Real ca  = Real(2) * m.A / Real(9);
-    const Real cq  = Real(2) * m.A / Real(27) * inv;
+    const Real ca  = m.A / Real(9);            // = (2/9) * (A/2), Eq. (D14)
+    const Real cq  = m.A / Real(27) * inv;     // = (2/27) * (A/2)
     Pxx = ca * (g[0] * g[0] * inv - gm);
     Pyy = ca * (g[1] * g[1] * inv - gm);
     Pzz = ca * (g[2] * g[2] * inv - gm);
@@ -558,27 +599,30 @@ void colour_collide(const ColourModel& m, Real f[27], Real rho_r, Real rho_b,
     Rz  =  cq * g[0] * g[1];
   }
 
-  // Above second order the two sources are only ever needed added together.
+  //---- (0) THE REST DIFFERENCE, rho [phi_i - w_i]: the only part of Eq. (D5)
+  // the product form does not already carry. Isotropic, even, and GEOMETRIC in
+  // the number of squared indices, so one scalar describes it.
+  const Real Delta = m.delta_of(rho, p);
+  const Real d3    = Delta / Real(3);
+
+  // All three sources have the same shape and above second order are only ever
+  // needed added together.
   CgSource s;
-  s.Txx = Exx + Pxx;  s.Tyy = Eyy + Pyy;  s.Tzz = Ezz + Pzz;
+  s.Txx = Delta + Exx + Pxx;  s.Tyy = Delta + Eyy + Pyy;
+  s.Tzz = Delta + Ezz + Pzz;
   s.Txy = Exy + Pxy;  s.Txz = Exz + Pxz;  s.Tyz = Eyz + Pyz;
-  s.Qxy = nubar * (Real(2) * (ux * dr[0] + uy * dr[1]) / Real(3)) + t3 + Qxy;
-  s.Qxz = nubar * (Real(2) * (ux * dr[0] + uz * dr[2]) / Real(3)) + t3 + Qxz;
-  s.Qyz = nubar * (Real(2) * (uy * dr[1] + uz * dr[2]) / Real(3)) + t3 + Qyz;
-  s.Rx  = nubar * (uy * dr[2] + uz * dr[1]) / Real(3) + Rx;
-  s.Ry  = nubar * (ux * dr[2] + uz * dr[0]) / Real(3) + Ry;
-  s.Rz  = nubar * (ux * dr[1] + uy * dr[0]) / Real(3) + Rz;
-  s.H   = t3;                                  // the perturbation has none
+  s.Qxy = d3 + nubar * (Real(2) * (ux * dr[0] + uy * dr[1]) / Real(3)) + t3 + Qxy;
+  s.Qxz = d3 + nubar * (Real(2) * (ux * dr[0] + uz * dr[2]) / Real(3)) + t3 + Qxz;
+  s.Qyz = d3 + nubar * (Real(2) * (uy * dr[1] + uz * dr[2]) / Real(3)) + t3 + Qyz;
+  s.Rx  = nubar * (uy * dr[2] + uz * dr[1]) / Real(3) + Rx;   // no Delta: the
+  s.Ry  = nubar * (ux * dr[2] + uz * dr[0]) / Real(3) + Ry;   // (2,1,1) raw
+  s.Rz  = nubar * (ux * dr[1] + uy * dr[0]) / Real(3) + Rz;   // moment is odd
+  s.H   = Delta / Real(9) + t3;                // the perturbation has none
 
   //---- (1) the central-moment collision. The only transform in the operator.
   const Real ub[3] = {ux, uy, uz};
   Real k[27];
   to_moments(f, ub, k);
-
-  const Real P  = m.pressure(rho_r, rho_b);
-  const Real S  = P - rho * ColourLattice::cs2();
-  const Real P3 = Real(3) * P;
-  const Real S3 = P3 - rho;                        // 3S, exactly
 
   // order 1: conserved. s0 = s1 = 0 in Eq. (15) means the collision leaves them
   // alone, and BOTH sources have a vanishing first central moment, so the body
@@ -595,7 +639,9 @@ void colour_collide(const ColourModel& m, Real f[27], Real rho_r, Real rho_b,
   // one relaxation time. Applying (1 - s/2) here puts sigma out by that factor,
   // and the static droplet reports it.
   {
-    const Real e[3] = {S + Exx, S + Eyy, S + Ezz};   // equilibrium, closed form
+    // The equilibrium's second central moment: Delta delta_ab plus Phi_i's own,
+    // with NO u-dependence -- the product form contributes nothing here.
+    const Real e[3] = {Delta + Exx, Delta + Eyy, Delta + Ezz};
     const Real q[3] = {Pxx, Pyy, Pzz};               // perturbation
     Real d[3];
     Real tr = Real(0), tre = Real(0), trq = Real(0);
@@ -614,15 +660,15 @@ void colour_collide(const ColourModel& m, Real f[27], Real rho_r, Real rho_b,
     k[cg_i2s(1, 2)] = (Real(1) - omega) * k[cg_i2s(1, 2)] + omega * Eyz + Pyz;
   }
 
-  // order >= 3: s3 = s4 = s5 = s6 = 1, so straight to equilibrium plus source.
+  // order >= 3: s3 = s4 = s5 = s6 = 1, and the product form contributes NOTHING
+  // above order 0, so the post-collision moment is the shifted source and
+  // nothing else. Under Saito's third-order equilibrium this loop also carried a
+  // total-order coefficient table and a second separable product; Eq. (D5)
+  // removed both, along with cg_cN, cg_upow and cg_dfac.
 #pragma unroll
   for (int n = 0; n < 27; ++n) {
-    const int pe = p_of(n), qe = q_of(n), re = r_of(n);
-    const int ord = pe + qe + re;
-    if (ord < 3) continue;
-    k[n] = cg_cN(ord, P3, rho) * cg_upow(pe, ux) * cg_upow(qe, uy) * cg_upow(re, uz)
-         - S3 * cg_dfac(pe, ux) * cg_dfac(qe, uy) * cg_dfac(re, uz)
-         + cg_source_high(n, s, ux, uy, uz);
+    if (order_of(n) < 3) continue;
+    k[n] = cg_source_high(n, s, ux, uy, uz);
   }
 
   to_populations(k, ub, f);
@@ -634,7 +680,8 @@ void colour_collide(const ColourModel& m, Real f[27], Real rho_r, Real rho_b,
 //==============================================================================
 LBM_HD LBM_INLINE
 void colour_recolour(const ColourModel& m, const Real f[27], Real rho_r,
-                     Real rho_b, const Real g[3], Real fr[27], Real fb[27]) {
+                     Real rho_b, Real p, const Real g[3], Real fr[27],
+                     Real fb[27]) {
   const Real rho = rho_r + rho_b;
   const Real inv = (rho > Real(0)) ? Real(1) / rho : Real(0);
   const Real mix = m.beta * rho_r * rho_b * inv * inv;
@@ -652,7 +699,7 @@ void colour_recolour(const ColourModel& m, const Real f[27], Real rho_r,
       if (cm2 > Real(0))
         cosine = (cx * g[0] + cy * g[1] + cz * g[2]) / (cg_sqrt(cm2) * gm);
     }
-    const Real split = mix * cosine * m.eq_at_rest(i, rho_r, rho_b);
+    const Real split = mix * cosine * m.eq_at_rest(i, rho, p);
     fr[i] = rho_r * inv * f[i] + split;
     fb[i] = rho_b * inv * f[i] - split;
   }
@@ -783,8 +830,8 @@ LBM_HD LBM_INLINE void colour_node_update(const ColourParams& p, long N, long n)
   const Real dr[3] = {p.rx[n], p.ry[n], p.rz[n]};
   const Real ph = p.phi[n];
 
-  colour_collide(p.m, f, srr, srb, u, ph, g, dr);
-  colour_recolour(p.m, f, srr, srb, g, fr, fb);
+  colour_collide(p.m, f, srr + srb, u, ph, g, dr);
+  colour_recolour(p.m, f, srr, srb, ph, g, fr, fb);
 
   scatter<Parity, ColourLattice>(p.fr, N, x, y, z, p.nx, p.ny, p.nz, fr);
   scatter<Parity, ColourLattice>(p.fb, N, x, y, z, p.nx, p.ny, p.nz, fb);
@@ -831,12 +878,10 @@ __global__ void colour_initialise(Real* __restrict__ fr, Real* __restrict__ fb,
   Real rr = Real(1), rb = Real(0);
   init(x, y, z, rr, rb);
   Real gr[27], gb[27];
-  for (int i = 0; i < 27; ++i) {
-    // At rest the whole equilibrium is the rest term, and it is per colour:
-    // red gets rho_r phi_i(alpha_r), blue gets rho_b phi_i(alpha_b).
-    gr[i] = rr * ColourModel::phi_i(i, m.alpha_r);
-    gb[i] = rb * ColourModel::phi_i(i, m.alpha_b);
-  }
+  // At rest the whole equilibrium is the rest term. THE OPERATOR does the split,
+  // so the seed cannot pick a different reading of it from the collision.
+  const Real ph = m.order_parameter(rr, rb);
+  for (int i = 0; i < 27; ++i) m.seed_at_rest(i, rr, rb, ph, gr[i], gb[i]);
   init_scatter<0, ColourLattice>(fr, N, x, y, z, nx, ny, nz, gr);
   init_scatter<0, ColourLattice>(fb, N, x, y, z, nx, ny, nz, gb);
 }

@@ -13,7 +13,7 @@
 //  and W = 4. Three-dimensional Laplace gives dp = 2 sigma / R, so the measured
 //  tension is sigma_Lap = dp R / 2, against the closed form of Eq. (32),
 //
-//      sigma_th = 4 A tau / 9,
+//      sigma_th = 2 A tau / 9,   (Eq. (D14)'s A; see ColourGradient.hpp)
 //
 //  which contains no fitted constant. The paper reports a maximum error of 0.40%
 //  across gamma = 1, 10, 100 and 1000, with spurious velocities of order 1e-4.
@@ -81,6 +81,11 @@ struct Result {
   bool ok = false;
 };
 
+// Which reading of the rest term, Eq. (D6) against Eq. (D12). A file-scope
+// global rather than another `run` argument: every caller would otherwise have
+// to thread it through, and the sweeps below take their settings positionally.
+static CG::RestTerm g_rest = CG{}.rest;   // follows the operator's default
+
 static Result run(int N, double R, double gamma, double A, double tau,
                   double W, std::size_t steps, bool verbose, double beta = 0.7) {
   const double ab = 8.0 / 27.0;
@@ -102,6 +107,7 @@ static Result run(int N, double R, double gamma, double A, double tau,
   cg.beta    = Real(beta);
   cg.omega_bulk = Real(1);
   cg.rho_r0  = Real(rho_r0);  cg.rho_b0 = Real(rho_b0);
+  cg.rest    = g_rest;      // -rest bar|percolour; see ColourGradient.hpp
   Slv s(d, cg);
 
   const Real Rr = Real(R), Wr = Real(W);
@@ -121,7 +127,7 @@ static Result run(int N, double R, double gamma, double A, double tau,
   const double m_r0 = double(s.total_red()), m_b0 = double(s.total_blue());
 
   Result out;
-  out.sigma_th = 4.0 * A * tau / 9.0;
+  out.sigma_th = double(CG::sigma_from_A(Real(A), Real(tau)));
   for (std::size_t k = 0; k < steps; ++k) {
     s.refresh();
     s.step();
@@ -221,7 +227,7 @@ int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   int status = 0;
   {
-    int N = 64; double R = 16, W = 4, A = 8e-4, tau = 1.0;
+    int N = 64; double R = 16, W = 4, A = 16e-4, tau = 1.0;   // see sigma_from_A
     std::size_t steps = 8000; double only = 0, beta = 0.7;
     std::vector<double> betas;
     for (int i = 1; i < argc; ++i) {
@@ -234,6 +240,12 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(argv[i], "-gamma")) num(only);   // one ratio only
       else if (!std::strcmp(argv[i], "-steps")) { if (i+1<argc) steps = std::size_t(std::atol(argv[++i])); }
       else if (!std::strcmp(argv[i], "-beta"))  num(beta);
+      else if (!std::strcmp(argv[i], "-rest") && i + 1 < argc) {
+        const char* v = argv[++i];
+        if      (!std::strcmp(v, "bar"))       g_rest = CG::RestTerm::AlphaBar;
+        else if (!std::strcmp(v, "percolour")) g_rest = CG::RestTerm::PerColour;
+        else { std::printf("-rest takes bar or percolour\n"); return 1; }
+      }
       else if (!std::strcmp(argv[i], "-betas") && i + 1 < argc) {
         betas.clear();
         std::string v = argv[++i], tok;
@@ -253,7 +265,8 @@ int main(int argc, char** argv) {
       std::printf("Static droplet, BETA SWEEP   D3Q27 colour gradient, central moments\n");
       std::printf("%dx%dx%d   R = %.0f   seeded W = %.0f   A = %.2e   tau = %.2f   %zu steps\n",
                   N, N, N, R, W, A, tau, steps);
-      std::printf("sigma_th = 4 A tau / 9 = %.6e\n\n", 4.0 * A * tau / 9.0);
+      std::printf("sigma_th = 2 A tau / 9 = %.6e\n\n",
+                  double(CG::sigma_from_A(Real(A), Real(tau))));
       const double gsweep = only > 0 ? only : 1.0;
       std::printf("gamma = %.0f\n", gsweep);
       std::printf("%-7s %-13s %-9s %-11s %-8s %-9s %-10s %-8s %s\n",
@@ -279,7 +292,8 @@ int main(int argc, char** argv) {
     std::printf("backend %s   precision %s\n", ExecSpace::name(), precision_name());
     std::printf("%dx%dx%d   R = %.0f   W = %.0f   A = %.2e   tau = %.2f   %zu steps\n",
                 N, N, N, R, W, A, tau, steps);
-    std::printf("sigma_th = 4 A tau / 9 = %.6e\n\n", 4.0 * A * tau / 9.0);
+    std::printf("sigma_th = 2 A tau / 9 = %.6e\n\n",
+                double(CG::sigma_from_A(Real(A), Real(tau))));
 
     std::printf("%-8s %-13s %-13s %-9s %-11s %-8s %-11s %-9s %-10s\n",
                 "gamma", "sigma_th", "sigma_Lap", "err (%)", "max |u|",

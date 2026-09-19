@@ -174,7 +174,7 @@ int main(int argc, char** argv) {
   int status = 0;
   {
     int N = 64;
-    double W0 = 4, gamma = 1, A = 8e-4, tau = 1.0;
+    double W0 = 4, gamma = 1, A = 16e-4, tau = 1.0;   // Eq. (D14) A; doubled 2026-09-19
     std::size_t steps = 8000;
     std::string outf;
     std::vector<double> betas = {0.1, 0.2, 0.3, 0.5, 0.7, 0.9, 0.95, 0.99};
