@@ -125,9 +125,18 @@ the parent's trait, and that is a correctness point rather than a nicety:
 so on D3Q7 a CM request does not fail, it EVAPORATES — and the guard in
 `set_phase_op` cannot catch it, because a member initialiser never reaches the
 setter.
-Flipping it moved `bubble.cu`, the only driver that inherited it and solves a
-flow: Laplace tension went from −19.62 % to −9.40 % of the requested sigma and the
-spurious current from 1.361e-05 to 1.281e-05 at 48³, R = 16, 2000 steps, FP64.
+Flipping it reaches `bubble.cu`, the only driver that inherits it and solves a
+flow. Re-measured on a T4 at the table's own settings — 64³, FP32, 40000 steps,
+2026-09-19 — the four rows that already converged **did not move**, agreeing with
+BGK in the fourth digit. The row that used to DIVERGE now completes: gamma = 100
+at matched dynamic viscosity, −3.68 % with a spurious current of 1.194e-05, where
+BGK blew up at omega = 1.994. **An earlier version of this entry claimed a
+−19.62 % → −9.40 % improvement from a 48³ FP64 run at 2000 STEPS. That run was
+not converged**, and what it measured was the two operators approaching the same
+answer at different rates rather than reaching different answers — a converged
+static droplet is a force balance and the collision has almost no say in where it
+balances. The figure was quoted in two places before a converged run contradicted
+it. Quote a converged number or none.
 `newpaths.cu` also inherits it and does NOT move, because its slab rows are
 density-matched and force-free, so the fluid populations stay identically zero
 — verified, both rows still 4.44951. In `src/` there is no library default to
