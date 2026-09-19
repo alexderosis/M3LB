@@ -495,8 +495,8 @@ $f_i^{\rm eq}-w_i$ would be algebraically identical and numerically useless.
 \subsection{Second-order (truncated Hermite) --- D2Q9, D3Q27}
 \label{sec:eq2}
 
-The default for BGK, TRT and the MHD fluid operator, on all three
-Navier--Stokes lattices:
+The default for BGK, TRT and the MHD fluid operator, on both Navier--Stokes
+lattices:
 \begin{equation}
   \boxed{\;
   f_i^{\rm eq} = w_i\,\rho\left[
@@ -505,7 +505,7 @@ Navier--Stokes lattices:
         - \frac{\uu\!\cdot\!\uu}{2\cs^2}\right] \;}
   \label{eq:so}
 \end{equation}
-With $\cs^2=1/3$ on all three, this is
+With $\cs^2=1/3$ on both, this is
 $f_i^{\rm eq}=w_i\rho\big[1+3(\ci\!\cdot\!\uu)+\tfrac92(\ci\!\cdot\!\uu)^2-\tfrac32\uu^2\big]$.
 It is correct to $O(u^2)$; its central moments carry $O(u^3)$ defects, which is
 what the Galilean-invariance test of \S\ref{sec:galilean} measures and what the
@@ -597,7 +597,9 @@ stored variable is a product of one-dimensional factors,
    \;-\;[\text{shifted}]\;A_p(u_{bx})\,A_q(u_{by})\,A_r(u_{bz})\;}
   \label{eq:emom}
 \end{equation}
-with the triples depending on which basis the lattice uses:
+with the triples below. A second, $\cs^2$-carrying set belonged to the monomial
+basis, which went with D3Q19 on 2026-09-18; \code{SelectBasis} now always returns
+\code{ProductBasis}, so only the product triples remain reachable:
 
 \begin{center}\small
 \begin{tabular}{llll}
@@ -625,8 +627,9 @@ $Q\times Q$ matrices. It was verified symbolically --- 0 of 9 deviating on D2Q9,
 its D3Q27 counterpart.
 
 \paragraph{Raw MRT.} Here $\uu_b=\bm0$ and $\delta\uu=\uu$, so
-$Q=(1,u,u^2)$ on the product basis and $(1,u,\cs^2+u^2)$ on the monomial one ---
-the raw moments of a Maxwellian centred on $\uu$. Note this gives raw MRT the
+$Q=(1,u,u^2)$ on the product basis --- the raw moments of a Maxwellian centred on
+$\uu$. (The monomial form was $(1,u,\cs^2+u^2)$; that basis was removed with
+D3Q19 on 2026-09-18.) Note this gives raw MRT the
 \emph{complete} equilibrium, not a truncated one, which is why it recovers most
 of the Galilean-invariance gain on its own (\S\ref{sec:galilean}).
 
@@ -681,7 +684,7 @@ Its first two moments are $\sum_i g_i^{\rm eq,\alpha}=b_\alpha$ and
 $\sum_i c_{i\beta}g_i^{{\rm eq},\alpha}=u_\beta b_\alpha - b_\beta u_\alpha$,
 which is exactly the antisymmetric flux of the induction equation. Only that
 first moment is required, which is why a five- or seven-velocity lattice suffices
-for the field while the flow runs on nine, nineteen or twenty-seven.
+for the field while the flow runs on nine or twenty-seven.
 
 \subsection{MHD fluid equilibrium --- D2Q9, D3Q27}
 \label{sec:eqmhd}
@@ -829,7 +832,7 @@ variable are
           - [\text{shifted}]\;A_p(u_{bx})A_q(u_{by})A_r(u_{bz}),
 \end{equation}
 with $Q=\{1,\delta u,\delta u^2\}$ and $A=\{1,-u_b,u_b^2\}$ for the product
-basis (and the corresponding $\cs^2$-carrying triples for the monomial basis).
+basis, which since 2026-09-18 is the only basis in the tree.
 The relaxation is then
 \begin{equation}
 \begin{aligned}
@@ -1875,7 +1878,7 @@ convection occupies.
 
 \paragraph{Architectural significance.} This module was the first test of the
 composition the design was built around. D3Q7 has seven populations to the
-fluid's nineteen, a different sound speed, a different collision concept and
+fluid's twenty-seven, a different sound speed, a different collision concept and
 different boundary conditions --- and nothing in \code{FluidSolver}, the lattices,
 the streaming schemes or the moment operators required modification. The only
 interface addition was the node index on the collision.
@@ -2122,7 +2125,7 @@ no isotropic fourth-order moment, and on D3Q7 every velocity has a single
 nonzero component, so $(\ci\!\cdot\!\uu)^2$ collapses to $c_\alpha^2u_\alpha^2$
 and the cross terms of $\uu\uu$ cannot be represented at all. A second-order
 term there adds anisotropy, not accuracy. The trade is cost against advection
-accuracy: the reduced lattice moves 5 or 7 populations against 9 or 19 and pays
+accuracy: the reduced lattice moves 5 or 7 populations against 9 or 27 and pays
 an $O(u^2)$ defect in the advection term. A static interface cannot see that
 difference; a sheared one can.
 
@@ -2194,8 +2197,10 @@ are dominated by the isotropy of this stencil and the axis-only set is markedly
 worse, so the cost of a 27-neighbour gather is accepted in a kernel that does
 nothing else. Both derivatives come out of that one gather: the Laplacian needs
 exactly the neighbours the gradient has already loaded, so it is one accumulator
-and one store more, not a second pass. Only the potential-form fluid operator
-reads it.
+and one store more, not a second pass. BOTH pressure-form fluid operators read
+it --- each applies $\bm{F}_s = \mu_\phi\nabla\phi$ with $\mu_\phi$ carrying
+$-\kappa\nabla^2\phi$. Only the matched-density capillary-stress form of
+\S\ref{sec:surftens} needs no second derivative at all.
 
 The anti-diffusion vector $\bm{A} = \theta\,\nn$ is assembled once per node
 rather than once per direction --- it costs a square root and a divide and
@@ -2238,11 +2243,28 @@ fence.
 \subsection{The fluid side: a pressure-based formulation}
 \label{sec:pressureform}
 
-Two fluid operators exist. \code{MultiphaseBGK} is the matched-density one: $\rho$
+THREE fluid operators exist, and they are TWO PHYSICS TIERS rather than three
+collisions of one model. \code{MultiphaseBGK} is the matched-density one: $\rho$
 is a single field near 1, and $\phi$ enters the flow only through the capillary
-stress of \S\ref{sec:surftens} and, optionally, through a per-node relaxation
-rate (\code{omega\_n}) for a viscosity contrast. \code{MultiphasePotentialBGK}
-carries a density ratio, and to do so it changes what the zeroth moment means.
+STRESS of \S\ref{sec:surftens}. It is a different equation of state from the other
+two, not a cheaper version of them --- it carries no $\rho_L/\rho_H$, no
+$\mu_L/\mu_H$ and no Laplacian, so substituting it for either does not compile
+rather than running wrong, and \code{validation/laplace.cpp} is the one case that
+wants it. (It also exposes a per-node relaxation rate, \code{omega\_n}, for a
+viscosity contrast; nothing in the tree ever binds it, so that path has never
+executed and the header says so.) \code{MultiphasePotentialBGK} and
+\code{MultiphaseCentralMoments} are the other tier: the same pressure-based model
+and the same field set, differing only in the collision, and both carry a density
+ratio. To do so they change what the zeroth moment means.
+
+\code{MultiphaseCentralMoments} is the DEFAULT, and has been since 2026-09-18 ---
+\code{DefaultMultiphaseCollision} names it, and every case in the tree that
+couples a phase field to a flow uses it. \code{MultiphasePotentialBGK} is what the
+\code{-op bgk} flag selects, and is there to attribute a difference to the
+collision. One caveat when using it for that: the two differ in EQUILIBRIUM as
+well, the central-moment form using the product (sixth-order) expansion and the
+BGK form the second-order truncation of \eqref{eq:so}, so a difference measured
+across that flag is both effects at $O(u^3)$, not the collision alone.
 
 The reason is conditioning. At a ratio $\rho$ is no longer a small perturbation
 about 1, and a density-carrying distribution stops being well posed for the
@@ -2464,9 +2486,20 @@ pass is requested by the driver rather than performed automatically.
 \paragraph{Not valid against a wall.} The stencil reads $\uu$ at every neighbour,
 including non-fluid ones, where the velocity field holds whatever
 \code{FluidSolver} left there, which is zero. At an interface touching a wall
-that is a one-sided derivative taken as though it were central. Every case that
-currently runs this operator is periodic. The gap has the same shape as the
-missing wetting condition, and the same remedy would be needed.
+that is a one-sided derivative taken as though it were central. The gap has the
+same shape as the missing wetting condition, and the same remedy would be needed.
+
+An earlier version of this paragraph added ``every case that currently runs this
+operator is periodic'', which was never a safe thing to assert and is now false:
+\code{floating\_body}, \code{layered\_poiseuille} and \code{water\_entry} all
+refresh $\bm{F}_\nu$ against walls. Worse, two cases that LOOK like counter\-
+examples were not --- \code{enan\_rt} and \code{enan\_wedge} each constructed a
+\code{ViscousInterfaceForce}, bound it into the collision, handed it its inputs
+and then never called \code{refresh}, so the array stayed at its zero-initialised
+value and $\bm{F}_\nu$ was identically zero for the whole run. Nothing failed,
+because the operator's guard asks whether the array is BOUND, not whether it has
+been COMPUTED. Both were fixed on 2026-09-19; every measurement in
+\S\ref{sec:enan} taken before that date was made without this term.
 
 \paragraph{It earns its place.} For as long as the only case running the pressure
 form was a static droplet --- where \eqref{eq:fnu} is identically zero ---
@@ -3126,7 +3159,7 @@ discretised.
 \toprule
 module & interface & fluids resolved & density ratio \\
 \midrule
-phase field (\S\ref{sec:ace}) & diffuse & both & $\sim 100$, with the gauge problem \\
+phase field (\S\ref{sec:ace}) & diffuse & both & $1000$ measured; the gauge still bites \\
 colour gradient (\S\ref{sec:colour}) & diffuse & both & $1000$ in principle \\
 free surface (this section) & sharp & liquid only & infinite, by construction \\
 \bottomrule
@@ -3421,8 +3454,8 @@ order alongside the spatial error.
 \subsubsection{Grid convergence: all lattices, all operators}
 
 A dedicated sweep (\code{validation/grid\_convergence}) covers every
-lattice $\times$ operator combination over a resolution ladder and reports 92 data
-points. Slopes are least-squares fits of $\log(\text{error})$ against $\log N$
+lattice $\times$ operator combination over a resolution ladder and reports 56 data
+points --- 92 before D3Q19 was removed on 2026-09-18. Slopes are least-squares fits of $\log(\text{error})$ against $\log N$
 over the whole ladder, not pairwise ratios.
 
 \begin{center}\small
@@ -3788,7 +3821,7 @@ standard form is used instead.
 \subsubsection{Double shear layer}
 
 $L=256$, $\mathrm{Re}=30\,000$, $\tau=0.500512$ --- a stability test rather than
-an accuracy one, run to $t/t_0=1$. All three lattices complete without
+an accuracy one, run to $t/t_0=1$. Both lattices complete without
 divergence at that $\tau$, and the normalised invariants agree closely:
 
 \begin{center}\small
@@ -4747,9 +4780,17 @@ the spike normalised by the domain width.
   \input{fig/enan_rt_table.tex}
 \end{table}
 
-\subparagraph{Two dimensions: a pass.} The 2-D case agrees with their Table
-VIII to 2.6\% at worst and to under 0.5\% through the first three quarters of
-the run. That is the whole of III.H, and it is the strongest evidence in this
+\subparagraph{Two dimensions: a pass, measured without $\bm{F}_\nu$.} Table
+\ref{tab:enanrt} and the numbers in this paragraph were produced before
+2026-09-19, when \code{enan\_rt} was found to have bound a
+\code{ViscousInterfaceForce} into the collision and never refreshed it --- so the
+viscous interface force was identically zero throughout, on a case running
+$\mathrm{At} = 0.5$, a ratio of three, where \S\ref{sec:fnu} argues the term is
+not one to drop. They are reported as they stand and are SUPERSEDED; the fix
+moved the 2-D spike from $1.3125$ to $1.2969$ at $t/t_0 = 2$ and $|u|_{\max}$ by
+$3.1\%$, so the conclusion survives and the digits do not. The 2-D case agrees
+with their Table VIII to 2.6\% at worst and to under 0.5\% through the first
+three quarters of the run. That is the whole of III.H, and it is the strongest evidence in this
 section that the coupled multiphase solver is right, because unlike the
 interface-capture group it exercises the fluid operator, the interfacial force
 and the coupling order together. It is also insensitive to the corrections
@@ -4935,7 +4976,14 @@ $p = \tilde p\,\rho\,c_s^2$ and markers at their spacing of half a cell.
   \centering
   \caption{Wedge entry against Wagner at their two deadrise angles and their
   discretisation. The slope is of $F^*$ against $\tau=vt/D$; Wagner's is
-  $\pi^3/(8\tan^2\varphi)$.}
+  $\pi^3/(8\tan^2\varphi)$. MEASURED BEFORE 2026-09-19, when \code{enan\_wedge}
+  was found to have two couplings wired and never driven: it refreshed $\phi$
+  AFTER the fluid stepped, so the fluid collided against $\nabla\phi(t-1)$, and
+  it never refreshed $\bm{F}_\nu$, so the viscous interface force was identically
+  zero on a case running water over air at a $15\times$ kinematic viscosity
+  contrast. Both are fixed; re-measured, the $2^\circ$ slope moves $2518.6 \to
+  2517.0$ and $R^2$ improves $0.9904 \to 0.9907$. Neither touches the deviation
+  from Wagner, which is therefore still unexplained --- see below.}
   \label{tab:enanwedge}
   \begin{tabular}{rrrrr}
     \toprule
@@ -8799,8 +8847,14 @@ path as \code{reference\_collide()} and asserts the two agree over 60 states to
 $5.9\e{-16}$ in FP64 and $2.1\e{-07}$ in FP32, about one ulp.
 
 The phase field was written afterwards and therefore written already knowing
-this. It runs at \textbf{354.6}~MLUPS with \textbf{0 bytes} of stack frame on
-every one of its six kernels, by construction rather than after a measurement.
+this. It ran at \textbf{354.6}~MLUPS with \textbf{0 bytes} of stack frame on
+every kernel, by construction rather than after a measurement. Read that figure
+against the configuration it was taken in: the fluid operator was BGK, which is
+no longer the default, and the pass count has since grown by one, because the
+macroscopic pass was moved ahead of the viscous and $\nabla\tilde p$ passes on
+2026-09-19 so that both are built from $\uu(t)$ rather than $\uu(t-1)$. The
+zero-stack-frame property is structural and survives both changes; the MLUPS
+number has not been re-measured.
 
 \paragraph{A conservation claim FP32 cannot keep.} The conservative
 Allen--Cahn form conserves $\sum_i \phi$ exactly, and in FP64 the port shows it:
@@ -8812,15 +8866,29 @@ fast while the seeded profile relaxes onto the discrete equilibrium, then nearly
 stopping. Not a leak. The test now bounds drift \emph{per step} against one ulp,
 which round-off cannot beat and a real bug would exceed by orders of magnitude.
 
-\paragraph{An instability that was the viscosity, not the model.} At a density
+\paragraph{An instability that was the viscosity AND the collision.} At a density
 ratio of $100$ the phase-field droplet diverged, and it was nearly written up as
-a capability limit. Matching the \emph{dynamic} viscosity across the ratio
-leaves the heavy phase with a hundredfold smaller kinematic viscosity, so
+a capability limit. Matching the \emph{dynamic} viscosity across the ratio leaves
+the heavy phase with a hundredfold smaller kinematic viscosity, so
 $\omega = [\mu/(\rho\cs^2) + 1/2]^{-1} = 1.994$ against a limit of $2$; matching
 the \emph{kinematic} viscosity runs the same case to $-3.77\%$ with a spurious
-current twenty times smaller. The driver now prints $\nu$ and $\omega$ per phase
-before the run and flags $\omega > 1.9$, because that number was reconstructed
-in a post-mortem when it could have been on screen beforehand.
+current twenty times smaller. The driver prints $\nu$ and $\omega$ per phase
+before the run and flags $\omega > 1.9$, because that number was reconstructed in
+a post-mortem when it could have been on screen beforehand.
+
+\paragraph{And this heading used to say ``not the model'', which was half right.}
+Re-measured on a T4 on 2026-09-19, after the fluid operator these cases inherit
+moved to central moments, the $\gamma = 100$ dynamic-matched row \emph{completes},
+at $-3.68\%$. BGK relaxes every mode at $\omega$, ghosts included, and that is
+what blew up; central moments send the non-hydrodynamic modes to equilibrium at
+$1$ and leave $\omega$ to the shear alone. Pushed further, a ratio of $1000$ ---
+$\omega = 1.999$ --- also holds, at $-3.18\%$, and FP64 confirms it is the scheme
+rather than the round-off: the two precisions agree to $0.005\%$ on $\sigma$.
+Matching the kinematic viscosity remains the better setup by a widening margin,
+its spurious current falling $2.198\times10^{-6}$, $5.732\times10^{-7}$,
+$7.986\times10^{-8}$ at ratios $10$, $100$, $1000$ --- but the parameter trap was
+never the whole story, and a heading that named only one of two causes is the kind
+of tidy explanation this document should be slower to adopt.
 
 \subsection{The two models on one case}
 \label{sec:cgvspf}
@@ -8943,27 +9011,38 @@ is convergence, since that r.m.s.\ is $13\,\%$ of the mean over three drift time
 Absent, not merely untested:
 
 \begin{itemize}[leftmargin=1.4em,itemsep=3pt]
-\item \textbf{No shifted storage.} Raw populations only, and the Poiseuille
-  convergence above shows what it costs in FP32.
-\item \textbf{No open boundary for the scalar.} Outflow needs a donor map and a
-  second kernel after a fence; reading a donor inside the main kernel is a genuine
-  race under Esoteric Pull, because the two slots a node reads are the two it
-  writes (\S\ref{sec:scalaroutflow}).
-\item \textbf{No physical magnetic wall condition.} A non-fluid cell is skipped,
-  which on this storage is bounce-back on the induction distribution --- neither
-  the perfectly conducting nor the insulating condition. Every MHD case here is
-  periodic, and no wall-bounded MHD result should be read off this code.
-\item \textbf{No free surface}, and the reason is streaming rather than effort:
-  \S\ref{sec:fstwolattice}. Porting it means a two-lattice storage path plus
-  five kernel launches with a fence between each.
-\item \textbf{No central moments for the phase field's fluid operator.} The
-  parent has \code{MultiphaseCentralMoments.hpp}; what is on the GPU is the BGK
-  potential form. The colour gradient \emph{is} in central moments.
-\item \textbf{No wetting, no contact angle, no external force field, and no
-  open boundary for $\phi$.}
-\item \textbf{D3Q27 only}, no TRT or raw MRT, no regularised walls, no
-  height-field input, and therefore no aorta and no city.
+\item \textbf{No raw MRT and no height-field input}, and therefore no aorta and
+  no city. BGK, TRT and central moments are all here; raw MRT is not in the
+  \code{Op} enum.
+\item \textbf{No open boundary for the FLUID.} The parent's \code{NrmOutXp} and
+  \code{NrmOutFree} have no counterpart. The SCALAR's open boundary is here, on
+  the donor map and second kernel \S\ref{sec:scalaroutflow} argues for.
+\item \textbf{No moving obstacle in the free surface}, and deliberately: the
+  parent's own module banner records two measured defects there, so porting it
+  would inherit a known-bad ledger. The free surface itself \emph{is} here, on
+  the two-lattice path of \S\ref{sec:fstwolattice}, with the five kernels and a
+  fence between each.
+\item \textbf{No wall current and no exterior field match} on the magnetic wall.
+  Dellar's moment-based conditions \emph{are} here --- \code{MagDirichlet} for an
+  imposed external field, \code{MagNeumann} for the perfectly conducting
+  $\partial\bb/\partial n = 0$ --- and \code{src/hartmann.cu} is the wall-bounded
+  MHD benchmark they make possible, pairing them with the on-node regularised
+  velocity wall so both conditions agree about where the wall is.
+\item \textbf{No wetting, no contact angle, and no open boundary for $\phi$.} An
+  external per-node force field for the phase field \emph{is} here; it is the
+  slot the penalised body writes into.
 \end{itemize}
+
+\paragraph{What this list used to say, and why it is worth recording.} Until
+2026-09-19 it also claimed there was no shifted storage, no open scalar boundary,
+no physical magnetic wall, no free surface, no central moments for the phase
+field's fluid operator, no TRT and no regularised walls --- and, 540 lines after
+\S\ref{sec:cudaehd} documents the EHD stack at length, that the EHD stack was not
+there either. Every one of those was ported between 2026-09-02 and 2026-09-06 and
+the list was not revisited. A capability list is the part of a document that
+rots fastest and is trusted most, because it is read by somebody deciding whether
+to start work; this one had drifted far enough to say the port could not do
+things the same document describes it doing.
 
 %==============================================================================
 \section{Performance}
@@ -9424,14 +9503,18 @@ Stated plainly, because each has been measured.
   available to confirm either. Treat this as narrowed, not solved, until
   \code{cmbench} has printed a number on a GPU.
 
-\item \textbf{The CUDA implementation of \S\ref{sec:cuda} covers a fraction of
-  this one.} D3Q27 only; no shifted storage; no open boundary for the scalar; no
-  physical magnetic wall, so every MHD case there is periodic; no TRT, raw
-  MRT, regularised walls or height-field input. It cannot run the aorta or a city.
-  Both immiscible models of \S\ref{sec:multiphase} are there
-  (\S\ref{sec:cudamp}); the free surface is not, and cannot be without a
-  two-lattice path. It exists to answer one question and to carry the
-  multiphysics forward on a device, not to replace this code.
+\item \textbf{The CUDA implementation of \S\ref{sec:cuda} no longer covers only a
+  fraction of this one.} What it still lacks is raw MRT, height-field input and
+  an open boundary for the \emph{fluid}, so it cannot run the aorta or a city;
+  and no moving obstacle in the free surface, deliberately. What it has is
+  shifted storage, TRT, regularised velocity walls, the open SCALAR boundary,
+  Dellar's moment-based magnetic wall and with it the wall-bounded
+  \code{src/hartmann.cu}, the free surface on a two-lattice path, the EHD stack
+  of \S\ref{sec:cudaehd}, and both immiscible models of \S\ref{sec:multiphase}
+  (\S\ref{sec:cudamp}). Its lattices are D3Q27 for the fluid and D3Q7 --- or
+  D3Q27 where the central-moment phase operator is wanted --- for the scalar, the
+  induction distribution and the phase field. It exists to answer one question
+  and to carry the multiphysics forward on a device, not to replace this code.
 
 \item \textbf{No MPI.} The code is single-rank. \code{Domain} carries an
   \code{mpi\_halo} hook and the halo machinery exists, but domain decomposition
@@ -9472,10 +9555,15 @@ Stated plainly, because each has been measured.
   BGK source, whose magnitude scales with $C$, and the charge operator at
   $\omega_q\to2$.
 
-\item \textbf{The EHD stack is not in \code{GPU/}.} It is the newest module and
-  the CUDA implementation has not been extended to it, so the fine grids that
-  \S\ref{sec:ehdconv} wants --- $196\times320$ and beyond --- are hours of host
-  time rather than minutes of device time.
+\item \textbf{The EHD stack \emph{is} in \code{GPU/}}, as of 2026-09-06 ---
+  \code{src/ehd\_cavity.cu}, \code{include/lbm/ehd.cuh} and
+  \code{include/lbm/specular.cuh}, described in \S\ref{sec:cudaehd}. This entry
+  used to say the opposite while that section sat 540 lines earlier in the same
+  document. What the port cost is recorded there: Dellar's on-node Dirichlet, the
+  on-node zero-flux wall, a per-node source and the central-moment charge
+  collision, the last as a closed form rather than the parent's moment transform.
+  Cross-checked against the Kokkos twin at matched lattices, $I_0$ agrees to
+  $0.008\%$ with no shared headers.
 
 \item \textbf{Convergence studies must watch the Mach number.} The inlet
 Poiseuille of \S\ref{sec:poisinlet} reaches a velocity-dependent error term
@@ -9672,9 +9760,12 @@ the fitted rate is blamed on the scheme.
 
 \item \textbf{The phase field has no open boundary.} The scalar's donor
   machinery (\S\ref{sec:scalaroutflow}) would port, with the same second pass
-  and the same fence, but it is not written. Every multiphase case here is
-  therefore periodic in one direction and closed by no-slip walls in the other;
-  an interface that must leave the domain is not available.
+  and the same fence, but it is not written. So an interface that must leave the
+  domain is not available, and every WALL-BOUNDED multiphase case here is
+  periodic in one direction and closed by no-slip walls in the other. Not every
+  case is wall-bounded --- \code{laplace} and \code{static\_droplet} are triply
+  periodic, as \S\ref{sec:laplace} says --- and an earlier version of this entry
+  drew the consequence too widely.
 
 \item \textbf{There are two pressure normalisations and neither dominates.} With
   $p = \rho(\phi)\cs^2\tilde p$ the recovered mismatch is
@@ -9697,18 +9788,30 @@ the fitted rate is blamed on the scheme.
 
 \item \textbf{The multiphase central-moment operator requires a product
   lattice.} It is built on \code{ProductBasis}, and the \code{static\_assert}
-  says so: D2Q9 or D3Q27. Both three-dimensional lattices in this tree satisfy
-  it, so the restriction bites only if a non-product lattice is added --- which
-  D3Q19 was, until it was removed on 2026-09-18.
+  says so: D2Q9 or D3Q27. Both \emph{Navier--Stokes} lattices in this tree satisfy
+  it; D3Q7 and D2Q5 do not and never did, because \code{is\_product\_lattice}
+  demands all $27$ or all $9$ sign combinations and a seven- or five-velocity set
+  does not have them. An earlier version of this entry said ``both
+  three-dimensional lattices'', which is the sentence a reader would use to
+  conclude that a D3Q7 scalar or phase field could take a central-moment
+  operator. It cannot: that is what the assertion catches, and it is why a 3-D
+  phase field wanting central moments must transport on D3Q27. What D3Q19's
+  removal on 2026-09-18 changed is narrower --- it was the one Navier--Stokes
+  lattice that was not a product set.
 
-\item \textbf{Shifted storage is unavailable to the multiphase operators.}
-  \code{ShiftedPopulations} centres the stored variable on $\tilde p = 1$, which
-  is precisely the pressure gauge that must be avoided at a density ratio, and
-  it assumes a reference density of exactly $1$ --- at a ratio of $10$ the
-  stored populations are no longer small and the shift stops buying anything.
-  \code{MultiphaseCentralMoments} therefore declares \code{RawPopulations}, and
-  the FP32 accuracy argument that shifted storage exists for does not apply to
-  these cases.
+\item \textbf{Shifted storage is unavailable to the two PRESSURE-FORM multiphase
+  operators.} \code{ShiftedPopulations} centres the stored variable on
+  $\tilde p = 1$, which is precisely the pressure gauge that must be avoided at a
+  density ratio, and it assumes a reference density of exactly $1$ --- at a ratio
+  of $10$ the stored populations are no longer small and the shift stops buying
+  anything. \code{MultiphaseCentralMoments} therefore declares
+  \code{RawPopulations} outright, and the FP32 accuracy argument that shifted
+  storage exists for does not apply to those cases. It does \emph{not} extend to
+  \code{MultiphaseBGK}, the MATCHED-DENSITY capillary-stress operator, which takes
+  its storage as a template parameter and is instantiated with
+  \code{ShiftedPopulations} in \code{validation/laplace.cpp} --- exactly the case
+  the condition above excludes, since at a matched density there is no ratio to
+  spoil the gauge.
 
 \item \textbf{The free surface has no surface tension} (\S\ref{sec:freesurface}).
   $\rho_G$ is uniform, so the gas pressure carries no curvature term, and every
