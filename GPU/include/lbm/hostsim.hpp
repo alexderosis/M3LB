@@ -856,25 +856,34 @@ class PhaseField {
     else               for (long n = 0; n < N_; ++n) pf_derivatives_node<false>(p, n);
   }
 
+  // Same rule as the device class: one macroscopic pass, shared by everything
+  // that wants u(t) or p~(t) rather than last step's.
+  bool need_macro() const {
+    return viscous_ || fluid.constant_reference() || bool(pre_fluid_);
+  }
+
   template <int P> void run() {
     const Params p = params();
     if (has_geometry_) for (long n = 0; n < N_; ++n) pf_field_node<P, true>(p, N_, n);
     else               for (long n = 0; n < N_; ++n) pf_field_node<P, false>(p, N_, n);
     derivatives();
+    // PASS 3, mirroring the device: u(t) and p~(t) BEFORE the two forces that
+    // read them, and before the window a penalised body runs in. Until
+    // 2026-09-19 this ran only for a hook and ran after both forces, so F_nu
+    // was built from u(t-1). See phasefield.cuh's banner for the measurement.
+    if (need_macro()) {
+      if (has_geometry_) for (long n = 0; n < N_; ++n) pf_macro_node<P, true>(p, N_, n);
+      else               for (long n = 0; n < N_; ++n) pf_macro_node<P, false>(p, N_, n);
+    }
     if (viscous_) {
       if (has_geometry_) for (long n = 0; n < N_; ++n) pf_viscous_node<true>(p, n);
       else               for (long n = 0; n < N_; ++n) pf_viscous_node<false>(p, n);
     }
     if (fluid.constant_reference())
       for (long n = 0; n < N_; ++n) pf_pgrad_node(p, n);
-    // PASS 4b, mirroring the device: the macroscopic field alone, so a
-    // penalised body can be applied in the one window where u is current and
-    // the collision has not happened yet. See phasefield.cuh's PASS 4b.
-    if (pre_fluid_) {
-      if (has_geometry_) for (long n = 0; n < N_; ++n) pf_macro_node<P, true>(p, N_, n);
-      else               for (long n = 0; n < N_; ++n) pf_macro_node<P, false>(p, N_, n);
-      pre_fluid_();
-    }
+    // Nothing between the macro pass and the fluid pass writes u, so the hook's
+    // window is where it always was.
+    if (pre_fluid_) pre_fluid_();
     if (has_geometry_) for (long n = 0; n < N_; ++n) pf_fluid_node<P, true>(p, N_, n);
     else               for (long n = 0; n < N_; ++n) pf_fluid_node<P, false>(p, N_, n);
     if (has_geometry_) for (long n = 0; n < N_; ++n) pf_phase_node<P, true>(p, N_, n);

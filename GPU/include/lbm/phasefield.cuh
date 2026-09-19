@@ -47,10 +47,44 @@
 //
 //      1  phi from h                     (read-only, so any parity)
 //      2  grad phi and lap phi from phi  (needs 1 complete at the NEIGHBOURS)
-//      3  the viscous interface force    (needs u(t-1) and grad phi(t))
-//      4  grad p~                        (constant-reference form only)
-//      5  the fluid step                 (collides against grad phi(t), writes u(t))
-//      6  the phase step                 (advects h with u(t))
+//      3  u(t) and p~(t)                 (only when 4, 5 or a hook wants them)
+//      4  the viscous interface force    (needs u(t) and grad phi(t))
+//      5  grad p~                        (constant-reference form only)
+//      6  the fluid step                 (collides against grad phi(t), writes u(t))
+//      7  the phase step                 (advects h with u(t))
+//
+//  THE MACROSCOPIC PASS IS PASS 3 AND USED NOT TO BE. Until 2026-09-19 it ran
+//  only when a caller registered a pre-fluid hook, and it ran AFTER passes 4 and
+//  5 -- so F_nu was built from u(t-1) and grad p~ from p~(t-1), a first-order
+//  splitting error in each. The parent argues the opposite case explicitly and
+//  pays for it: ViscousInterfaceForce.hpp's banner calls the extra pass the
+//  price of "no lag anywhere", and says it "is the reason this pass is opt-in
+//  rather than automatic". This port declared the lag in this very list and
+//  never argued for it, which is not a decision, just an omission.
+//
+//  MEASURED before the change, on a 32^3 droplet at R = 8, W = 4, matched
+//  kinematic nu = 0.05, sigma = 1e-3, FP64, in a shear layer
+//  u_x = 0.05 sin(2 pi y / L), against the same run with the pass moved up:
+//
+//      driving   ratio   |u|max lagged    with u(t)      gap
+//      none      10      3.540245e-02   3.541085e-02   0.024%
+//      none      100     4.057243e-02   4.059117e-02   0.046%
+//      g = 2e-4  10      5.699239e-02   5.703441e-02   0.074%
+//      g = 2e-4  100     7.025903e-02   7.017222e-02   0.124%
+//
+//  Small, and it grows with the density ratio and with du/dt, which is what a
+//  first-order splitting error should do. THE SHEAR IS NOT DECORATION: the same
+//  sweep driven by gravity ALONE reports 0.000% at every ratio across four
+//  decades of g, because uniform acceleration has no velocity gradient and
+//  F_nu = nu (grad u + grad u^T) . grad rho needs a velocity gradient and a
+//  density gradient in the SAME place. A measurement of this term without a
+//  shear measures nothing.
+//
+//  THE COST IS ONE EXTRA PASS over the populations per step, and only for a run
+//  that turns one of the three consumers on. A run with no viscous force, no
+//  constant-reference pressure and no hook does not pay it -- need_macro() is
+//  false and the pass does not launch, so the common uncoupled case is byte for
+//  byte the kernel sequence it was.
 //
 //  Refreshing phi AFTER the fluid would be a first-order splitting error that
 //  does NOT refine away, and it is worse in kind than the usual one: the
@@ -1057,25 +1091,37 @@ class PhaseFieldSolver {
     LBM_CUDA_CHECK(cudaGetLastError());
   }
 
+  // Whether the macroscopic pass has to run on its own, ahead of the collision.
+  // Three consumers want it and they want it for the same reason -- u(t) and
+  // p~(t) rather than last step's -- so they share one pass rather than each
+  // asking for its own. See THE MACROSCOPIC PASS in the banner.
+  bool need_macro() const {
+    return viscous_ || fluid.constant_reference() || bool(pre_fluid_);
+  }
+
   template <int P> void run() {
     const int B = 128, G = int((N_ + B - 1) / B);
     const Params p = params();
     if (has_geometry_) pf_field_kernel<P, true, PL><<<G, B>>>(p, N_);
     else               pf_field_kernel<P, false, PL><<<G, B>>>(p, N_);
     derivatives();
+    // PASS 3: u(t) and p~(t), BEFORE the two forces that read them. Until
+    // 2026-09-19 this ran only for a pre_fluid hook and ran AFTER both of them,
+    // so F_nu was built from u(t-1) and grad p~ from p~(t-1).
+    if (need_macro()) {
+      if (has_geometry_) pf_macro_kernel<P, true, PL><<<G, B>>>(p, N_);
+      else               pf_macro_kernel<P, false, PL><<<G, B>>>(p, N_);
+      LBM_CUDA_CHECK(cudaGetLastError());
+    }
     if (viscous_) {
       if (has_geometry_) pf_viscous_kernel<true, PL><<<G, B>>>(p, N_);
       else               pf_viscous_kernel<false, PL><<<G, B>>>(p, N_);
     }
     if (fluid.constant_reference()) pf_pgrad_kernel<PL><<<G, B>>>(p, N_);
-    // Only when somebody is waiting to run between the macroscopic field and
-    // the collision. See PASS 4b on why the order and not the cost is the point.
-    if (pre_fluid_) {
-      if (has_geometry_) pf_macro_kernel<P, true, PL><<<G, B>>>(p, N_);
-      else               pf_macro_kernel<P, false, PL><<<G, B>>>(p, N_);
-      LBM_CUDA_CHECK(cudaGetLastError());
-      pre_fluid_();
-    }
+    // The hook still runs in the window it always did -- after u is current and
+    // before the collision. Nothing between the macro pass and the fluid pass
+    // writes u, so moving the macro pass earlier did not move this window.
+    if (pre_fluid_) pre_fluid_();
     if (has_geometry_) pf_fluid_kernel<P, true, PL><<<G, B>>>(p, N_);
     else               pf_fluid_kernel<P, false, PL><<<G, B>>>(p, N_);
     if (has_geometry_) pf_phase_kernel<P, true, PL><<<G, B>>>(p, N_);
