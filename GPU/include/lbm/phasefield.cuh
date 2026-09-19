@@ -873,6 +873,45 @@ LBM_HD LBM_INLINE void pf_phase_node(const PfParamsT<PL>& p, long N, long n) {
 
 #if defined(__CUDACC__)
 
+//------------------------------------------------------------------------------
+// PHI, SUMMED OVER EVERY SLOT -- the conserved quantity, and until 2026-09-19 it
+// existed only in the host build.
+//
+// The Allen-Cahn form conserves phi EXACTLY: sum_i S_i = 0 and both streaming and
+// collision are conservative, so any measured drift is round-off and the number
+// exists to separate round-off from a real leak. That check was reachable only
+// under -DLBM_HOST_ONLY, at the sizes a serial loop can afford -- which is to say
+// it could not see the failure it is best placed to catch, a scatter that drops a
+// slot at a block edge on an actual device.
+//
+// Two details carried over from Solver::total_mass, for the same reasons its
+// banner gives: the accumulator is DOUBLE even in an FP32 build, because summing
+// 27 N single-precision values naively loses the low half of the mantissa and the
+// drift being looked for is smaller than that; and the partials come back to the
+// host to be summed rather than through a double atomicAdd, which keeps the order
+// of accumulation deterministic run to run and imposes no compute-capability
+// floor.
+//
+// It is NOT the same number as summing the phi FIELD over the bulk, and the gap
+// is not a leak: under an in-place scheme a population in flight toward a wall
+// spends a step in a slot the wall owns.
+//------------------------------------------------------------------------------
+__global__ void pf_reduce_phase(const Real* __restrict__ h, long M,
+                                double* __restrict__ partial) {
+  extern __shared__ double sm[];
+  const long stride = long(blockDim.x) * gridDim.x;
+  double acc = 0;
+  for (long i = long(blockIdx.x) * blockDim.x + threadIdx.x; i < M; i += stride)
+    acc += double(h[i]);
+  sm[threadIdx.x] = acc;
+  __syncthreads();
+  for (unsigned s = blockDim.x / 2; s > 0; s >>= 1) {
+    if (threadIdx.x < s) sm[threadIdx.x] += sm[threadIdx.x + s];
+    __syncthreads();
+  }
+  if (threadIdx.x == 0) partial[blockIdx.x] = sm[0];
+}
+
 template <int Parity, bool HasGeometry, class PL>
 __global__ void pf_macro_kernel(PfParamsT<PL> p, long N) {
   const long n = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1028,8 +1067,35 @@ class PhaseFieldSolver {
   void set_mobility(Real m) { phase.omega = PhaseModel::omega_from_mobility<PL>(m); }
   Real mobility() const { return phase.template mobility<PL>(); }
 
+  // WHICH FLUID CELL TYPES THIS PATH HONOURS, AND WHY IT REFUSES THE OTHERS.
+  //
+  // pf_fluid_node tests `fl != Fluid` and returns, which under Esoteric Pull is
+  // bounce-back. That is correct for Solid and Excluded and WRONG for RegWall and
+  // SpecNode: both of those are real fluid nodes that collide and are forced, and
+  // this tree's own single-phase solver honours them. The phase-field path does
+  // not implement either, so before 2026-09-19 passing one silently produced a
+  // no-slip wall where a moving lid or a free-slip plane was asked for -- a
+  // converged, plausible, wrong answer of exactly the kind this tree writes
+  // banners about.
+  //
+  // Refusing at the setter is the same defence set_phase_op uses: the program
+  // stops at setup with a message naming the fix, rather than running a case
+  // that quietly ignored the request.
   void set_geometry(const std::vector<std::uint8_t>& pflags,
                     const std::vector<std::uint8_t>& fflags) {
+    for (std::size_t i = 0; i < fflags.size(); ++i) {
+      const std::uint8_t f = fflags[i];
+      if (f == RegWall || f == SpecNode) {
+        std::fprintf(stderr,
+                     "PhaseFieldSolver::set_geometry: fluid flag %u (%s) at node "
+                     "%zu is not implemented on the phase-field path, which "
+                     "honours Fluid, Solid and Excluded only. It would be "
+                     "silently bounce-backed. Use the single-phase Solver for "
+                     "that wall, or Solid here.\n",
+                     unsigned(f), f == RegWall ? "RegWall" : "SpecNode", i);
+        std::exit(1);
+      }
+    }
     LBM_CUDA_CHECK(cudaMemcpy(pflags_, pflags.data(),
                               sizeof(std::uint8_t) * std::size_t(N_),
                               cudaMemcpyHostToDevice));
@@ -1069,6 +1135,27 @@ class PhaseFieldSolver {
     out.resize(std::size_t(N_));
     LBM_CUDA_CHECK(cudaMemcpy(out.data(), src, sizeof(Real) * std::size_t(N_),
                               cudaMemcpyDeviceToHost));
+  }
+
+  // See pf_reduce_phase. Costs one full pass over the phase populations, so it
+  // belongs either side of a timed loop, never inside one.
+  double total_phase() {
+#if defined(__CUDACC__)
+    const int B = 256, G = 1024;
+    double* d = nullptr;
+    LBM_CUDA_CHECK(cudaMalloc(&d, sizeof(double) * G));
+    pf_reduce_phase<<<G, B, sizeof(double) * B>>>(h_, long(PL::Q) * N_, d);
+    LBM_CUDA_CHECK(cudaGetLastError());
+    std::vector<double> hv(std::size_t(G));
+    LBM_CUDA_CHECK(cudaMemcpy(hv.data(), d, sizeof(double) * G,
+                              cudaMemcpyDeviceToHost));
+    cudaFree(d);
+    double acc = 0;
+    for (double v : hv) acc += v;
+    return acc;
+#else
+    return 0.0;
+#endif
   }
 
   const Real* phi_device() const { return field_[0]; }

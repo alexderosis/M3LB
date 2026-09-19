@@ -783,8 +783,21 @@ class PhaseField {
   void set_mobility(Real m) { phase.omega = PhaseModel::omega_from_mobility<PL>(m); }
   Real mobility() const { return phase.template mobility<PL>(); }
 
+  // Same refusal as the device class, and for the same reason: pf_fluid_node
+  // honours Fluid, Solid and Excluded, and would silently bounce-back a RegWall
+  // or a SpecNode rather than collide and force it. See phasefield.cuh.
   void set_geometry(const std::vector<std::uint8_t>& pf,
                     const std::vector<std::uint8_t>& ff) {
+    for (std::size_t i = 0; i < ff.size(); ++i) {
+      if (ff[i] == RegWall || ff[i] == SpecNode) {
+        std::fprintf(stderr,
+                     "host::PhaseField::set_geometry: fluid flag %u (%s) at node "
+                     "%zu is not implemented on the phase-field path, which "
+                     "honours Fluid, Solid and Excluded only.\n",
+                     unsigned(ff[i]), ff[i] == RegWall ? "RegWall" : "SpecNode", i);
+        std::exit(1);
+      }
+    }
     pflags_ = pf;  fflags_ = ff;  has_geometry_ = true;
   }
 

@@ -89,6 +89,19 @@ struct MultiphaseBGK {
   // in space is the same kind of thing. Not exercised by validation/laplace,
   // which is deliberately at a matched viscosity.
   //----------------------------------------------------------------------------
+  // UNEXERCISED, AND SAYING SO IS THE POINT. `rate()` below reads this if it is
+  // bound, and NOTHING IN THE TREE EVER BINDS IT -- a repo-wide grep for omega_n
+  // returns its declaration and that one read. So it is an extension point that
+  // has never executed a non-default path, not a tested capability, and a caller
+  // reaching for it is the first.
+  //
+  // It is also not the way to get a viscosity contrast any more. This operator is
+  // MATCHED DENSITY (see SCOPE below); the two pressure-form operators carry
+  // mu_L/mu_H and interpolate the rate per node from phi as a matter of course,
+  // which is both tested and the right physics at a ratio. Kept because a
+  // spatially varying rate is a coherent thing to want on the matched-density
+  // path, and because deleting a documented hook is a larger decision than
+  // labelling it.
   View1D<Real> omega_n;
 
   Forcing forcing{};
