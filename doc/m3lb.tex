@@ -9428,6 +9428,60 @@ executable & role \\
 \noindent The four in the lower block are analysis runs, not regression tests:
 they take minutes and are excluded from \code{ctest}.
 
+\subsection{One overlap between the two code bases is enforced, not checked by
+hand}
+\label{sec:crosscolour}
+
+\S\ref{sec:cuda} states that \code{src/} and \code{GPU/} agree where they
+overlap and that a disagreement is a bug in one of them. Until
+\code{tests/cross\_colour} nothing enforced it: the rule was checked by running
+a case on each and comparing printed diagnostics, which is slow, noisy, and
+exercises only whatever states that case happens to visit.
+
+The test drives \emph{both} colour-gradient operators directly --- no simulation,
+milliseconds --- over 320 identical randomised states at
+$\gamma=1,10,100,1000$ under both rest-term readings, and diffs all 27
+populations. It reaches the branches a droplet never visits:
+$|\nabla\phi|=0$, $A=0$, $\rho_{\rm ref}$ set and unset, $\omega_{\rm bulk}$
+away from $\omega$, a body force, and an input deliberately off equilibrium. The
+worst difference is \textbf{0 exactly, at both precisions} --- sharper than it
+sounds, since two independently written implementations also \emph{round}
+identically.
+
+Four things about it are deliberate. Both trees put their lattice and their
+operator in \code{namespace lbm}, so one translation unit including both headers
+collides on \code{D3Q27} and half a dozen other names; the two objects are
+therefore joined by \code{extern "C"}. It lives in the \emph{parent} and reaches
+into \code{GPU/include} rather than the reverse, because the parent already links
+Kokkos --- which \code{ColourGradient.hpp} needs for its node-field Views --- and
+\code{GPU/} deliberately does not: making \code{GPU/}'s CMake acquire Kokkos so
+that it could be cross-checked would spend exactly the independence that makes
+the comparison mean anything. The two precision defaults are \emph{opposite}
+(\code{GPU/}'s \code{Real} is \code{float} unless \code{LBM\_DOUBLE} is
+defined, the parent's is \code{double} unless \code{LBM\_SINGLE\_PRECISION}
+is), and mismatching them still compiles and reports a disagreement of about
+$10^{-7}$ --- FP32 epsilon, indistinguishable at a glance from a physics bug, and
+it cost a real detour while this was being written; the CMake sets
+\code{LBM\_DOUBLE} on the \code{GPU} object exactly when the parent is FP64.
+And the velocity orderings are \emph{checked rather than assumed}: both are
+D3Q27 and both number their velocities identically today, but the harness matches
+slot to slot by integer velocity first and reports what it found, because
+comparing two differently ordered sets would produce a large, structured and
+entirely spurious disagreement --- the kind that reads as physics.
+
+\textbf{It has been shown to fail.} A test that passes and has never been
+demonstrated to fail is a test of nothing, and this document records that lesson
+elsewhere under \code{GPU/}'s gather/scatter bug. Perturbing one coefficient in
+one of \code{cg\_source\_high}'s seventeen machine-generated slots by $10^{-7}$
+\emph{relative} --- $1/3$ written as $1/3.0000001$, far smaller than any
+transcription error a human makes --- turns seven of the nine checks red at a
+worst population difference of $4.1\times10^{-11}$. The tolerance therefore sits
+about four orders below the smallest plausible real defect.
+
+The target is skipped, with a message, when \code{GPU/} is absent; that this is
+one repository today is an assumption confined to that one \code{CMakeLists}.
+The pattern generalises to any other operator the two trees share.
+
 %==============================================================================
 \section{Reproducing Neffaa, Bos \& Schneider (2008)}
 \label{sec:neffaa}
