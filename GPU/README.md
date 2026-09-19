@@ -925,13 +925,25 @@ making again.
 **A RATIO OF 1000 ALSO RUNS, IN BOTH VISCOSITY MATCHINGS** (same card, same
 settings, 2026-09-19):
 
-| gamma | viscosity | omega_L / omega_H | sigma measured | error | spurious current |
-|---|---|---|---|---|---|
-| 1000 | mu matched | 1.538 / **1.999** | 9.682074e-04 | −3.18% | 5.805e-06 |
-| 1000 | nu matched | 1.538 / 1.538 | 9.626478e-04 | −3.74% | **7.820e-08** |
+| gamma | viscosity | omega_L / omega_H | precision | sigma measured | error | spurious current |
+|---|---|---|---|---|---|---|
+| 1000 | mu matched | 1.538 / **1.999** | FP32 | 9.682074e-04 | −3.18% | 5.805e-06 |
+| 1000 | mu matched | 1.538 / **1.999** | FP64 | 9.681589e-04 | −3.18% | 5.775e-06 |
+| 1000 | nu matched | 1.538 / 1.538 | FP32 | 9.626478e-04 | −3.74% | **7.820e-08** |
+| 1000 | nu matched | 1.538 / 1.538 | FP64 | 9.625810e-04 | −3.74% | **7.986e-08** |
 
-The first of those is the sharper statement. Matched DYNAMIC viscosity at a ratio
-of 1000 puts the heavy phase at **omega = 1.999**, and it holds — R_eff 16.203,
+**THE FP64 ROWS ARE THERE BECAUSE FP32 ALONE COULD NOT SETTLE IT.** omega = 1.999
+is exactly where single precision would be expected to fail first, so a stable
+FP32 run is not by itself evidence that the scheme is stable — it could be
+evidence that the instability is below the round-off floor. Rebuilt with
+`-DLBM_DOUBLE=ON` (14 min of nvcc, and the runs about 4x slower), the two
+precisions agree to **0.005 %** on sigma and 0.5 % on the spurious current for the
+dynamic-matched case, and to 0.007 % and 2 % for the kinematic-matched one. So the
+stability at omega = 1.999 is the scheme's, not the arithmetic's.
+
+The dynamic-matched pair is the sharper statement. Matched DYNAMIC viscosity at a
+ratio of 1000 puts the heavy phase at **omega = 1.999**, and it holds in both
+precisions — R_eff 16.203,
 phi in [0, 1] throughout, no sign of the one-cell mode. So the stability ceiling
 that BGK hit at omega = 1.994 is not a property of the scheme; it was the
 collision, and the central-moment form does not have it. `bubble.cu` still prints
