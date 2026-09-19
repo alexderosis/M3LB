@@ -117,11 +117,32 @@
 #include "solver/ViscousInterfaceForce.hpp"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <string>
+#include <vector>
 
 using namespace lbm;
+
+// FieldDump's format, which demonstrator/render_rt reads: int32 nx, int32 ny,
+// then nx*ny float32 row major. Identical to water_entry.cpp's, deliberately --
+// the two cases share a renderer, so the frames have to be interchangeable.
+template <class Get>
+static void dump_field(const std::string& path, Index nx, Index ny, Get get) {
+  std::vector<float> v(std::size_t(nx) * std::size_t(ny));
+  for (Index y = 0; y < ny; ++y)
+    for (Index x = 0; x < nx; ++x)
+      v[std::size_t(y) * std::size_t(nx) + std::size_t(x)] = float(get(x, y));
+  std::ofstream o(path, std::ios::binary);
+  if (!o) { std::printf("  cannot write %s\n", path.c_str()); return; }
+  const std::int32_t a = int(nx), b = int(ny);
+  o.write(reinterpret_cast<const char*>(&a), sizeof a);
+  o.write(reinterpret_cast<const char*>(&b), sizeof b);
+  o.write(reinterpret_cast<const char*>(v.data()),
+          std::streamsize(v.size() * sizeof(float)));
+}
 
 using FL = D3Q27;
 using PL = D3Q7;
@@ -137,6 +158,7 @@ struct Params {
   double body_rho = 0.9, drop = 1.5, tmax = 6.0, theta = 20.0;
   int nframes = 12;
   bool unconstrained = false;    // -free: skip the planar constraint entirely
+  std::string dump;              // -dump <dir>: frames for demonstrator/render_rt
 };
 
 // Box tracks its pose as a quaternion and deliberately does not track theta.
@@ -166,6 +188,7 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(argv[i], "-theta")) num(P.theta);
       else if (!std::strcmp(argv[i], "-nframes")) { if (i+1<argc) P.nframes = std::atoi(argv[++i]); }
       else if (!std::strcmp(argv[i], "-free"))  { P.unconstrained = true; }
+      else if (!std::strcmp(argv[i], "-dump"))  { if (i+1<argc) P.dump = argv[++i]; }
     }
 
     const Index L = P.W;
@@ -284,6 +307,7 @@ int main(int argc, char** argv) {
     };
 
     double worst_outplane = 0.0, worst_inplane = 0.0;
+    int frame = 0;
     for (std::size_t step = 0; step <= nsteps; ++step) {
       pf.refresh();
       fl.compute_macroscopic();
@@ -312,6 +336,25 @@ int main(int argc, char** argv) {
                     (double(body.shape.cy) - y_water) / double(L),
                     double(body.vy) / U, tilt_deg(body.shape.q),
                     double(R.fy), double(R.tz), oop, umx);
+        if (!P.dump.empty()) {
+          char nm[512];
+          auto at = [&](const char* f) {
+            std::snprintf(nm, sizeof nm, "%s/rt_%04d_%s.bin",
+                          P.dump.c_str(), frame, f);
+            return std::string(nm);
+          };
+          dump_field(at("phi"), nx, ny, [&](Index x, Index y) { return hp(d.id(x, y, 0)); });
+          dump_field(at("ux"),  nx, ny, [&](Index x, Index y) { return hu(d.id(x, y, 0)); });
+          dump_field(at("uy"),  nx, ny, [&](Index x, Index y) { return hv(d.id(x, y, 0)); });
+          // The body mask, so the renderer can composite the square. A Box is
+          // a genuine 3-D shape, so chi takes three coordinates; z = 0 is the
+          // one plane this domain has.
+          const Box bs = body.shape;
+          dump_field(at("body"), nx, ny, [&](Index x, Index y) {
+            return bs.chi(Real(x), Real(y), Real(0));
+          });
+        }
+        ++frame;
         if (bad) { std::printf("  DIVERGED\n"); status = 1; break; }
       }
       if (step == nsteps) break;
@@ -349,6 +392,9 @@ int main(int argc, char** argv) {
                 worst_inplane > 0 ? worst_outplane / worst_inplane : 0.0);
     std::printf("  A planar problem should give a ratio far below 1. If it does\n"
                 "  not, this setup is not describing one -- use D2Q9 with Rect.\n");
+    std::printf("\n%d frame(s)%s\n", frame,
+                P.dump.empty() ? " (pass -dump <dir> to write fields for render_rt)"
+                               : " written; render with demonstrator/render_rt");
   }
   Kokkos::finalize();
   return status;
