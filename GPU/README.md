@@ -876,34 +876,51 @@ Clean build first try. `host_phasefield` passes on the card's machine. Laplace's
 law at 64³ with R = 16 and W = 4, FP32, run to 40000 steps and converged (the
 last two report rows agree to the digit):
 
-| gamma | viscosity | sigma measured | error | spurious current |
-|---|---|---|---|---|
-| 1 | mu matched | 9.382817e-04 | −6.17% | 1.235e-05 |
-| 10 | mu matched | 9.573443e-04 | −4.27% | 1.162e-05 |
-| 100 | mu matched | — | **diverged** | — |
-| 10 | nu matched | 9.569894e-04 | −4.30% | 2.249e-06 |
-| 100 | nu matched | 9.625386e-04 | −3.75% | 5.685e-07 |
+| gamma | viscosity | sigma measured | error | spurious current | BGK, for the diff |
+|---|---|---|---|---|---|
+| 1 | mu matched | 9.382706e-04 | −6.17% | 1.237e-05 | 9.382817e-04, −6.17%, 1.235e-05 |
+| 10 | mu matched | 9.569386e-04 | −4.31% | 1.161e-05 | 9.573443e-04, −4.27%, 1.162e-05 |
+| 100 | mu matched | 9.631894e-04 | −3.68% | 1.194e-05 | —, **diverged**, — |
+| 10 | nu matched | 9.567379e-04 | −4.33% | 2.198e-06 | 9.569894e-04, −4.30%, 2.249e-06 |
+| 100 | nu matched | 9.622562e-04 | −3.77% | 5.732e-07 | 9.625386e-04, −3.75%, 5.685e-07 |
 
-**THESE ROWS WERE MEASURED ON THE BGK FLUID AND HAVE NOT BEEN RE-RUN.** `bubble.cu`
-names no fluid operator, so it takes the library default in `phasefield.cuh`, and
-that default changed from `MultiOp::BGK` to `MultiOp::CentralMoments` on
-2026-09-18. It is the only driver in `GPU/` that both inherits the default and
-solves a flow, so it is the only table here the change touches. The direction is
-known and it is an improvement, but only from the host reference: at 48³, R = 16,
-W = 4, gamma = 1, 2000 steps, FP64, the Laplace error went from −19.62 % to
-−9.40 % and the spurious current from 1.361e-05 to 1.281e-05. That is a different
-grid, precision and step count from the table above and is NOT a substitute for
-re-running it — the table wants a T4, 64³, FP32, 40000 steps. Until somebody does
-that, read these five rows as the BGK fluid's numbers.
+Re-measured 2026-09-19 on a Tesla T4 (CUDA 13.0, compute capability 7.5) after
+`bubble.cu`'s inherited fluid operator moved from `MultiOp::BGK` to
+`MultiOp::CentralMoments` — it names no operator, so it takes the library default
+in `phasefield.cuh`, and it is the only driver in `GPU/` that both inherits that
+default and solves a flow. The BGK column is the previous measurement, same card,
+same settings.
 
-**The divergence at a ratio of 100 was the viscosity choice, not the model.**
-Matching the DYNAMIC viscosity across a ratio of 100 leaves the heavy phase with
-a hundred-fold smaller kinematic viscosity, and
-`omega = 1/(mu/(rho cs^2) + 1/2)` is then 1.994 — against a stability limit of 2.
-Matching the KINEMATIC viscosity instead (`-muh 5.0`) runs the same case to
-−3.75% with a spurious current twenty times smaller. Worth stating as a
-parameter trap rather than a capability: nothing in the model objects to a ratio
-of 100, and `omega` is what to check first when one of these diverges.
+**THE FOUR ROWS THAT ALREADY CONVERGED DID NOT MOVE, and a host measurement said
+they would.** Every converged row agrees with BGK in the fourth digit — at worst
+0.04 percentage points, which is nothing next to the 3.7–6.2 % the scheme is
+already off Laplace's law by. That is not what the host reference predicted: at
+48³, gamma = 1, FP64, **2000** steps it showed −19.62 % against −9.40 % and read
+as a clear improvement. The difference is the step count. 2000 steps is not
+converged, and what that comparison measured was the two operators arriving at the
+same answer at different rates, not arriving at different answers. A converged
+static droplet is a force balance, and the collision operator has almost no say in
+where it balances. **An unconverged difference is not a result, and this one
+survived being quoted twice before a converged run contradicted it.**
+
+**WHAT DID CHANGE IS THE ROW THAT USED TO DIVERGE.** gamma = 100 with matched
+DYNAMIC viscosity now completes, at −3.68 % with a spurious current of 1.194e-05.
+That is the only row the operator decides, and it decides it completely.
+
+**So the divergence at a ratio of 100 was the viscosity choice AND the collision,
+and this README used to say only the first.** Matching the DYNAMIC viscosity
+across a ratio of 100 leaves the heavy phase with a hundred-fold smaller kinematic
+viscosity, and `omega = 1/(mu/(rho cs^2) + 1/2)` is then 1.994 — against a
+stability limit of 2. BGK relaxes EVERY mode at that rate, ghosts included, and
+that is what blew up; central moments send the non-hydrodynamic modes to
+equilibrium at 1 and leave omega to the shear alone, so the same 1.994 is
+survivable. Matching the KINEMATIC viscosity instead (`-muh 5.0`, or `-nu 0.05`)
+still runs to −3.77 % with a spurious current **twenty times smaller**, so it
+remains the better setup — the parameter trap is real and `omega` is still what to
+check first. What is no longer true is that the model had nothing to do with it.
+
+`colab_laplace_t4.ipynb` at the repository root is this measurement, if it needs
+making again.
 
 **Throughput is 354.6 MLUPS at 64³ in FP32** — faster than the colour gradient's
 252.5, and 37% of the single-phase core's 950, for six passes and two
