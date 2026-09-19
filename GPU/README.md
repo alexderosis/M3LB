@@ -922,6 +922,33 @@ check first. What is no longer true is that the model had nothing to do with it.
 `colab_laplace_t4.ipynb` at the repository root is this measurement, if it needs
 making again.
 
+**A RATIO OF 1000 ALSO RUNS, IN BOTH VISCOSITY MATCHINGS** (same card, same
+settings, 2026-09-19):
+
+| gamma | viscosity | omega_L / omega_H | sigma measured | error | spurious current |
+|---|---|---|---|---|---|
+| 1000 | mu matched | 1.538 / **1.999** | 9.682074e-04 | −3.18% | 5.805e-06 |
+| 1000 | nu matched | 1.538 / 1.538 | 9.626478e-04 | −3.74% | **7.820e-08** |
+
+The first of those is the sharper statement. Matched DYNAMIC viscosity at a ratio
+of 1000 puts the heavy phase at **omega = 1.999**, and it holds — R_eff 16.203,
+phi in [0, 1] throughout, no sign of the one-cell mode. So the stability ceiling
+that BGK hit at omega = 1.994 is not a property of the scheme; it was the
+collision, and the central-moment form does not have it. `bubble.cu` still prints
+`<-- OVER 1.9, EXPECT DIVERGENCE` on that line, which is now a BGK-era warning and
+is worded as such.
+
+The second is the better SETUP, and by a wider margin than at any lower ratio.
+Under matched kinematic viscosity the spurious current falls monotonically as the
+ratio climbs — 2.198e-06 at 10, 5.732e-07 at 100, **7.820e-08** at 1000 — which is
+74x smaller than the dynamic-matched run at the same ratio and 28x smaller than
+the gamma = 1 case. The Laplace error is flat over the same span (−4.33, −3.77,
+−3.74 %), so this is the parasitic flow going away, not the interface being
+resolved differently. Note that dynamic matching is slightly MORE accurate on
+Laplace's law here (−3.18 % against −3.74 %) while being 74x worse on the
+spurious current; if the answer is an interface position rather than a pressure
+jump, that trade goes the other way.
+
 **Throughput is 354.6 MLUPS at 64³ in FP32** — faster than the colour gradient's
 252.5, and 37% of the single-phase core's 950, for six passes and two
 distributions. `-DLBM_PTXAS_VERBOSE=ON` reports **0 bytes stack frame and no

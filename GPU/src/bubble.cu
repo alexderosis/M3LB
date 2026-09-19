@@ -142,7 +142,8 @@ int main(int argc, char** argv) {
               viscous ? "" : "   (F_nu off)");
   std::printf("mu = %.4f / %.4f   nu = %.4f / %.4f   omega = %.3f / %.3f%s\n",
               mu_L, mu_H, mu_L / 1.0, mu_H / gamma, omL, omH,
-              (omL > 1.9 || omH > 1.9) ? "   <-- OVER 1.9, EXPECT DIVERGENCE" : "");
+              (omL > 1.9 || omH > 1.9)
+                  ? "   <-- OVER 1.9 (BGK diverged here; CM held to 1.999)" : "");
   std::printf("sigma asked = %.6e   (beta = %.4e, kappa = %.4e)   "
               "p~ gauge = %.3f   %d steps\n\n",
               sigma, double(pf.fluid.beta), double(pf.fluid.kappa), gauge, steps);
