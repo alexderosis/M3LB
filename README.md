@@ -139,6 +139,7 @@ enstrophy decay. Roughly 25-40 minutes, nearly all of it compiling.
 | `tests/`           | unit tests |
 | `validation/`      | Poiseuille (walls); Taylor-Green, ABC/Beltrami, shear wave (bulk); Galilean invariance |
 | `MATLAB/`          | symbolic central-moment generators + `esopull_ordering.m` |
+| `tools/`           | `osm_city.py`: OpenStreetMap footprints -> the height field `demonstrator/urban` runs on. Stdlib only, no venv |
 
 ## Design rules
 

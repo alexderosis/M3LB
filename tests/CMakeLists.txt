@@ -40,3 +40,35 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/GPU/include/lbm/colour.cuh)
 else()
   message(STATUS "LBM: GPU/ not present, skipping the colour-gradient cross-check")
 endif()
+
+#------------------------------------------------------------------------------
+#  THE OSM IMPORTER'S OWN CHECKS, and the seam between it and the solver.
+#
+#  `tools/osm_city.py` is stdlib-only by design, so ctest needs an interpreter
+#  and nothing else -- no venv, no pip, no network. Two tests, because they
+#  check different things and only one of them can fail for an interesting
+#  reason (the second lives next door, for the reason given against it):
+#
+#    osm_city           the importer against itself: projection against
+#                       hard-coded pyproj values, polygon fill against areas
+#                       known in closed form, the height ladder, .npy round
+#                       trip, and both OSM response shapes.
+#    osm_city_fixture   the importer against THE SOLVER -- registered in
+#                       validation/CMakeLists.txt, because `height_field` is
+#                       defined there and this directory is configured FIRST,
+#                       so an `if(TARGET height_field)` here is simply false
+#                       and the test would register nowhere, in silence.
+#
+#  What is NOT here is the Manchester cross-check against the Pollutant
+#  project's osmnx raster (160,000 of 160,000 cells identical). It needs a
+#  4 MB frozen Overpass snapshot that lives outside this repository, so it is a
+#  recorded measurement in doc/m3lb.tex with the command to repeat it, not a
+#  test. Run it when the rasteriser changes.
+#------------------------------------------------------------------------------
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME osm_city COMMAND ${Python3_EXECUTABLE}
+           ${CMAKE_SOURCE_DIR}/tools/osm_city.py --selftest)
+else()
+  message(STATUS "LBM: no python3, skipping the OSM importer checks")
+endif()

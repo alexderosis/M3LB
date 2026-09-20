@@ -7480,6 +7480,126 @@ Manchester city centre, $400\times400\times60$ at $5$~m, $171\,375$ solid cells
 of $9.6$~million ($1.79\%$), tallest column $200.5$~m --- matching cell for
 cell.
 
+\subsection{Where the height field comes from: importing a city}
+\label{sec:osmimport}
+
+The reader above takes a height field as given. Producing one from
+OpenStreetMap was, until \code{tools/osm\_city.py}, something this tree could
+not do: the geometry for the runs below was built by a separate project whose
+script needs osmnx, geopandas, shapely, pyproj, pandas and numpy, none of which
+are installed on the machine M3LB is developed on. A city could be simulated
+here but not imported here, which made the first step of a new case an errand
+in another repository.
+
+The importer is stdlib only --- \code{urllib}, \code{json}, \code{math},
+\code{array} --- and that is a judgement about what the job actually is rather
+than an aesthetic preference. Stripped of the libraries, it is an HTTP GET
+against Nominatim and Overpass, a map projection, and a polygon fill, and each
+of those is under a hundred lines. \code{HeightField.hpp} already hand-rolls a
+\code{.npy} reader on the same reasoning and says so in its banner.
+
+\paragraph{The height ladder is the modelling.} A footprint's height is taken
+from its \code{height} tag, failing that from \code{building:levels} times
+$3.2$~m, failing that from a fallback --- either one flat number or, with
+\code{-{}-fallback type}, the median storey count of the buildings in the same
+query that \emph{do} carry \code{building:levels}, taken per building type.
+Most of a city rests on the lower rungs: Manchester carries a \code{height} tag
+on $5.7\%$ of its buildings and reaches one through \code{building:levels} on a
+further $33.6\%$, leaving $60.8\%$ on the fallback. Midtown Manhattan carries
+one on $95\%$, the city having imported LiDAR-derived heights --- that figure
+is the reference implementation's, over $46\,327$ buildings, and not a
+measurement taken here. Which rung produced each cell is written to a
+companion \code{\_source.npy} and counted in the metadata, so the fraction of a
+domain resting on a guess is visible rather than assumed.
+
+Which fallback is used changes the heights and nothing else, which is worth
+stating as a measurement rather than as an intention: switching Manchester from
+the flat $10$~m to the type-calibrated ladder moves $14.67\%$ of cells by a
+mean of $0.37$~m and a worst of $15.6$~m, raises the median built column from
+$10.0$ to $12.8$~m --- houses calibrate to two storeys, apartments to three,
+\code{building:part} sections to five --- and leaves the built set bit
+identical, $47\,787$ cells with not one cell gained or lost. The flat default
+is the worse model and is nonetheless the default here, because it is what the
+existing rasters were built with and a cross-check whose two sides differ in
+the model checks nothing.
+
+Both \code{building}
+and \code{building:part} must be queried: the Simple 3D Buildings schema puts a
+tall structure's real geometry on \code{building:part} children while the
+parent outline carries no height at all, and the reference implementation measured that querying the
+parent alone leaves $20.6\%$ of Midtown's footprints by count but $54.8\%$ of
+its built \emph{area} on the fallback. In Manchester, \code{building:part}
+supplies $621$ of the $6\,174$ footprints.
+
+\paragraph{It is checked against the implementation it replaces, on frozen
+input.} Two rasterisers sharing no code, compared cell by cell, is the argument
+\S\ref{sec:crosscolour} makes for the colour gradient, and the same is
+available here because the osmnx script's Overpass response for Manchester is
+still on disk. Reading that snapshot rather than re-querying is what makes the
+comparison mean something: it is two rasterisers on identical input, not two
+downloads taken seven weeks apart. The importer therefore parses both Overpass
+response shapes --- geometry inline, and the node-reference form the cached
+snapshot is written in.
+
+\begin{center}
+\begin{tabular}{lrl}
+\toprule
+compared against \code{mcr\_heights.npy} & identical cells & what the difference is \\
+\midrule
+same frozen 2026-07-30 snapshot & $160\,000/160\,000$ & nothing \\
+live query today, same centre   & $159\,851/160\,000$ & seven weeks of OSM edits \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The first row is exact: every one of $160\,000$ cells, including all
+$47\,787$ carrying a building, agrees to the bit. The second row is the same
+importer against a live query at the same centre, and its $149$ differing cells
+are two-sided --- $71$ gained, $8$ lost, the rest changed height --- which is
+what genuine editing looks like and what a rasteriser bug does not.
+
+\paragraph{Two defects, and only the diff could have found either.} The first
+was a transpose. The raster was written at index $j\,n_x+i$ where
+\code{HeightField.hpp} stores $i\,n_y+j$, which rotates the city ninety
+degrees and changes no cell count, no built fraction and no mass budget. The
+second was subtler and cost $39$ whole buildings, $1.4\%$ of the domain: in the
+node-reference form a relation's members are bare \code{\{type, ref, role\}}
+with no geometry, so resolving them in place yields nothing and every
+multipolygon vanishes --- and because a multipolygon's member ways are
+\emph{untagged}, the tags living on the relation, the ordinary way loop does
+not pick them up either. Both were silent. The first showed as $98.36\%$
+agreement with every difference one-sided, which is the signature of missing
+footprints rather than a boundary rule; the second was localised by asking
+which raw OSM feature covered the largest missing blobs, and the answer came
+back as untagged ways, one of them carrying the note
+\emph{``tags on relation now''}.
+
+Neither is reachable by a test the importer could run against itself, and the
+Manchester comparison needs a $4$~MB snapshot outside this repository, so what
+\code{ctest} carries instead is the cheapest guard against the class: the
+importer writes a deliberately non-square fixture city and \code{height\_field}
+reads it back and checks the writer's own recorded answers. Transposing that
+fixture by hand fails exactly one check, while the built fraction, the tallest
+column and the solid count --- $27$ cells either way --- all still pass, which
+is the demonstration that every total is blind to it.
+
+\paragraph{A place name is not a coordinate.} Geocoding
+\emph{``Manchester city centre, UK''} today returns a point $1\,459$~m from
+the one the same string returned in July, because Nominatim matches
+\emph{City Centre} inside a postal address and both hits are offices rather
+than districts. On a $2$~km domain that is $73\%$ of a side. So
+\code{-{}-lat/-{}-lon} exists, the resolved coordinate is written into the
+metadata, and the provenance of a raster is that coordinate and the cached
+response --- never the place string that produced them.
+
+\paragraph{What it does not do.} There is no terrain: the ground is flat at
+$z=0$, which is what the solver assumes. There are no roof shapes and no
+overhangs --- a column is solid from the ground to the tallest footprint
+covering it, and nothing can be solid above empty air. Relations are assembled
+by stitching member ways into rings, which handles a city centre's
+multipolygons but is not a complete OSM multipolygon implementation; leftovers
+that will not close are counted and dropped rather than guessed at.
+
 \subsection{The model, and its principal limitation}
 
 The wind is prescribed: a neutral-stability logarithmic surface layer

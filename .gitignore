@@ -78,3 +78,10 @@ run_csf3_*/
 # Build trees from this session (build_th, build_th32). Same rule as above --
 # the pattern only matched build/ and build-*/.
 build_*/
+
+# Imported city geometry and the OSM responses it was built from. Regenerable
+# by one command (see "Importing a city from OpenStreetMap" in CLAUDE.md), and
+# the cache alone is 4.4 MB for Manchester. What pins a raster is not this
+# directory but the lat/lon and the cached response recorded in its meta.json:
+# the same place STRING geocodes 1.5 km differently seven weeks apart.
+geom/

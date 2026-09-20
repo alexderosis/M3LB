@@ -9,9 +9,12 @@
 //  against something independently known", never "did it crash".
 //
 //  Everything here is self-contained: the test writes its own .npy and
-//  meta.json, so it needs no data files and runs anywhere. If the real urban
-//  data happens to be present it is loaded and reported as well, but its
-//  absence is not a failure.
+//  meta.json, so it needs no data files and runs anywhere. $LBM_CITY adds a
+//  field written by something else -- a real city, or the fixture from
+//  tools/osm_city.py --emit-fixture -- and where that file's metadata carries
+//  the writer's own answers they are checked rather than printed, which is the
+//  only part of this test that can catch the two implementations disagreeing.
+//  Its absence is not a failure.
 //==============================================================================
 #include "core/Types.hpp"
 #include "io/HeightField.hpp"
@@ -132,14 +135,55 @@ int main(int argc, char** argv) {
         "a file that is not a .npy is rejected");
 
   //----------------------------------------------------------------------------
+  //  4. A FIELD THIS PROGRAM DID NOT WRITE.
+  //
+  //  Everything above is a round trip through one implementation: this file
+  //  writes a .npy and reads it back, so a reader and a writer that are wrong
+  //  in the same way agree perfectly. The seam that matters in practice is the
+  //  other one -- `tools/osm_city.py` writes the .npy, this reads it -- and the
+  //  interesting way for THAT to fail is not an exception but a transpose,
+  //  which every total in `report()` is blind to. So when the metadata carries
+  //  the writer's own answers (which `--emit-fixture` puts there, and a real
+  //  city's metadata does not) they are CHECKED rather than printed.
   if (const char* p = std::getenv("LBM_CITY")) {
-    std::printf("\n4. REAL DATA  ($LBM_CITY = %s)\n\n", p);
+    std::printf("\n4. A FIELD WRITTEN ELSEWHERE  ($LBM_CITY = %s)\n\n", p);
     try {
       const HeightField c = load_height_field(std::string(p) + "_heights.npy",
                                               std::string(p) + "_meta.json");
       report(c, "city");
+
+      std::ifstream mf(std::string(p) + "_meta.json");
+      const std::string all((std::istreambuf_iterator<char>(mf)),
+                            std::istreambuf_iterator<char>());
+      auto opt = [&](const char* key, double miss) {
+        const std::string k = std::string("\"") + key + "\"";
+        const std::size_t q = all.find(k);
+        if (q == std::string::npos) return miss;
+        return std::atof(all.c_str() + all.find(':', q + k.size()) + 1);
+      };
+      const double ci = opt("check_i", -1);
+      if (ci >= 0) {
+        const Index i = Index(ci), j = Index(opt("check_j", -1));
+        std::printf("   writer says the first built column is i=%d j=%d at %.1f m\n",
+                    int(i), int(j), opt("check_h", 0));
+        check(std::abs(c.at(i, j) - opt("check_h", 0)) < 1e-6,
+              "that column reads back at that height (a transpose fails here)");
+        // The SAME height at the transposed index would let a square fixture
+        // pass while rotated; the fixture is 24x16 so the index does not exist.
+        check(i >= c.ny || j >= c.nx || std::abs(c.at(j, i) - opt("check_h", 0)) > 1e-6,
+              "and the transposed index does not also read that height");
+        std::size_t built = 0;
+        for (Index a = 0; a < c.nx; ++a)
+          for (Index b = 0; b < c.ny; ++b) built += (c.at(a, b) > 0);
+        check(std::abs(double(built) / double(c.columns()) -
+                       opt("built_fraction", -1)) < 1e-9,
+              "built fraction agrees with the writer's own count");
+        check(std::abs(c.max_height() - opt("check_max_h", -1)) < 1e-6,
+              "tallest column agrees with the writer's own maximum");
+      }
     } catch (const std::exception& e) {
       std::printf("   could not load: %s\n", e.what());
+      ++failures;
     }
   }
 

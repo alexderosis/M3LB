@@ -252,6 +252,80 @@ t_phys = steps * dt
 
 ---
 
+## Importing a city from OpenStreetMap
+
+`tools/osm_city.py` turns OSM building footprints into the
+`<prefix>_heights.npy` + `<prefix>_meta.json` pair `src/io/HeightField.hpp`
+reads, so `demonstrator/urban` can be pointed at any city without leaving this
+tree. It is **stdlib only** — no osmnx, no shapely, no pyproj, no numpy, no
+venv — because the job is an HTTP GET, a map projection and a polygon fill.
+
+```bash
+python3 tools/osm_city.py --place "Manchester city centre, UK" \
+    --domain-m 2000 --dx 5 --top-m 300 --out geom/mcr
+./build/demonstrator/urban -geom geom/mcr -bearing 250 -diff 20 \
+    -minutes 12 --kokkos-num-threads=4
+```
+
+`dz == dx` always: the solver is isotropic and `HeightField.hpp` rejects
+anything else. Responses are cached under `<out>_osm_cache`, so a re-run is
+offline and a figure's raster can be rebuilt from the same bytes months later.
+
+**IT AGREES WITH THE osmnx IMPLEMENTATION ON EVERY CELL, AND THAT IS THE ONLY
+REASON TWO SILENT BUGS WERE FOUND.** Against the Pollutant project's
+`mcr_heights.npy`, reading the *frozen* 2026-07-30 Overpass snapshot that built
+it (`--osmnx-cache`, which is what makes it two rasterisers on identical input
+rather than two downloads seven weeks apart): **160,000 of 160,000 cells
+identical**, all 47,787 built cells included, worst difference 0.0 m. A live
+query at the same centre gives 99.91%, and those 149 cells are two-sided —
+71 gained, 8 lost — i.e. real editing, not a defect. Repeat it with:
+
+```bash
+python3 tools/osm_city.py --lat 53.4729842 --lon -2.2502070 \
+  --domain-m 2000 --dx 5 --top-m 300 --fallback flat \
+  --osmnx-cache ~/Desktop/02_Code_Projects/Pollutant/osm_cache_mcr \
+  --out /tmp/mcr --compare-to ~/Desktop/02_Code_Projects/Pollutant/mcr_heights.npy
+```
+
+- **`--fallback flat` is the DEFAULT and is the worse model**, deliberately.
+  It puts a terraced house and a seven-storey office at the same 10 m, where
+  `--fallback type` calibrates a storey count per building type. Flat is the
+  default because it is what the existing Manchester and Manhattan rasters were
+  built with, and a cross-check whose two sides differ in the model checks
+  nothing. **Use `type` for new work and say which one a figure used.**
+- **THE INDEX ORDER IS `i*ny + j`, EASTING SLOW.** The contiguous-looking
+  `j*nx + i` is the same array transposed: it rotates the city and leaves every
+  cell count, built fraction and mass budget unchanged. This file's importer
+  got it wrong first, and no total saw it — the diff did.
+- **A RELATION'S MEMBERS MUST BE RESOLVED BY `ref`.** In the node-reference
+  form (what osmnx caches, and what `--osmnx-cache` reads) a member is a bare
+  `{type, ref, role}` with no geometry; reading it in place returns nothing and
+  every multipolygon **evaporates**. Worse, a multipolygon's member ways are
+  untagged — the tags live on the relation — so the ordinary way loop does not
+  recover them either. Cost: 39 whole buildings, 1.4% of Manchester. The
+  `out geom;` form carries member geometry inline, so every synthetic test
+  passed.
+- **A PLACE NAME IS NOT A COORDINATE.** "Manchester city centre, UK" geocodes
+  today to a point **1,459 m** from where the same string landed in July —
+  Nominatim matches *City Centre* inside a postal address, and both hits are
+  offices, not districts. On a 2 km domain that is 73% of a side. Use
+  `--lat/--lon` for anything to be repeated; the provenance of a raster is the
+  coordinate in its `meta.json` and its cached response, never the place string.
+- **`ctest` carries `osm_city` (the importer's own checks) and
+  `osm_city_fixture` + `height_field_osm` (the importer against the solver).**
+  The last two live in `validation/CMakeLists.txt`, not `tests/`, because
+  `tests/` is configured FIRST and an `if(TARGET height_field)` there is simply
+  false — the test would register nowhere, in silence. The Manchester
+  comparison is NOT a test: it needs a 4 MB snapshot outside the repository, so
+  it is a recorded measurement. Run it by hand when the rasteriser changes.
+- **The prescribed wind's stability floor bites immediately on a real city.**
+  Manchester at the default `-diff 5` reports a margin of 48x against the 100x
+  threshold and diverges at t = 60 s; `-diff 20` gives 192x and runs. The
+  solver prints the diffusivity that would reach 100x — read it before the run,
+  not after.
+
+---
+
 ## Invariants that break silently
 
 These produce plausible, converged, wrong answers rather than crashes.
@@ -683,6 +757,23 @@ Do not spend time on these without saying so first; several are deliberate.
   this file; it is a coarse-grid trap that ny = 81 escapes. A lateral boundary
   can select the wrong branch of a subcritical bifurcation without failing,
   without diverging, and while converging cleanly.
+- **THE UPWIND BOUNDARY COLUMNS OF `demonstrator/urban` REPORT A VALUE THE
+  INTERIOR CANNOT HAVE GIVEN THEM, AND THE MECHANISM IS NOT DIAGNOSED.**
+  Measured 2026-09-19 on Manchester, 400x400x60 at 5 m, bearing 250 (so the
+  wind blows ENE and `i=0` is UPWIND), `-diff 20`, steady at t = 300 s with
+  dM/dt = 1.2e-10. At street level `i=0` and `i=1` hold 9.3904e-04, **exactly
+  equal to each other**, against a plume peak of 3.4996e-02 -- 2.68 % -- while
+  `i=2`, the first cell inside them, is **exactly 0.0 at every frame** and
+  `i=3..50` are ~1e-37. So the value did not arrive through the interior. It
+  co-evolves with the DOWNWIND face (west/east: 8.63e-06/8.66e-06 at frame 4,
+  9.3903e-04/9.6784e-04 at frame 12, saturating together) but the two peak at
+  DIFFERENT `j`, 265 against 277, so it is not a plain x-wrap -- and the domain
+  is non-periodic in x anyway (`urban.cpp:300`). The run also prints
+  `126 of 205774 outflow node(s) have no bulk neighbour and are inert`. It is
+  0.77 % of the slice total in 2 columns of 400, so it changes no budget, but
+  it lands in every plume figure. Suspect the same class as the two entries
+  above about prescribed nodes and outflow donors; **do not assume it is the
+  same bug without measuring**.
 - **The free surface has no surface tension** (uniform gas pressure, no curvature
   term) and **no gas dynamics** — an enclosed bubble does not compress.
 - **The free surface's moving obstacle is not reliable.** The cause is in
