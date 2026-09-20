@@ -152,6 +152,47 @@ density-matched and force-free, so the fluid populations stay identically zero
 change: each driver names its own `using FColl = ...`, and every one that
 couples a flow already names the central-moment operator.
 
+**Standing rule: "two-dimensional" means a 3-D lattice with `nz = 1`, not D2Q9.**
+Every `Domain` in this tree is three-dimensional — `cavity.cpp:108`,
+`hartmann.cpp:68`, `laplace.cpp:167`, `orszag_tang.cpp:189` all size
+`Domain d(N, N, 1, ...)` — so `nz = 1` is how a plane is spelled whatever the
+lattice, and the only real choice is D3Q27 (+ D3Q7) against D2Q9 (+ D2Q5). New
+work takes the 3-D pair, and a figure says which one it used.
+
+**For the FLUID the reduction is exact rather than approximate.** D3Q27 is the
+product lattice D2Q9 x D1Q3, so at `nz = 1` with z periodic the three
+z-populations wrap onto the node itself and the dynamics ARE D2Q9's. Measured
+2026-08-31 in `validation/tgv2d.cpp` over N = 8..256: the two lattices agree **to
+every printed digit**, all six relative L2 errors and all six
+viscosity-from-decay fits. That makes a 2-D case the cheapest available check
+that the D3Q27 path is correct, and `validation/orszag_tang.cpp:349` runs it as
+exactly that reduction test.
+
+**IT IS NOT EXACT FOR THE SCALAR OR MAGNETIC PARTNER, AND THAT IS THE TRAP.**
+D3Q7 has `cs2 = 1/4` where D2Q5 has `1/3`, and the two discretise the same
+operator with different truncation — a weighted 27-point Laplacian against a
+5-point one — so swapping them MOVES the numbers. `orszag_tang`'s `-maglat`
+exists to hold the magnetic lattice fixed across fluid lattices for precisely
+this reason. Where the two pairs agree anyway the answer belongs to the physics
+and not to the stencil: `ehd_electroconvection` at ny = 81, T = 190 reads 3.7413
+on D3Q27 + D3Q7 against 3.7472 on D2Q9 + D2Q5, **0.16 %** apart with the same
+lateral mode content. So quote the digit-for-digit claim of the fluid only.
+
+**The cost is real and it is memory traffic.** That same case moves 81
+populations per node per step against 23, and D2Q9 measured **3.7x faster**
+(20.5 s -> 5.5 s at ny = 41) — which is what made its refinement ladder
+affordable. Where a sweep rather than the answer is the point, the 2-D pair is
+the right tool; say that it was used.
+
+**Two things forbid the 3-D lattice outright.** `PenalisedBody` `static_assert`s
+`L::D == 2 || Shape::three_d`: `Rect` and `Wedge` have a chi independent of z,
+so on D3Q27 they would model an infinite prism with a one-angle solve, and a 2-D
+rigid-body case therefore stays on D2Q9 (`validation/enan_wedge.cpp:81` argues it
+at the instantiation). And the existing D2Q9/D2Q5 cases are **not** to be
+converted: `results/`, `doc/fig/` and the README tables were measured with them,
+and on the scalar half a conversion would change the answer rather than confirm
+it.
+
 ---
 
 ## From a physical problem to lattice units
