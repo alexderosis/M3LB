@@ -2048,9 +2048,12 @@ class Agent:
 
     def __init__(self, repo: pathlib.Path, binary: str, allow_edits: bool,
                  cap: float, max_turns: int, budget: float, log,
+                 session_budget: float = 0.0,
                  dry_run: bool = False):
         self.repo, self.binary, self.cap = repo, binary, cap
         self.allow_edits, self.max_turns, self.budget = allow_edits, max_turns, budget
+        self.session_budget = session_budget
+        self.warned_budget = False
         self.log, self.dry_run = log, dry_run
         self.session_id: str | None = None
         self.last_used = 0.0
@@ -2121,6 +2124,23 @@ class Agent:
 
     def dispatch(self, prompt: str) -> tuple[bool, str]:
         """Returns (ok, spoken_text).  Branches on is_error, never on subtype."""
+        # THE PER-TURN CAP DOES NOT BOUND A SESSION, AND THE ACCUMULATOR THAT
+        # COULD WAS ONLY EVER PRINTED AT SHUTDOWN.  self.spend was summed on
+        # every reply and read exactly once, in the shutdown record -- so the
+        # only report of the total arrived after there was nothing left to
+        # decide.  --budget caps ONE turn: measured 0.460, 0.377, 0.376, 0.405
+        # against a 0.50 cap, i.e. 75-92% of it, so the per-turn limit is
+        # nearly binding already and lowering it truncates answers rather than
+        # saving money.  What costs real money is the COUNT: ~16,500 tokens of
+        # CLAUDE.md are re-read cold on every one-shot dispatch, so an
+        # afternoon of questions is tens of dollars with nothing in the way.
+        # The check is BEFORE the spawn because after it the money is spent.
+        if self.session_budget > 0 and self.spend >= self.session_budget:
+            self.log("session_budget_exhausted", spend_usd=round(self.spend, 4),
+                     session_budget=self.session_budget, prompt=prompt)
+            return False, (f"I have spent {self.spend:.2f} dollars this session, "
+                           f"which is the limit. Restart me, or raise it with "
+                           f"session budget.")
         argv = self.argv(prompt)
         if self.dry_run:
             print("[dry-run] would run:", flush=True)
@@ -2164,6 +2184,13 @@ class Agent:
             self.spend += float(cost)
         except (TypeError, ValueError):
             pass
+        if (self.session_budget > 0 and not self.warned_budget
+                and self.spend >= 0.8 * self.session_budget):
+            self.warned_budget = True
+            self.log("session_budget_warning", spend_usd=round(self.spend, 4),
+                     session_budget=self.session_budget)
+            print(f"  [budget] {self.spend:.2f} of {self.session_budget:.2f} USD "
+                  f"spent this session", file=sys.stderr, flush=True)
         result = env.get("result")
         text = result if isinstance(result, str) else json.dumps(result)[:400]
 
@@ -2309,7 +2336,8 @@ class VoiceDaemon:
                            _HERE / "cache", self.log)
         self.agent = Agent(self.repo, args.claude_bin, args.allow_edits,
                            args.claude_timeout, args.max_turns, args.budget,
-                           self.log, dry_run=args.dry_run)
+                           self.log, session_budget=args.session_budget,
+                           dry_run=args.dry_run)
         self.ear: Ear | None = None
         self.wake_tier: WhisperTier | None = None
         self.cmd_tier: WhisperTier | None = None
@@ -3214,6 +3242,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-turns", type=int, default=12)
     ap.add_argument("--budget", type=float, default=0.50,
                     help="--max-budget-usd per turn")
+    ap.add_argument("--session-budget", type=float, default=5.00,
+                    help="total USD across the whole run; 0 disables. Measured "
+                         "~0.40/command, so the default is about a dozen "
+                         "questions before it stops")
     ap.add_argument("--voice", default="Daniel",
                     help="say voice; only Daniel, Samantha, Alice, Alex, Fred and "
                          "Albert are installed here")
