@@ -85,3 +85,11 @@ build_*/
 # directory but the lat/lon and the cached response recorded in its meta.json:
 # the same place STRING geocodes 1.5 km differently seven weeks apart.
 geom/
+
+# Voice assistant runtime artefacts. voice/logs/ is the JSONL transcript of every
+# wake, dispatch and answer -- the only way to debug a voice system after the
+# fact, and regenerable by nothing, but it is a RUN RECORD rather than reference
+# data and it contains whatever was said in the room. voice/cache/ is pre-rendered
+# `say` audio for the fixed phrases, rebuilt on demand at about 4 s per phrase.
+voice/logs/
+voice/cache/

@@ -1,0 +1,791 @@
+{
+  "_banner": [
+    "commands.json -- everything that turns CANONICAL TEXT into ACTION.",
+    "",
+    "vocabulary.json turns sound into text and decides nothing. This file decides,",
+    "and it is the ONLY place that does: the phrases the daemon speaks, the intents",
+    "that need a spoken confirmation, the stale things it refuses, and the registry",
+    "that routes an utterance either to a literal argv or to the coding agent.",
+    "",
+    "THIS FILE EXISTS BECAUSE THE ARGUMENT AGAINST IT WAS WRONG IN ONE PLACE AND",
+    "RIGHT IN THE OTHER. jarvis.py's banner used to say there was 'no deterministic",
+    "shell routing ... left out on purpose: two places that know what build means",
+    "drift apart, and the agent is the one that can read the banner it is about to",
+    "contradict.' The drift argument is sound and is why this is ONE file rather",
+    "than a table inlined next to the state machine. The conclusion drawn from it",
+    "was not: routing everything through the agent charges ~3.5 s of fixed CLI",
+    "overhead before the model is even reached (--version 0.12 s, auth status",
+    "0.97 s, -p to first verdict 3.62 s, all measured) plus a network round trip,",
+    "to answer 'git status'. A closed set of literal argvs costs the process spawn",
+    "and nothing else, and it cannot mis-read the request, because it either",
+    "matched a pattern in this file or it did not.",
+    "",
+    "So the split is by KIND, not by convenience. An `argv` entry is a fact about",
+    "this repository that a regex can decide -- which binary, which flags. A",
+    "`prompt` entry is a judgement -- why is something the default, what does the",
+    "banner say, what changed and does it matter. Anything matching NOTHING here",
+    "still goes to the agent as free text, so the registry is a fast path and never",
+    "a gate: an unknown utterance is answered, not refused.",
+    "",
+    "SUBSTITUTION IS DELIBERATELY ALMOST ABSENT. An argv element may contain {repo}",
+    "or {threads} and nothing else, expanded from the daemon's own configuration.",
+    "NO TRANSCRIPT TEXT EVER REACHES AN argv. That is the whole safety argument for",
+    "letting a microphone start a process: the set of things it can run is closed,",
+    "written down here, and reviewable in a diff. A mis-heard word can pick the",
+    "wrong entry -- it cannot invent one, and it cannot add a flag. jarvis.py",
+    "REJECTS any other {token} at load time rather than passing it through, so a",
+    "typo here fails loudly at startup instead of running with a literal brace.",
+    "`prompt` entries do take {text}, the normalised utterance, because that is the",
+    "question being asked; it travels as one list element to `claude -p` and never",
+    "touches a shell.",
+    "",
+    "ORDER MATTERS AND IS CHECKED, NOT TRUSTED. Patterns are tried in file order and",
+    "the first match wins, so 'run the fast tests' must precede 'run the tests'.",
+    "That is exactly the kind of ordering that rots silently as entries are added,",
+    "so every entry carries `examples` and `python3 voice/jarvis.py --selftest`",
+    "asserts that each example routes to its OWN entry. A new entry that shadows an",
+    "older one fails the self-test with both ids named.",
+    "",
+    "THE DEFAULTS HERE ARE NOT THE DRIVERS' DEFAULTS, AND THAT IS THE POINT.",
+    "demonstrator/rb_high_ra bare is nx=2000, ny=1000, Ra=1e14, tf=40",
+    "(rb_high_ra.cpp:716-719): two million cells at a Rayleigh number CLAUDE.md",
+    "records as DIVERGING by t/t_ff ~ 30 with either initial condition, on an 8 GB",
+    "machine. A spoken 'run Rayleigh-Benard at high Rayleigh' must not mean that, so",
+    "the entry carries the 200x100 Ra=1e6 settings CLAUDE.md measures as usable.",
+    "Likewise static_droplet: gamma <= 20 is converged by 8000 steps, gamma = 100",
+    "reads 2.12% at 8000 against 3.21% at 32000, so the gamma-100 entry pays the",
+    "32000 steps and the plain entry stays at gamma 20 rather than quoting a",
+    "transient.",
+    "",
+    "--kokkos-num-threads IS APPENDED BY HAND ON EVERY BINARY. ctest supplies it via",
+    "LBM_TEST_ARGS (CMakeLists.txt:134-143); a direct invocation without it runs",
+    "single-threaded, several times slower, with no warning.",
+    "",
+    "WHAT THIS FILE DOES NOT DO. It does not parse parameters out of speech: there",
+    "is no entry that turns 'at gamma fifty' into '-gamma 50', because that would",
+    "put transcript-derived text into an argv and the grid flag is not even the same",
+    "letter across drivers (-n for static_droplet and ehd_cavity, -ny for",
+    "rb_high_ra, -h for rayleigh_benard, -d for tgv3d). Ask for a parameter this",
+    "file does not name and the agent takes it, which is the right division: it can",
+    "read the driver's own parser. It also does not background anything -- every",
+    "argv runs to completion under a wall-clock cap while the voice loop waits, so",
+    "`slow: true` exists to warn aloud first. A detached run on this Mac is",
+    "QoS-throttled to ~14% CPU, which is worse than waiting."
+  ],
+  "spoken_style": "You are answering out loud through a speech synthesiser, so the reply is heard once and cannot be re-read. Answer in at most two short sentences of plain prose. No markdown, no bullet points, no code blocks, no file paths and no URLs. Do not read out long numbers: give the one figure that matters, to three significant figures. If you ran something, say whether it passed or failed first. If the request was ambiguous, say what you assumed.",
+  "phrases": {
+    "ready": "Ready.",
+    "yes": "Yes?",
+    "working": "Working on it.",
+    "cancelled": "Cancelled.",
+    "missed": "I did not catch that.",
+    "gapped": "The microphone stream is dropping audio, so I will not guess at that. Free the machine and try again.",
+    "not_confirmed": "Not confirmed. I have dropped it.",
+    "confirm_expired": "The confirmation window closed, so I dropped it. Nothing was run.",
+    "confirm_gapped": "The microphone stream is dropping audio, so I will not act on a confirmation I might have mis-heard. I have dropped it.",
+    "d3q19": "D3Q19 was removed from the tree in September. Nothing was run.",
+    "mic_dead": "The microphone has gone silent. I am stopping, because I cannot tell a dead device from a quiet room once I am listening to zeroes."
+  },
+  "destructive": [
+    {
+      "pattern": "(?<!\\w)rm\\s+-\\w*[rf]|(?<!\\w)rm\\s+-rf|\\brecursively remove\\b",
+      "label": "delete files recursively"
+    },
+    {
+      "pattern": "(?<!\\w)(delete|remove|erase|wipe|nuke|trash)(?!\\w)",
+      "label": "delete something"
+    },
+    {
+      "pattern": "\\bget rid of\\b|\\b(?:blow|throw|toss)\\s+(?:\\w+\\s+){0,3}away\\b|\\bdo away with\\b|(?<!\\w)(purge|empty|scrap|obliterate)(?!\\w)",
+      "label": "delete something",
+      "why": "The plain verbs above are the ones a word list thinks of; these are the ones people say. Two of them were live MIS-ROUTES rather than misses: 'blow away the build tree' matched the build entry's noun pattern and silently ran cmake --build, and 'scrap the uncommitted work' matched git_status. A destructive phrasing landing on an unrelated command is worse than one landing nowhere.  SEPARABLE PARTICLES: the contiguous form missed the way the verb is actually spoken.  'blow away the build tree' matched and 'blow it away' did not -- English separates the particle around the object, and the pronoun form is the commoner one in speech because the object was already named in the previous sentence.  Measured before the fix: 'blow it away' and 'throw it away' reached the agent as free text with no confirmation, while 'wipe it' and 'delete it' were caught."
+    },
+    {
+      "pattern": "\\broll ?back\\b|\\bundo\\b|\\bback out\\b|(?<!\\w)(abandon|rename|replace)(?!\\w)",
+      "label": "change or throw away work in the tree"
+    },
+    {
+      "pattern": "(?<!\\w)(force[- ]?push|push)(?!\\w)",
+      "label": "push to a remote"
+    },
+    {
+      "pattern": "(?<!\\w)(commit|amend|stash)(?!\\w)",
+      "label": "change the git history"
+    },
+    {
+      "pattern": "(?<!\\w)(reset|revert|checkout|restore|rebase|merge|discard)(?!\\w)",
+      "label": "throw away uncommitted work"
+    },
+    {
+      "pattern": "(?<!\\w)(kill|pkill|killall|terminate)(?!\\w)",
+      "label": "kill a running process"
+    },
+    {
+      "pattern": "(?<!\\w)(sudo|chmod|chown|launchctl|defaults write)(?!\\w)",
+      "label": "change the system"
+    },
+    {
+      "pattern": "(?<!\\w)(curl|wget|pip install|npm install|brew install)(?!\\w)",
+      "label": "download or install software"
+    },
+    {
+      "pattern": "(?<!\\w)(drop|truncate|prune|clean|clear|overwrite)(?!\\w)",
+      "label": "destroy data"
+    }
+  ],
+  "_destructive_is_not_the_boundary": [
+    "THIS LIST IS A COURTESY FOR OBVIOUS PHRASING. IT IS NOT THE SECURITY",
+    "BOUNDARY, AND READING IT AS ONE IS THE MISTAKE THIS NOTE EXISTS TO STOP.",
+    "",
+    "It matches words in the TRANSCRIPT. A user does not have to SAY a",
+    "destructive word for the agent to CHOOSE a destructive action: 'jarvis, the",
+    "build directory is stale, sort it out' contains no word any list would",
+    "carry, and the agent's reasonable response to it is to delete the build",
+    "tree. Twenty-two utterances were run through the real gate(); thirteen",
+    "reached the agent as free text with no confirmation at all, including 'get",
+    "rid of the build directory', 'throw away my changes' and 'free up some disk",
+    "space'. The entries above close the ones that can be closed, and the last",
+    "sentence of this paragraph is why that is not enough.",
+    "",
+    "THE BOUNDARY IS WHAT THE CHILD IS PERMITTED TO DO: --permission-mode,",
+    "--allowedTools and --disallowedTools in jarvis.py's Agent.argv(). Until",
+    "2026-09-20 that boundary was open -- Bash(cmake *) admits `cmake -E rm -rRf`",
+    "and `cmake -E env -- <any binary>` -- so the gate really was the only thing",
+    "standing there, and it was theatre. See READ_TOOLS in jarvis.py.",
+    "",
+    "One thing is still UNVERIFIED and should be checked on a machine where the",
+    "claude CLI is logged in: whether --permission-mode dontAsk DENIES a tool",
+    "that is not on the allowlist or PROCEEDS with it. If it proceeds, the",
+    "allowlist is advisory and only --disallowedTools is load-bearing."
+  ],
+  "refuse": [
+    {
+      "pattern": "(?<!\\w)D3Q19(?!\\w)",
+      "phrase": "d3q19",
+      "why": "Removed 2026-09-18. It was tgv3d's DEFAULT and a documented orszag_tang option, so every saved command line from before that date carries it. campaign::dispatch is [[nodiscard]] and prints NOTHING WAS RUN; refusing out loud is the difference between the user hearing 'done' and hearing why nothing ran."
+    }
+  ],
+  "commands": [
+    {
+      "id": "fast_tests",
+      "patterns": [
+        "\\bfast tests?\\b",
+        "\\bquick tests?\\b",
+        "\\brun the fast (tests?|ctests?)\\b"
+      ],
+      "examples": [
+        "run the fast tests",
+        "fast tests",
+        "run the quick test"
+      ],
+      "argv": [
+        "ctest",
+        "-R",
+        "^(lattice|streaming|equilibrium|collision|moments|boundary|multiphase|phase_field|body|rigid3d|colour_gradient|cross_colour|scalar_specular|specular_node|scalar_mass|phase_wall|mhd_cm_shifted|claudemd_skeleton_check|height_field)$",
+        "--output-on-failure"
+      ],
+      "cwd": "{repo}/build",
+      "timeout_s": 180,
+      "say": "Running the fast tests.",
+      "why": "The 19 ctest entries measured under 0.1 s each in build/Testing/Temporary/CTestCostData.txt, MINUS the two that are not (osm_city 0.179 s, osm_city_fixture 0.110 s) and minus height_field_osm, which carries FIXTURES_REQUIRED and would drag the fixture in. Measured end to end at 2.71 s wall, 19/19 passed, against about 165 s for the full suite. This is the entry that makes 'did I break anything' a question worth asking out loud."
+    },
+    {
+      "id": "all_tests",
+      "patterns": [
+        "\\brun (the )?(all the )?tests?\\b",
+        "\\brun ctest\\b",
+        "\\bfull test suite\\b",
+        "\\bwhole suite\\b"
+      ],
+      "examples": [
+        "run the tests",
+        "run ctest",
+        "run all the tests",
+        "run the full test suite"
+      ],
+      "argv": [
+        "ctest",
+        "--output-on-failure"
+      ],
+      "cwd": "{repo}/build",
+      "timeout_s": 900,
+      "slow": true,
+      "say": "Running the whole suite. This takes about three minutes.",
+      "why": "38 tests. The cost is very uneven: layered_poiseuille 74.7 s, laplace 19.0 s, regularized 15.1 s, poiseuille 14.3 s, floating_body 11.8 s, gaussian_plume 10.9 s -- roughly 165 s serial -- while 20 of the 38 finish under 0.1 s. Hence the separate fast entry above, and `slow` so the daemon warns before going deaf for three minutes."
+    },
+    {
+      "id": "rerun_failed",
+      "patterns": [
+        "\\brerun the fail\\w*\\b",
+        "\\bwhat failed\\b",
+        "\\bdid (it|they) pass\\b",
+        "\\brun the fail\\w+ (tests?|ones?)\\b"
+      ],
+      "examples": [
+        "what failed",
+        "did it pass",
+        "rerun the failures"
+      ],
+      "argv": [
+        "ctest",
+        "--rerun-failed",
+        "--output-on-failure"
+      ],
+      "cwd": "{repo}/build",
+      "timeout_s": 900,
+      "say": "Re-running what failed.",
+      "why": "Answers the question actually asked after a suite run, and costs nothing when the last run was clean."
+    },
+    {
+      "id": "cross_colour",
+      "patterns": [
+        "\\bcolour gradient cross[- ]?check\\b",
+        "\\bcross[- ]?colour\\b",
+        "\\bcross code check\\b"
+      ],
+      "examples": [
+        "run the colour gradient cross check",
+        "run cross colour"
+      ],
+      "argv": [
+        "ctest",
+        "-R",
+        "cross_colour",
+        "--output-on-failure"
+      ],
+      "cwd": "{repo}/build",
+      "timeout_s": 120,
+      "say": "Running the cross-code colour gradient check.",
+      "why": "tests/cross_colour drives BOTH colour-gradient operators through 320 identical randomised states and diffs all 27 populations; worst difference 0 exactly, at both precisions. It is the one place the two codebases are compared automatically, so it is worth being able to ask for by name."
+    },
+    {
+      "id": "build",
+      "patterns": [
+        "^(please )?(re)?build\\b",
+        "(?<!the )(?<!a )\\b(re)?build (the )?(code|solver|tree|everything|it)\\b",
+        "\\bcompile\\b"
+      ],
+      "examples": [
+        "build",
+        "rebuild",
+        "build the code",
+        "compile"
+      ],
+      "counterexamples": [
+        "blow away the build tree",
+        "get rid of the build directory",
+        "the build directory is stale sort it out"
+      ],
+      "argv": [
+        "cmake",
+        "--build",
+        "{repo}/build",
+        "-j4"
+      ],
+      "timeout_s": 1800,
+      "slow": true,
+      "say": "Building.",
+      "why": "Incremental, against the existing build/ whose CMakeCache already carries CMAKE_BUILD_TYPE=Release, Kokkos_ENABLE_SERIAL=ON, Kokkos_ENABLE_THREADS=ON, LBM_PRECISION=double, LBM_TEST_THREADS=4 -- verified. -j4 not -j8: the user runs solvers on this 8 GB machine and a wider build fights them for memory. The (?<!the ) is load-bearing: 'blow away the build tree' used to match the noun `build tree` and silently RUN A BUILD, which is a destructive phrasing landing on an unrelated command rather than merely being missed."
+    },
+    {
+      "id": "configure",
+      "patterns": [
+        "\\bconfigure( from scratch| the build)?\\b",
+        "\\breconfigure\\b",
+        "\\brun cmake\\b"
+      ],
+      "examples": [
+        "configure from scratch",
+        "reconfigure",
+        "run cmake"
+      ],
+      "argv": [
+        "cmake",
+        "-S",
+        "{repo}",
+        "-B",
+        "{repo}/build",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DKokkos_ENABLE_SERIAL=ON",
+        "-DKokkos_ENABLE_THREADS=ON"
+      ],
+      "timeout_s": 900,
+      "slow": true,
+      "say": "Configuring.",
+      "why": "Kokkos_ENABLE_THREADS=ON is not optional: without it CMake prints 'no host-parallel backend, tests run serial' and everything runs single-threaded, several times slower and easy not to notice. This entry exists so that the flag can never be forgotten by whoever is talking."
+    },
+    {
+      "id": "frame_check",
+      "patterns": [
+        "\\bframe check\\b",
+        "\\bcheck the frames?\\b",
+        "\\bstack frames?\\b"
+      ],
+      "examples": [
+        "frame check",
+        "run the frame check"
+      ],
+      "argv": [
+        "sh",
+        "tests/frame_check.sh"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 900,
+      "slow": true,
+      "say": "Running the frame check. Read the loops and regidx columns, not the clock.",
+      "why": "A moment index must be a compile-time constant or the 27-moment array leaves the register file -- bit-identical answers, every test passing, and a measured 47x in GPU/'s colour gradient. This script is the ONLY instrument in the tree that can see it. The spoken line repeats what to read because the wall clock is the misleading column."
+    },
+    {
+      "id": "poiseuille",
+      "patterns": [
+        "\\brun (the )?Poiseuille\\b"
+      ],
+      "examples": [
+        "run Poiseuille",
+        "run the Poiseuille case"
+      ],
+      "argv": [
+        "{repo}/build/validation/poiseuille",
+        "--kokkos-num-threads={threads}"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 300,
+      "say": "Running Poiseuille.",
+      "why": "The tree's plainest validation case, and the one whose x H^2 convergence is asserted to three digits. 14.3 s under ctest."
+    },
+    {
+      "id": "galilean",
+      "patterns": [
+        "\\bgalilean\\b"
+      ],
+      "examples": [
+        "run the Galilean check",
+        "galilean"
+      ],
+      "argv": [
+        "{repo}/build/validation/galilean",
+        "--kokkos-num-threads={threads}"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 300,
+      "say": "Running the Galilean invariance check.",
+      "why": "Four acceptance lines, all PASS, and it is what separates the moment operators from BGK by a measured factor of 100. 0.69 s under ctest."
+    },
+    {
+      "id": "static_droplet_gamma100",
+      "patterns": [
+        "\\bstatic droplet\\b.*\\b(gamma )?(100|one hundred)\\b",
+        "\\b(gamma )?(100|one hundred)\\b.*\\bstatic droplet\\b"
+      ],
+      "examples": [
+        "run the static droplet at gamma one hundred",
+        "run the static droplet at gamma 100"
+      ],
+      "argv": [
+        "{repo}/build/validation/static_droplet",
+        "-n",
+        "48",
+        "-r",
+        "16",
+        "-tau",
+        "1",
+        "-gamma",
+        "100",
+        "-steps",
+        "32000",
+        "--kokkos-num-threads={threads}"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 3600,
+      "slow": true,
+      "say": "Running the static droplet at density ratio one hundred. This needs thirty-two thousand steps to converge.",
+      "why": "THE STEP COUNT IS THE MEASUREMENT. gamma = 100 reads 2.12% at 8000 steps, 3.11% at 16000 and 3.21% at 32000, and a 1500-step ladder gave 493% -- a number that was written into three files as a property of the model before a longer run contradicted it. Quoting gamma 100 at a short step count is the mistake this entry exists to prevent."
+    },
+    {
+      "id": "static_droplet",
+      "patterns": [
+        "\\bstatic droplet\\b",
+        "\\brun the droplet\\b"
+      ],
+      "examples": [
+        "run the static droplet",
+        "run the droplet"
+      ],
+      "argv": [
+        "{repo}/build/validation/static_droplet",
+        "-n",
+        "48",
+        "-r",
+        "16",
+        "-tau",
+        "1",
+        "-gamma",
+        "20",
+        "-steps",
+        "8000",
+        "--kokkos-num-threads={threads}"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 1800,
+      "slow": true,
+      "say": "Running the static droplet at density ratio twenty.",
+      "why": "gamma <= 20 is converged by 8000 steps (0.04 points of drift out to 32000), so this is the largest ratio that can be asked for casually and still quoted. Anything higher needs the entry above or the agent."
+    },
+    {
+      "id": "natural_convection_conv",
+      "patterns": [
+        "\\bnatural convection\\b.*\\b(conv\\w*|grid)\\b",
+        "\\b(conv\\w*|grid)\\b.*\\bnatural convection\\b"
+      ],
+      "examples": [
+        "run natural convection convergence",
+        "run the natural convection grid convergence"
+      ],
+      "argv": [
+        "{repo}/build/validation/natural_convection",
+        "-conv",
+        "--kokkos-num-threads={threads}"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 3600,
+      "slow": true,
+      "say": "Sweeping natural convection against de Vahl Davis.",
+      "why": "-conv is natural_convection's ONLY flag (natural_convection.cpp:20). It sweeps N at fixed Ra against the 1983 table: Ra = 1e5 falls monotonically -1.00, -0.39, -0.18, -0.05% at N = 32/48/64/96, order 2.4-3.4. This is the external check on the buoyancy coupling."
+    },
+    {
+      "id": "natural_convection",
+      "patterns": [
+        "\\bnatural convection\\b"
+      ],
+      "examples": [
+        "run natural convection"
+      ],
+      "argv": [
+        "{repo}/build/validation/natural_convection",
+        "--kokkos-num-threads={threads}"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 1800,
+      "slow": true,
+      "say": "Running natural convection."
+    },
+    {
+      "id": "rayleigh_benard_conv",
+      "patterns": [
+        "\\bRayleigh-Benard\\b.*\\bconv\\w*\\b",
+        "\\bconv\\w*\\b.*\\bRayleigh-Benard\\b"
+      ],
+      "examples": [
+        "run the Rayleigh-Benard convergence study",
+        "run Rayleigh-Benard convergence"
+      ],
+      "argv": [
+        "{repo}/build/validation/rayleigh_benard",
+        "-conv",
+        "--kokkos-num-threads={threads}"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 3600,
+      "slow": true,
+      "say": "Running the Rayleigh-Benard convergence study.",
+      "why": "Ra_c converges at order 2.36 for the midway wall pair and 1.75 for the on-node pair. -marginal and -rate are the other two studies on the same binary; ask for those by name and the agent will read the parser."
+    },
+    {
+      "id": "rb_high_ra",
+      "patterns": [
+        "\\bRayleigh-Benard\\b.*\\bhigh\\b",
+        "\\bhigh Rayleigh\\b",
+        "\\brb high ra\\b"
+      ],
+      "examples": [
+        "run Rayleigh-Benard at high Rayleigh",
+        "run rb high ra"
+      ],
+      "argv": [
+        "{repo}/build/demonstrator/rb_high_ra",
+        "-nx",
+        "200",
+        "-ny",
+        "100",
+        "-ra",
+        "1e6",
+        "-tf",
+        "100",
+        "--kokkos-num-threads={threads}"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 3600,
+      "slow": true,
+      "say": "Running Rayleigh-Benard at Rayleigh ten to the six, two hundred by one hundred.",
+      "why": "THE BARE DEFAULTS ARE A TRAP FOR A VOICE COMMAND. rb_high_ra.cpp:716-719 is nx=2000, ny=1000, Ra=1e14, tf=40 -- two million cells at a Rayleigh number CLAUDE.md records as DIVERGING by t/t_ff ~ 30 with either IC, on an 8 GB machine. These are the settings CLAUDE.md measures as usable: Ra = 1e6 at 200x100 gives Nu_bot/Nu_top = 7.40/7.48, agreeing to 1% and to 7% of 0.14 Ra^0.29."
+    },
+    {
+      "id": "ehd_cavity",
+      "patterns": [
+        "\\bEHD cavity\\b",
+        "\\belectroconvection in (the |a )?cavity\\b"
+      ],
+      "examples": [
+        "run the EHD cavity"
+      ],
+      "argv": [
+        "{repo}/build/validation/ehd_cavity",
+        "-n",
+        "129",
+        "-c",
+        "10",
+        "-m",
+        "10",
+        "-tf",
+        "30",
+        "--kokkos-num-threads={threads}"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 3600,
+      "slow": true,
+      "say": "Running the EHD cavity at N one twenty nine.",
+      "why": "The driver's own defaults (n=129, C=10, M=10, tf=30) are the sensible ones here, so these are stated rather than changed. Note the ladder at T = 5000 is UNDER-RESOLVED at every N it reaches -- Re_cell 8.5, 6.1, 3.6 against the paper's 1.6 -- so do not quote a converged Ne from this."
+    },
+    {
+      "id": "orszag_tang",
+      "patterns": [
+        "\\bOrszag-Tang\\b"
+      ],
+      "examples": [
+        "run Orszag-Tang"
+      ],
+      "argv": [
+        "{repo}/build/validation/orszag_tang",
+        "-lat",
+        "d2q9",
+        "-op",
+        "cm",
+        "-n",
+        "256",
+        "--kokkos-num-threads={threads}"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 3600,
+      "slow": true,
+      "say": "Running Orszag-Tang on D2Q9 with central moments.",
+      "why": "N=256 rather than the driver's 512: a quarter of the cells, and this runs while the user waits. -lat is stated explicitly because orszag_tang validates -lat, -maglat and -op up front and a stale d3q19 is now a hard error."
+    },
+    {
+      "id": "urban",
+      "patterns": [
+        "\\burban plume\\b",
+        "\\brun Manchester\\b",
+        "\\brun the city\\b"
+      ],
+      "examples": [
+        "run the urban plume",
+        "run Manchester",
+        "run the city"
+      ],
+      "argv": [
+        "{repo}/build/demonstrator/urban",
+        "-geom",
+        "geom/mcr",
+        "-bearing",
+        "250",
+        "-diff",
+        "20",
+        "-minutes",
+        "12",
+        "--kokkos-num-threads={threads}"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 7200,
+      "slow": true,
+      "say": "Running the Manchester plume at diffusivity twenty.",
+      "why": "-diff 20, NOT the default 5. Manchester at -diff 5 reports a stability margin of 48x against the 100x threshold and DIVERGES at t = 60 s; -diff 20 gives 192x and runs. geom/mcr exists in the tree (mcr_heights.npy + mcr_meta.json), so this entry is runnable as written."
+    },
+    {
+      "id": "git_status",
+      "patterns": [
+        "\\bgit status\\b",
+        "\\bwhat('?s| is) dirty\\b",
+        "\\bwhat have I changed\\b",
+        "\\bwhat( is|'?s) uncommitted\\b",
+        "\\bany uncommitted\\b"
+      ],
+      "examples": [
+        "git status",
+        "what's dirty",
+        "what is dirty",
+        "what is uncommitted",
+        "what have I changed"
+      ],
+      "counterexamples": [
+        "scrap the uncommitted work",
+        "throw away the uncommitted changes"
+      ],
+      "argv": [
+        "git",
+        "status",
+        "--short"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 60,
+      "empty_say": "The tree is clean.",
+      "why": "Read-only, instant, and the single most common thing to ask a repository. Routing it to the agent would charge 3.5 s of CLI overhead plus a network round trip to run the same command. `empty_say` matters here: `git status --short` prints NOTHING when the tree is clean, and 'it printed nothing' is the wrong answer to 'what's dirty'. THE BARE \\buncommitted\\b IS GONE: it swallowed 'scrap the uncommitted work', i.e. a request to DESTROY that work ran a status instead. Both the contracted and the expanded forms are listed because whisper emits either -- synthesised 'jarvis what is running' came back from tiny.en as the expanded form unprompted."
+    },
+    {
+      "id": "git_branch",
+      "patterns": [
+        "\\bwhat changed on (this|the) branch\\b",
+        "\\bbranch (diff|log)\\b",
+        "\\bahead of main\\b"
+      ],
+      "examples": [
+        "what changed on this branch",
+        "what am I ahead of main by"
+      ],
+      "argv": [
+        "git",
+        "log",
+        "--oneline",
+        "main..HEAD"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 60,
+      "empty_say": "Nothing on this branch yet. It is level with main.",
+      "why": "Empty output is the CORRECT answer here and not a failure: the Voice branch had zero commits ahead of main when this file was written, so the first thing anyone asks returns nothing. Saying 'it printed nothing' would read as a broken command."
+    },
+    {
+      "id": "machine_load",
+      "patterns": [
+        "\\bwhat('?s| is) running\\b",
+        "\\bis anything (going|running)\\b",
+        "\\bmachine load\\b",
+        "\\bhow busy\\b"
+      ],
+      "examples": [
+        "what's running",
+        "what is running",
+        "is anything going",
+        "how busy is the machine"
+      ],
+      "argv": [
+        "uptime"
+      ],
+      "timeout_s": 30,
+      "why": "The user runs long solves while working -- load average 19-27 was the normal state during this file's measurements -- and 'is it still going' is a real question. uptime answers it in one short line that speaks well; ps output does not. Both \"what's running\" and \"what is running\" are listed: the registry had only the contracted form, whisper emitted the expanded one, and the command fell through to the agent -- an API round trip for something answered locally in milliseconds."
+    },
+    {
+      "id": "stop_the_run",
+      "patterns": [
+        "\\bstop the (run|solve|solver|simulation)\\b",
+        "\\bkill the (run|solve|solver|simulation)\\b"
+      ],
+      "examples": [
+        "stop the run",
+        "kill the solver"
+      ],
+      "confirm": true,
+      "confirm_label": "kill every solver process running out of this build tree",
+      "argv": [
+        "pkill",
+        "-U",
+        "{uid}",
+        "-f",
+        "{repo}/build/(validation|demonstrator)/"
+      ],
+      "cwd": "{repo}",
+      "timeout_s": 30,
+      "say": "Stopping the run.",
+      "rc_say": {
+        "1": "Nothing was running."
+      },
+      "why": "THE ONE ROUTED COMMAND THAT DESTROYS WORK, hence confirm. Note the bare word 'stop' is NOT here: jarvis.py treats a short 'stop' as the cancel word, which must stay free. TWO THINGS WERE WRONG WITH THE FIRST VERSION. The pattern was the unanchored RELATIVE fragment `build/(validation|demonstrator)/`, and pkill -f matches the full argument vector of every process this user owns -- so it also killed `vim .../build/validation/poiseuille.cpp`, a `tail -f build/demonstrator/urban.log`, an unrelated Claude Code session whose Bash tool was running a driver from that path, and a second jarvis instance's registry child. It is now anchored to THIS repo's absolute path and bounded to this uid. And pkill exits 1 when nothing matched, which is the SUCCESS case here: verdict() read that as 'stop_the_run exited with code 1 and said nothing', i.e. it reported the good outcome as a failure. rc_say fixes that. The right long-term answer is to track the PIDs this daemon started and kill those groups with reap(), which needs no pkill at all; that is not done here because a solve is usually started from the user's own terminal, not by this daemon."
+    },
+    {
+      "id": "why_default",
+      "patterns": [
+        "\\bwhy is\\b.*\\bdefault\\b",
+        "\\bwhy (do|does|did) (we|it|the)\\b",
+        "\\bwhy not\\b"
+      ],
+      "examples": [
+        "why is the colour gradient the default rest term",
+        "why does the phase field use central moments"
+      ],
+      "prompt": "Answer from this repository's own banners. Find the file that implements the thing being asked about, read the banner comment at the top of it and the relevant section of CLAUDE.md, and answer with the argument and the measured number those give. If they disagree with each other, say so. The question: {text}",
+      "why": "A judgement, not a fact a regex can decide. The banners are the documentation in this tree and they usually already say why the obvious answer is wrong, so the instruction is to go and read one rather than to reason from training."
+    },
+    {
+      "id": "read_banner",
+      "patterns": [
+        "\\bread the banner\\b",
+        "\\bwhat does the banner say\\b",
+        "\\bwhat'?s in the banner\\b"
+      ],
+      "examples": [
+        "read the banner on the colour gradient",
+        "what does the banner say about free surface"
+      ],
+      "prompt": "Find the file being referred to, read the banner comment at the top of it, and summarise its argument in at most two spoken sentences, leading with the measured number if it has one. The request: {text}",
+      "why": "The banners are long and argumentative; hearing the argument and the number is the useful half."
+    },
+    {
+      "id": "write_up",
+      "patterns": [
+        "\\bwrite (this|that|it) up\\b",
+        "\\bwrite (this|that|it) into the banner\\b",
+        "\\brecord (this|that) (measurement|finding)\\b"
+      ],
+      "examples": [
+        "write this up",
+        "write that into the banner"
+      ],
+      "prompt": "Write what we just measured into the module banner AND into doc/m3lb.tex's Known limitations, following this tree's conventions: the measured numbers rather than adjectives, an explicit statement of what the thing does NOT do, and the argument for the decision. Do not write it only into a commit message. The request: {text}",
+      "confirm": true,
+      "confirm_label": "edit a module banner and doc/m3lb.tex",
+      "why": "It WRITES, so it needs the spoken confirmation even though the agent also needs --allow-edits before it can act. Two gates, because a mis-heard 'write this up' that edits a banner is a silent corruption of the one thing this tree treats as documentation."
+    },
+    {
+      "id": "add_case",
+      "patterns": [
+        "\\badd a (validation )?case\\b",
+        "\\bwrite a (new )?validation case\\b",
+        "\\bnew validation case\\b"
+      ],
+      "examples": [
+        "add a validation case for the specular wall",
+        "write a new validation case"
+      ],
+      "prompt": "Write a new validation case following validation/tgv2d.cpp for shape. Include validation/Campaign.hpp rather than the solver headers directly, because the headers are not self-contained -- collision/BGK.hpp defines Macro and must precede solver/FluidSolver.hpp, so alphabetical include order fails to compile. Compare against something with a known answer (analytic, a published table, or a convergence rate) and print PASS or FAIL. Register it in the FIRST foreach of validation/CMakeLists.txt if it is a regression test, the SECOND if it is an analysis sweep. The request: {text}",
+      "confirm": true,
+      "confirm_label": "write a new source file and edit CMakeLists",
+      "why": "Writes a file and edits CMakeLists.txt. The prompt carries the two things that are not guessable: the include-order trap, and which of the two foreach lists a case belongs in -- the wrong list either never runs or makes ctest minutes slower."
+    },
+    {
+      "id": "last_result",
+      "patterns": [
+        "\\bwhat was the last\\b",
+        "\\blast (Nusselt|result|number|run)\\b",
+        "\\bwhat did (it|that)\\b.*\\b(say|give|print|report)\\b"
+      ],
+      "examples": [
+        "what was the last Nusselt number",
+        "what did that run say"
+      ],
+      "prompt": "Find the most recent relevant run output in this repository -- results/, any run log, or the terminal scrollback if you can see it -- and report the single figure asked for, with the run's parameters, in two spoken sentences. If the run is still going or the number is from an unconverged run, say that first. The request: {text}",
+      "why": "Needs searching and judgement about convergence, which is exactly what a regex cannot do and the agent can."
+    },
+    {
+      "id": "import_city",
+      "patterns": [
+        "\\bimport a city\\b",
+        "\\bimport (the )?(city|geometry) (for|from)\\b",
+        "\\bosm city\\b"
+      ],
+      "examples": [
+        "import a city",
+        "import the city for Leeds"
+      ],
+      "prompt": "Use tools/osm_city.py to import the requested city. Resolve the place to an explicit --lat/--lon first and use those, never a place name: 'Manchester city centre, UK' geocodes today to a point 1,459 m from where the same string landed in July, which is 73% of a 2 km side. Use --fallback type for new work, not the default flat, and say which was used. The request: {text}",
+      "why": "Needs a coordinate lookup and a judgement call on the fallback model, so it is not a literal argv. The two traps are stated because both silently produce a plausible raster."
+    }
+  ]
+}

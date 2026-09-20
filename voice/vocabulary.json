@@ -1,0 +1,165 @@
+{
+  "_banner": [
+    "vocabulary.json -- everything that turns SOUND into CANONICAL TEXT.",
+    "",
+    "Two things live here and nothing else: the whisper initial prompt, and the",
+    "spoken-to-canonical alias table. What happens to the text AFTERWARDS is",
+    "commands.json's job. The split is not tidiness: the prompt and the aliases are",
+    "the two halves of one measured trade-off and they have to be read together,",
+    "while the command registry changes for completely unrelated reasons (a new",
+    "driver, a new flag) and would otherwise drag this file along with it.",
+    "",
+    "THE PROMPT IS PROSE AND THE SPOKEN FORMS ARE DELIBERATELY NOT IN IT.",
+    "whisper's initial prompt is conditioning TRANSCRIPT TEXT, not a vocabulary",
+    "list, and it imitates whatever style it is handed. Both halves measured on",
+    "identical audio at temperature 0, so this reproduces and will never look like",
+    "flakiness:",
+    "",
+    "  comma-separated keyword list -> 'Run the D3Q27, K8, gamma, 100 with tau1.'",
+    "                                  it DELETED 'colour gradient case'",
+    "  the same vocabulary as prose -> 'Run the D3Q27 colour gradient case at",
+    "                                  gamma one hundred with tau one.'  (exact)",
+    "",
+    "And putting the spoken forms in the prompt BACKFIRES for the same reason: with",
+    "'dee two queue nine' in the prompt whisper emitted the literal `dee two queue",
+    "nine`; with that one clause removed and nothing else changed, it emitted",
+    "`D2Q9`. So `whisper_prompt` below contains ONLY canonical forms, and every",
+    "spoken form is in `aliases`, applied AFTER transcription.",
+    "",
+    "WHAT THE PROMPT ACTUALLY BUYS IS NARROWER THAN EXPECTED. tiny.en already gets",
+    "D3Q27 right with no prompt at all, so the premise that a lattice name needed",
+    "help was wrong. What it fixes is Orszag-Tang (from 'Orces Actang'),",
+    "Rayleigh-Benard (from 'Rayleigh Bernard'), Poiseuille (from 'Poisell'),",
+    "Esoteric Pull (from 'esoteric cool'), Kokkos (from 'caucus') and the British",
+    "'colour'.",
+    "",
+    "AND THE PROMPT IS NOT SUFFICIENT, WHICH IS WHY THE ALIAS TABLE EXISTS. The same",
+    "sentence, the same model, the same prompt, differing only in the room noise",
+    "spliced around it, transcribed once as `ctest` and once as `ptest`. One run",
+    "would have 'proved' the prompt fixed it. Two runs show the prompt shifts the",
+    "odds and the alias table is what closes them, so the entries for ctest and for",
+    "tau are load-bearing rather than belt-and-braces.",
+    "",
+    "WHAT THIS FILE DOES NOT DO. It does not decide anything: no entry here routes,",
+    "runs or refuses. D3Q19 maps to the canonical `D3Q19` precisely so that the",
+    "refusal in commands.json can SEE it -- deleting the alias would make a stale",
+    "spoken command silently mean nothing instead of being refused out loud. It also",
+    "carries no spoken numbers beyond the handful of exponents below: whisper writes",
+    "digits correctly and a general number parser would be a second grammar to keep",
+    "in step with the drivers.",
+    "",
+    "Alias matching is longest-first, case-insensitive, on word boundaries, with",
+    "[\\s,\\-]+ between words because whisper punctuates freely. So a short rule",
+    "cannot eat the head of a long one and 'D3Q27, K8' still matches."
+  ],
+
+  "whisper_prompt": "We are working on M3LB, a lattice Boltzmann solver written in C++ on Kokkos. The lattices are D2Q9, D2Q5, D3Q7 and D3Q27, and the collision operators are BGK, TRT, MRT, central moments, the colour gradient and the conservative Allen-Cahn phase field. I build with CMake in Release and run ctest. The cases are Poiseuille, Taylor-Green, Orszag-Tang, Rayleigh-Benard, Hartmann, Shercliff, the lid-driven cavity, natural convection, the static droplet, Laplace's law, EHD electroconvection, the free surface, the urban plume and the aorta. I read off the Reynolds, Rayleigh, Prandtl, Nusselt, Hartmann and Mach numbers, tau and omega, the relaxation rate, the density ratio, the spurious current, the interface width, Boussinesq buoyancy, bounce-back and specular walls, Esoteric Pull, shifted populations, FP32 and FP64, and whether the run says PASS or FAIL. I also ask for git status and git log, for the branch and what is uncommitted, and for the frame check script.",
+
+  "prompt_rules": {
+    "form": "prose",
+    "why_not_a_list": "A comma-separated keyword list measurably destroys the transcript: it deleted 'colour gradient case' and injected commas. The prompt is conditioning text, so it teaches output style.",
+    "no_spoken_forms": "Spoken forms in the prompt make whisper emit them verbatim. They belong in `aliases`, applied after transcription.",
+    "length_words": 150,
+    "length_note": "150 words and 968 characters, counted from this file rather than asserted -- the figure this text arrived with was 142, which was wrong, and it was 128 before the tooling sentence was added. `python3 -c \"import json;p=json.load(open('voice/vocabulary.json'))['whisper_prompt'];print(len(p.split()), len(p))\"` is the check, and it must be re-run after any edit to the prompt.",
+    "ceiling": "whisper-cli documents the initial prompt ceiling as n_text_ctx/2 tokens; 150 words is roughly 200 and is comfortably inside it.",
+    "tooling_sentence": "The last sentence names git, the branch and the frame check. It was added because the prompt described the PHYSICS and nothing the user actually types: synthesised 'jarvis git status' came back from tiny.en as 'Jarvis Gibbs status.' -- routed to the agent instead of to the git_status entry, and 'Gibbs' is a plausible physics word, so the old prompt may have been actively favouring it. It is PROSE, like the rest, for the reason recorded above."
+  },
+
+  "_silence_hallucinations_why": [
+    "WHISPER DOES NOT RETURN NOTHING FOR SILENCE. IT RETURNS A SENTENCE, AND IT",
+    "RETURNS THE SAME ONE EVERY TIME. Measured: 8 s of genuine room silence",
+    "(mean -46.8 dB, max -31.0 dB) POSTed to tiny.en returned the first entry",
+    "below on 3/3 runs with the bias prompt and 1/1 without it. In the first",
+    "live daemon run a variant arrived as 'Jarvis has a letter along the",
+    "sentence so that the rendering takes a measurable amount of time...' --",
+    "wake_match scored it 1.0, hit=True, and jarvis built a full claude argv out",
+    "of room noise. jarvis.py's _ANNOTATION_RE cannot see this: it strips",
+    "[BLANK_AUDIO] and *laughs* by FORM, and free prose has no form.",
+    "",
+    "THIS LIST IS THE SECOND DEFENCE, NOT THE FIRST. The first is acoustic and",
+    "lives in handle_segment(): a segment must carry MIN_SEG_MS of frames that",
+    "the VAD found above the adapted floor before it is transcribed at all. A",
+    "denylist can only ever catch the hallucinations already observed, so grow",
+    "it from voice/logs/*.jsonl -- every rejection is logged with its",
+    "similarity, and the match is difflib at 0.9, not equality, because the",
+    "variants differ."
+  ],
+  "silence_hallucinations": [
+    "This is a deliberately long-sentence so that the rendering takes a measurable amount of time.",
+    "Jarvis has a letter along the sentence so that the rendering takes a measurable amount of time.",
+    "Thank you for watching.",
+    "Thanks for watching!",
+    "Please subscribe to my channel."
+  ],
+
+  "aliases": [
+    {
+      "canonical": "D2Q9",
+      "spoken": ["dee two queue nine", "d two q nine", "d 2 q 9", "d2 q9"],
+      "why": "Safety net only. whisper gets the lattice names right unprompted more often than not."
+    },
+    {
+      "canonical": "D2Q5",
+      "spoken": ["dee two queue five", "d two q five", "d 2 q 5", "d2 q5"]
+    },
+    {
+      "canonical": "D3Q7",
+      "spoken": ["dee three queue seven", "d three q seven", "d 3 q 7", "d3 q7"],
+      "why": "cs2 is 1/4 here, not 1/3. The alias only fixes the name; the arithmetic trap is CLAUDE.md's."
+    },
+    {
+      "canonical": "D3Q27",
+      "spoken": ["dee three queue twenty seven", "dee three queue twenty-seven", "d three q twenty seven", "d 3 q 27", "d3 q27"]
+    },
+    {
+      "canonical": "D3Q19",
+      "spoken": ["dee three queue nineteen", "d three q nineteen", "d 3 q 19", "d3 q19"],
+      "why": "REMOVED from the tree 2026-09-18. Mapped to the canonical form ON PURPOSE so that commands.json's `refuse` rule can match it and say so out loud. Without this alias a stale spoken command would mean nothing silently."
+    },
+
+    { "canonical": "BGK", "spoken": ["bee gee kay", "b g k"] },
+    { "canonical": "TRT", "spoken": ["tee are tee", "t r t"] },
+    { "canonical": "MRT", "spoken": ["em are tee", "m r t"] },
+    { "canonical": "central moments", "spoken": ["see em", "c m"], "why": "The tree's default operator, so the two-letter form is worth resolving." },
+    {
+      "canonical": "colour gradient",
+      "spoken": ["color gradient", "colour gradient"],
+      "why": "The tree spells it COLOUR: src/collision/ColourGradient.hpp, validation/colour_flat.cpp, ctest name colour_gradient. The .en models emit 'color' unprompted and the prompt fixes it, but normalise both ways anyway."
+    },
+    { "canonical": "percolour", "spoken": ["per color", "per-colour", "per colour", "percolour"], "why": "static_droplet -rest percolour, the default rest term." },
+    { "canonical": "alphabar", "spoken": ["alpha bar"], "why": "static_droplet -rest bar, the other alpha interpolation." },
+    { "canonical": "regularised", "spoken": ["regularized", "regularised"] },
+
+    { "canonical": "Rayleigh-Benard", "spoken": ["rayleigh bernard", "rayleigh benard", "rayleigh-bernard", "riley bernard"], "why": "'Rayleigh Bernard' is what tiny.en actually produced without the prompt." },
+    { "canonical": "Orszag-Tang", "spoken": ["orces actang", "orzag tang", "orszag tang", "orzac tang", "or sacked hang"], "why": "'Orces Actang' is measured, not imagined." },
+    { "canonical": "Taylor-Green", "spoken": ["taylor green", "tee gee vee", "t g v"] },
+    { "canonical": "Poiseuille", "spoken": ["poisell", "poiseuillee", "poiseuille", "pwazoy", "poise oil"], "why": "'Poisell' measured at tiny.en; 'Poiseuillee' at small.en WITH the prompt, which is why the prompt alone is not enough." },
+    { "canonical": "Esoteric Pull", "spoken": ["esoteric cool", "esoteric pool", "esoteric pull"] },
+    { "canonical": "EHD", "spoken": ["ee aitch dee", "e h d"] },
+    { "canonical": "MHD", "spoken": ["em aitch dee", "m h d"] },
+    { "canonical": "lid-driven cavity", "spoken": ["lid driven cavity", "lid-driven cavity"] },
+    { "canonical": "static droplet", "spoken": ["static droplet"] },
+    { "canonical": "layered_poiseuille", "spoken": ["layered poiseuille", "layered poisell"], "why": "The slowest test in the suite at 74.7 s; worth naming exactly." },
+    { "canonical": "urban plume", "spoken": ["urban plum", "urban plume"] },
+
+    {
+      "canonical": "ctest",
+      "spoken": ["ptest", "see test", "c test", "sea test"],
+      "why": "tiny.en CANNOT say ctest: measured 'ptest' twice. Bare 'test' is deliberately NOT here -- it would rewrite 'run the fast tests' into 'run the fast ctests', and the repo really does have both meanings."
+    },
+    {
+      "canonical": "tau",
+      "spoken": ["that he are you", "tao", "t a u"],
+      "why": "tiny.en hears tau as 'that he are you'. Measured, and load-bearing: tau is how this user reads the stability floor."
+    },
+    { "canonical": "omega", "spoken": ["oh mega", "omega"] },
+
+    { "canonical": "1e6", "spoken": ["ten to the six", "10 to the 6th", "ten to the sixth", "one e six"] },
+    { "canonical": "1e10", "spoken": ["ten to the ten", "10 to the 10th", "one e ten"] },
+    { "canonical": "1e14", "spoken": ["ten to the fourteen", "10 to the 14th", "one e fourteen"], "why": "The Ra at which rb_high_ra diverges by t/t_ff ~ 30. Recognising it is what lets the registry refuse the bare default." },
+    { "canonical": "FP32", "spoken": ["eff pee thirty two", "f p thirty two", "fp 32"] },
+    { "canonical": "FP64", "spoken": ["eff pee sixty four", "f p sixty four", "fp 64"] },
+    { "canonical": "Kokkos", "spoken": ["kokkos", "caucus", "cocus", "kaikos", "k8"], "why": "'caucus' and 'K8' are both measured. Without the prompt tiny.en says 'caucus spreads' for 'Kokkos threads'." },
+    { "canonical": "M3LB", "spoken": ["em three ell bee", "m 3 l b", "em three lb", "m3 lb"] }
+  ]
+}
