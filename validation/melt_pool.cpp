@@ -68,11 +68,66 @@
 //           nz, outside the array -- so within one Domain the two surfaces
 //           cannot coincide. SpecNode is used instead, which collides (and so
 //           can carry the stress) but sits on the node.
-//        3. d(gamma)/dT is a BAND, not a value. The clean-alloy figure is
+//        3. TIER (d) IS SLOW, AND IT IS THE IMPLEMENTATION AND NOT THE PHYSICS.
+//           The force field is rebuilt ON THE HOST every step -- six
+//           device-host mirror copies and an O(N) host loop per step -- which
+//           is tolerable at dx = 4 um and not at dx = 2 um. It belongs in a
+//           Kokkos::parallel_for reading the enthalpy and velocity Views
+//           directly; it is written this way because the phase-change inverse
+//           was easier to get right on the host first. Fixing it is mechanical.
+//        4. d(gamma)/dT is a BAND, not a value. The clean-alloy figure is
 //           negative; surface-active sulfur or oxygen can make it positive over
 //           a temperature range, which INVERTS the aspect-ratio change above.
 //           The sign has not been settled for this alloy here, so the -18.3 %
 //           depth change must not be quoted without it.
+//
+//  STAGE 4 -- THE EXPERIMENTAL COMPARISON -- IS BLOCKED, AND THE TWO REASONS
+//  ARE WORTH MORE THAN A WEAK COMPARISON WOULD HAVE BEEN. Searched 2026-09-21.
+//
+//   1. THE BARE-PLATE SINGLE-TRACK BENCHMARK IS FOR IN625, NOT THIS ALLOY.
+//      NIST AM-Bench AMB2018-02 -- the well-characterised bare-plate laser
+//      track set with published width, depth and length -- is Nickel Alloy 625.
+//      This case cites A-AMB2022-01 for its BEAM SIZE only, which is legitimate
+//      and is a different dataset from the dimensional one. So there is nothing
+//      here to compare a Ti-6Al-4V pool against, and comparing it against an
+//      IN625 benchmark would be comparing two alloys.
+//      NOTE FOR WHOEVER DOES THE IN625 ROUTE: AMB2018-02's COMMANDED powers
+//      were 150/195/195 W, the laser calibration was found to be wrong, and the
+//      TRUE powers are 137.9 W at 400 mm/s and 179.2 W at 800 and 1200 mm/s.
+//      Quoting the commanded value would be exactly the "a wrong constant is
+//      still a consistent simulation" failure this tree records.
+//
+//   2. d(gamma)/dT FOR TI-6AL-4V IS NOT VERIFIED HERE, SO THE BAND CANNOT BE
+//      SET. The -2.6e-4 N/(m K) in Opts is a plausible clean-alloy figure and
+//      is NOT traced to a primary source. The surfactant sign flip is firmly
+//      established for Fe, Ni, Cu and Ag -- sulfur and oxygen bonds break as T
+//      rises, so d(gamma)/dT is POSITIVE below a critical temperature and
+//      negative above, with a surface-tension maximum at the crossing -- but it
+//      was NOT established for this alloy in what was searched. Since the sign
+//      decides whether the pool goes wider/shallower or narrower/deeper, tier
+//      (d)'s -18.3 % depth change is unquotable until it is settled.
+//
+//  WHAT STAGE 4 DID SETTLE: A SUB-KEYHOLE OPERATING POINT, and it exposes a
+//  tension the earlier tiers hid. Scanning the reference at A = 0.33 and the
+//  122.5 um spot, against a 3315 K boiling point:
+//
+//      P (W)  v (mm/s)  peak T   2w (um)  d (um)   verdict
+//        75      700     4980     102.98   26.07   keyholing (this case's default)
+//        60     1000     3564      80.24   14.73   keyholing
+//        50     1000     3019      68.70   10.67   SUB-KEYHOLE, 296 K margin
+//        60     1500     3061      67.82    9.57   SUB-KEYHOLE
+//
+//  SUB-KEYHOLE MEANS SHALLOW, AND SHALLOW MEANS BADLY RESOLVED. Every pool deep
+//  enough to resolve comfortably at dx = 2-4 um is above the boiling point; the
+//  legal points are about 10 um deep, i.e. FIVE cells at dx = 2 um and eleven
+//  at dx = 1 um. So a physically coherent tier (c) or (d) run needs dx <= 1 um,
+//  which is 36.9 M nodes for the conduction case alone and more with a D3Q27
+//  fluid beside it. That is the real cost of making this case physical, and it
+//  is a resolution problem rather than a modelling one.
+//  (Two rows of that scan printed a zero pool with a peak above the liquidus;
+//  that is a golden-section bracket failing on a very small melt region in the
+//  scan script, not a physical result, and it is why only the rows with a
+//  resolved envelope are quoted.)
 //
 //       And one bug this tier already caught, recorded because it was silent:
 //       the surface force was first written into a SpecWall ghost, which does
