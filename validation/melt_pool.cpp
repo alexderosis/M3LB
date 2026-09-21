@@ -34,8 +34,52 @@
 //       REFERENCE -- neither Rosenthal nor Eagar & Tsai contains latent heat.
 //       It is reported as an increment against (a) and never as agreement.
 //   (c) Against published single-track dimensions: a COMPARISON, weaker than
-//       either, because the experiment carries its own uncertainty and this
-//       model structurally omits Marangoni convection.
+//       either, because the experiment carries its own uncertainty.
+//   (d) `-flow`: MARANGONI + A MUSHY-ZONE SINK + ADVECTION OF H BY u. Off by
+//       default, so every number above is unchanged. There is NO analytic
+//       reference for this tier either -- it is an INCREMENT against (a)/(b)
+//       and is reported, never asserted. The two terms are validated
+//       SEPARATELY and beforehand, which is the only reason this tier means
+//       anything: validation/marangoni.cpp puts the surface shear against the
+//       exact parallel-flow profile, and validation/mushy_sink.cpp puts the
+//       sink against the exact reduced channel and measures its stability
+//       bound.
+//
+//       MEASURED 2026-09-21, dx = 4 um, dgamma/dT = -2.6e-4 N/(m K),
+//       mu = 3.25e-3 Pa s, A_sink = 0.8:
+//
+//           quantity   conduction   + Marangoni    change
+//           2w          96.651 um   105.736 um     +9.4 %
+//           d           23.888 um    19.519 um    -18.3 %
+//           w/d           4.05         5.42       wider and shallower
+//
+//       Wider and shallower is the correct SIGN for outward thermocapillary
+//       flow at dgamma/dT < 0, and it is the direction a conduction-only model
+//       structurally cannot produce. Peak speed 1.39 m/s.
+//
+//       THREE THINGS MAKE THIS COARSE, AND ALL THREE ARE OPEN.
+//        1. Ma = 0.26 and the density excursion is 17.6 %. dt is set by the
+//           THERMAL problem and is far too long for the flow, so the
+//           compressibility error is not small. The number above is an
+//           increment, not a prediction, and this is the main reason.
+//        2. The fluid's free surface is HALF A CELL below the scalar's. The
+//           scalar's zero-flux plane is the top face of cell nz-1; SpecWall's
+//           mirror would be half a cell outside the last fluid node, i.e. at
+//           nz, outside the array -- so within one Domain the two surfaces
+//           cannot coincide. SpecNode is used instead, which collides (and so
+//           can carry the stress) but sits on the node.
+//        3. d(gamma)/dT is a BAND, not a value. The clean-alloy figure is
+//           negative; surface-active sulfur or oxygen can make it positive over
+//           a temperature range, which INVERTS the aspect-ratio change above.
+//           The sign has not been settled for this alloy here, so the -18.3 %
+//           depth change must not be quoted without it.
+//
+//       And one bug this tier already caught, recorded because it was silent:
+//       the surface force was first written into a SpecWall ghost, which does
+//       not collide, so the whole coupled flow read u = 0 with a visibly
+//       non-zero force field. "Delete the coupling and see whether the answer
+//       moves" found it -- the coupled and conduction runs agreed to every
+//       digit, which is the signature of a term that is not contributing.
 //
 //  THE REFERENCE IS CHECKED BEFORE THE SOLVER RUNS, because the reference IS
 //  the claim here and a reference wrong in the sixth digit validates the wrong
@@ -100,6 +144,10 @@
 #include "collision/ScalarBGK.hpp"
 #include "memory/EsotericPull.hpp"
 #include "solver/ScalarSolver.hpp"
+#include "collision/BGK.hpp"
+#include "equilibrium/Equilibrium.hpp"
+#include "forcing/Forcing.hpp"
+#include "solver/FluidSolver.hpp"
 
 #include "NpyDump.hpp"
 
@@ -108,6 +156,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -341,6 +391,17 @@ struct Opts {
   int    probe = 0;         // analytic field comparison every N steps
   std::string frames;       // directory for animation frames, empty = off
   int    fevery = 0;        // frame interval in steps; 0 = aim for ~150 frames
+
+  // ---- TIER (d): the coupled flow. Off by default, so every number this case
+  // ---- already reports is unchanged and the validated conduction row stays
+  // ---- exactly what validation/melt_pool.cpp was validated as.
+  bool   flow  = false;     // Marangoni + mushy sink + advection of H by u
+  double dgdT  = -2.6e-4;   // N/(m K)  d(gamma)/dT. SEE THE BANNER: the SIGN is
+                            //          solute dependent and is run as a band.
+  double mu_l  = 3.25e-3;   // Pa s     dynamic viscosity of the liquid
+  double A_lat = 0.8;       // mushy sink strength at f_l = 0, IN LATTICE UNITS.
+                            //          validation/mushy_sink.cpp measures the
+                            //          bound at 1.0 and recommends <= 0.8.
 };
 
 }  // namespace
@@ -384,6 +445,64 @@ int run(const Opts& o, const Mat& m) {
   s.set_geometry([](Index, Index, Index) -> std::uint8_t { return ScalarBulk; });
   s.finalize_geometry();     // silent if omitted; see validation/stefan.cpp
   s.initialize(coll.T_ref);
+
+  // ---- TIER (d): the fluid. D3Q27 is not a choice -- every Navier-Stokes
+  // ---- operator static_asserts supports_navier_stokes, false on D3Q7, so a
+  // ---- 3-D fluid on the scalar's own lattice is a compile error. The scalar
+  // ---- stays D3Q7; CLAUDE.md's pairing note applies and the cost is memory
+  // ---- traffic, 27 populations per node against 7.
+  using LF   = D3Q27;
+  using FColl = BGK<LF, SecondOrderEquilibrium<LF>, FieldGuo, ShiftedPopulations>;
+  const double nu_phys = o.mu_l / m.rho;
+  const double nu_lat  = nu_phys * dt / (dx * dx);
+  // a physical force density [N/m^3] -> lattice, with rho_lat = 1
+  const double F_to_lat = dt * dt / (dx * m.rho);
+
+  View1D<Real> Fx, Fy, Fz;
+  std::unique_ptr<FluidSolver<LF, EsotericPull<LF>, FColl>> fs;
+  if (o.flow) {
+    Fx = View1D<Real>("Fx", d.n_padded);
+    Fy = View1D<Real>("Fy", d.n_padded);
+    Fz = View1D<Real>("Fz", d.n_padded);
+    FColl fc;
+    fc.omega = FColl::omega_from_viscosity(Real(nu_lat));
+    fc.forcing = FieldGuo{};
+    fc.forcing.Ex = Fx; fc.forcing.Ey = Fy; fc.forcing.Ez = Fz;
+    fs = std::make_unique<FluidSolver<LF, EsotericPull<LF>, FColl>>(d, fc);
+    // THE TWO SURFACES MUST COINCIDE. The scalar's zero-flux plane is the top
+    // FACE of the last cell (implicit halfway bounce-back); SpecWall's mirror
+    // is half a cell outside the last fluid node, i.e. the same plane.
+    // set_specular_nodes would put the fluid surface half a cell off the
+    // thermal one -- validation/marangoni.cpp is sized around exactly this.
+    fs->set_geometry([&](Index, Index, Index) -> CellType { return Fluid; });
+    // ON-NODE, NOT THE GHOST, AND THIS IS A COMPROMISE THAT COST A BUG.
+    // SpecWall is a ghost: it does not collide, so a body force written into it
+    // is DISCARDED -- which is exactly what happened, and the whole coupled
+    // flow read u = 0 with the force field visibly non-zero. Its mirror also
+    // sits half a cell OUTSIDE the last fluid node, so landing it on the
+    // scalar's surface (the top face of cell nz-1) would need a ghost at nz,
+    // outside the array. Within one Domain the two surfaces cannot both sit on
+    // that plane.
+    // SpecNode puts the plane ON node nz-1, which DOES collide and can carry
+    // the Marangoni stress. The cost is that the fluid's free surface is then
+    // half a cell below the scalar's. That offset is recorded rather than
+    // hidden, and it is the first thing to fix if this tier is ever promoted
+    // past "measured increment".
+    fs->set_specular_nodes([&](Index, Index, Index z) -> std::uint8_t {
+      return (z == nz - 1) ? SpecZp : SpecNone;
+    });
+    fs->initialize(Real(1));
+    s.set_velocity(fs->ux(), fs->uy(), fs->uz());
+    std::printf("\n  TIER (d): COUPLED FLOW ON.  mu = %.4e Pa s  nu = %.4e m^2/s\n",
+                o.mu_l, nu_phys);
+    std::printf("    nu_lat = %.6f  tau_f = %.6f   d(gamma)/dT = %.3e N/(m K)"
+                "   A_sink = %.2f\n", nu_lat,
+                1.0 / double(FColl::omega_from_viscosity(Real(nu_lat))),
+                o.dgdT, o.A_lat);
+    if (nu_lat < 0.02)
+      std::printf("    WARNING: tau_f is close to the 1/2 floor; the fluid is "
+                  "under-relaxed at this dx and dt.\n");
+  }
 
   // Seed self-check: invert the seeded enthalpy and require ambient back. A
   // gauge error is otherwise invisible -- it produces a plausible, converging,
@@ -634,6 +753,77 @@ int run(const Opts& o, const Mat& m) {
       if (r2 > cut * cut) return Real(0);
       return Real(q_peak * Kokkos::exp(-2.0 * r2 / (a_beam * a_beam)) * flux_to_K);
     });
+    if (o.flow) {
+      // ---- the force field, rebuilt each step -------------------------------
+      // Marangoni: tau = (dgamma/dT) grad_s T on the free surface, applied as a
+      // BODY FORCE tau/dx in the top cell. validation/marangoni.cpp validates
+      // exactly this device against the exact profile and measures what it
+      // costs: the surface velocity is FIRST order, the interior second, so a
+      // pool dimension read off an isotherm away from the surface is unharmed.
+      //
+      // Mushy sink: F = -A u with A = A_lat (1-f_l)^2/(f_l^3+eps) in lattice
+      // units. validation/mushy_sink.cpp measures the stability bound at
+      // A = 1.000 (a two-step recurrence, NOT the textbook A < 2) and the
+      // residual leakage floor at about 2 % of u_max.
+      s.compute_field();
+      auto hT = Kokkos::create_mirror_view(s.temperature());
+      Kokkos::deep_copy(hT, s.temperature());
+      auto hfx = Kokkos::create_mirror_view(Fx);
+      auto hfy = Kokkos::create_mirror_view(Fy);
+      auto hfz = Kokkos::create_mirror_view(Fz);
+      auto hux = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->ux());
+      auto huy = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->uy());
+      auto huz = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->uz());
+      auto Tof = [&](Index i, Index j, Index kk) {
+        Real fl, T, E, dE; pcv.invert(hT(d.id(i, j, kk)), fl, T, E, dE);
+        return double(T);
+      };
+      auto FLof = [&](Index i, Index j, Index kk) {
+        Real fl, T, E, dE; pcv.invert(hT(d.id(i, j, kk)), fl, T, E, dE);
+        return double(fl);
+      };
+      const double eps = 1e-3;
+      for (Index i = 0; i < nx; ++i)
+        for (Index j = 0; j < ny; ++j)
+          for (Index kk = 0; kk < nz; ++kk) {
+            const Index n = d.id(i, j, kk);
+            double fx = 0, fy = 0, fz = 0;
+            if (kk == nz - 1) {
+              // central differences on the surface plane; one-sided at the rim
+              const Index ip = (i + 1 < nx) ? i + 1 : i, im = (i > 0) ? i - 1 : i;
+              const Index jp = (j + 1 < ny) ? j + 1 : j, jm = (j > 0) ? j - 1 : j;
+              const double dTdx = (Tof(ip, j, kk) - Tof(im, j, kk)) /
+                                  (double(ip - im) * dx);
+              const double dTdy = (Tof(i, jp, kk) - Tof(i, jm, kk)) /
+                                  (double(jp - jm) * dx);
+              // ONLY WHERE THERE IS LIQUID. A surface tension gradient on solid
+              // is not a stress, and applying it there would drive the solid.
+              const double fl = FLof(i, j, kk);
+              if (fl > 0.0) {
+                fx = fl * o.dgdT * dTdx / dx * F_to_lat;
+                fy = fl * o.dgdT * dTdy / dx * F_to_lat;
+              }
+            }
+            const double fl = FLof(i, j, kk);
+            // THE eps IS NOT DECORATION. A = C (1-f_l)^2/(f_l^3+eps) has
+            // A(0) = C/eps, so naming C "the strength at f_l = 0" makes it
+            // 1/eps times too large -- 800 here against the bound of 1.000 that
+            // validation/mushy_sink.cpp measures, and the run went NaN. Scaling
+            // by eps makes A_lat mean what it says.
+            const double A = o.A_lat * eps * (1.0 - fl) * (1.0 - fl) /
+                             (fl * fl * fl + eps);
+            fx -= A * double(hux(n));
+            fy -= A * double(huy(n));
+            fz -= A * double(huz(n));
+            hfx(n) = Real(fx); hfy(n) = Real(fy); hfz(n) = Real(fz);
+          }
+      Kokkos::deep_copy(Fx, hfx);
+      Kokkos::deep_copy(Fy, hfy);
+      Kokkos::deep_copy(Fz, hfz);
+      fs->step();
+      fs->compute_macroscopic();
+    }
+
     s.step();
 
     if (o.probe && (it + 1) % o.probe == 0) {
@@ -714,6 +904,46 @@ int run(const Opts& o, const Mat& m) {
             E_field / E_in, 1.0, 0.05);
   }
 
+  if (o.flow) {
+    fs->compute_macroscopic();
+    auto hux = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->ux());
+    auto huy = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->uy());
+    auto huz = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->uz());
+    double um = 0, usurf = 0;
+    for (Index i = 0; i < nx; ++i)
+      for (Index j = 0; j < ny; ++j)
+        for (Index kk = 0; kk < nz; ++kk) {
+          const Index n = d.id(i, j, kk);
+          const double q = std::sqrt(double(hux(n)) * double(hux(n)) +
+                                     double(huy(n)) * double(huy(n)) +
+                                     double(huz(n)) * double(huz(n)));
+          um = std::max(um, q);
+          if (kk == nz - 1) usurf = std::max(usurf, q);
+        }
+    double rmin = 1e30, rmax = 0;
+    auto hr = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->rho());
+    for (Index i = 0; i < nx; ++i)
+      for (Index j = 0; j < ny; ++j)
+        for (Index kk = 0; kk < nz; ++kk) {
+          const double r = double(hr(d.id(i, j, kk)));
+          rmin = std::min(rmin, r); rmax = std::max(rmax, r);
+        }
+    const double Ma = um / std::sqrt(double(cs2<LF, Real>()));
+    std::printf("\n  TIER (d) flow report:\n");
+    std::printf("    peak |u| = %.4e lattice = %.4f m/s   surface peak = %.4e\n",
+                um, um * dx / dt, usurf);
+    std::printf("    Mach = %.4f   rho in [%.4f, %.4f] (%.1f %% excursion)\n",
+                Ma, rmin, rmax, 100.0 * (rmax - rmin));
+    if (Ma > 0.1)
+      std::printf("    WARNING: Ma > 0.1. The compressibility error grows as Ma^2 and\n"
+                  "    the density excursion above is its symptom. This tier is a\n"
+                  "    MEASURED INCREMENT, and at this Mach number it is a coarse one:\n"
+                  "    dt is set by the THERMAL problem and is too long for the flow.\n");
+    if (um * dx / dt <= 1e-3)
+      std::printf("    THE FLOW IS NOT MOVING -- check that the surface force is not\n"
+                  "    being written into a non-colliding node.\n");
+  }
+
   //---- extract the pool from the simulated field, as an envelope ----
   auto h = Kokkos::create_mirror_view(s.temperature());
   Kokkos::deep_copy(h, s.temperature());
@@ -783,6 +1013,10 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "-Lz"))    { double t; nx(t); o.Lz = t * 1e-6; }
     else if (!std::strcmp(argv[i], "-track")) { double t; nx(t); o.track = t * 1e-6; }
     else if (!std::strcmp(argv[i], "-probe")) { double t; nx(t); o.probe = int(t); }
+    else if (!std::strcmp(argv[i], "-flow"))  o.flow = true;
+    else if (!std::strcmp(argv[i], "-dgdt"))  nx(o.dgdT);
+    else if (!std::strcmp(argv[i], "-mu"))    nx(o.mu_l);
+    else if (!std::strcmp(argv[i], "-asink")) nx(o.A_lat);
     else if (!std::strcmp(argv[i], "-frames")) { if (i + 1 < argc) o.frames = argv[++i]; }
     else if (!std::strcmp(argv[i], "-fevery")) { double t; nx(t); o.fevery = int(t); }
     else if (!std::strcmp(argv[i], "-la0"))   o.la0 = true;
