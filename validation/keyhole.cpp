@@ -148,6 +148,25 @@
 //  sum_i g_i = T conserves the integral of T, not of rho c_app(T) T. The cross
 //  check against the Python must therefore run -scheme cp; -scheme enthalpy is
 //  the better model and a DIFFERENT one.
+//
+//  -enthalpy IS DIAGNOSTIC ONLY AND ITS OUTPUT IS NOT TRUSTWORTHY. Measured
+//  2026-09-21 on 95 um / 104 W: 283.1 um against the apparent-cp path's
+//  134.7 um, with ignition 5.1x early and the recession cap binding 96 % of
+//  receding column-steps against 49 %. Two real bugs were found and fixed in
+//  this path on that date -- the ambient seed inverted to the SOLIDUS rather
+//  than to 300 K, and the surface increment was added to T instead of to H,
+//  which added the latent heat on top of the deposited energy -- and the 2x
+//  gap SURVIVED BOTH. It is not explained.
+//
+//  The deeper problem is that this switch cannot answer anything even when it
+//  works. All thirteen of the model's constants were fitted against the
+//  apparent-cp scheme at this grid with these clamps; changing the phase-change
+//  scheme changes the model and the calibration at once, so a disagreement
+//  cannot be attributed. EnthalpyBGK's proper test is an analytic one --
+//  validation/stefan.cpp for the 1-D front, and validation/melt_pool.cpp for a
+//  conduction-mode pool against Eagar & Tsai -- not a fitted drilling model.
+//  Every result quoted in this banner and in results/keyhole/ comes from the
+//  apparent-cp path and is unaffected by any of this.
 //==============================================================================
 #include "collision/EnthalpyBGK.hpp"
 #include "collision/ScalarBGK.hpp"
@@ -374,8 +393,38 @@ int run(const Opts& o) {
     s.finalize_geometry();
   }
 
-  const Real H_amb = Enth ? Real(0) : Real(m.T0);
+  // THE AMBIENT STATE IS NOT H = 0, AND GETTING THAT WRONG STARTS THE PLATE
+  // MOLTEN. PhaseChange::invert takes H <= 0 as solid and returns
+  // T = T_s + H/cp_s, so H = 0 IS THE SOLIDUS -- 1878 K, not the 300 K
+  // ambient. E_datum does not rescue it: that shifts only E, which at u = 0
+  // affects nothing. Seeded at H = 0 this case drilled 7.5 um in 0.024 ms
+  // against the apparent-cp path's 0.0, because the whole substrate was
+  // already at the melting point. Use the two-argument forward map.
+  const Real H_amb = [&] {
+    if constexpr (Enth) return pc.enthalpy_of(Real(m.T0), Real(0));
+    else                return Real(m.T0);
+  }();
   s.initialize(H_amb);
+
+  // The self-check the bug above got past. One line, every run: invert the
+  // seeded value and require it to be the ambient temperature. A gauge error
+  // is otherwise invisible -- it produces a plausible, converging, wrong run.
+  {
+    Real T_seed;
+    if constexpr (Enth) {
+      Real fl, T, E, dEdT; pc.invert(H_amb, fl, T, E, dEdT); T_seed = T;
+    } else {
+      T_seed = H_amb;
+    }
+    std::printf("  seed: H_amb = %.4f  ->  T = %.2f K  (ambient %.2f K)%s\n",
+                double(H_amb), double(T_seed), m.T0,
+                std::abs(double(T_seed) - m.T0) < 1e-6 ? "" : "   <-- WRONG GAUGE");
+    if (std::abs(double(T_seed) - m.T0) > 1e-6) {
+      std::printf("keyhole: the seeded enthalpy does not invert to the ambient "
+                  "temperature. NOTHING WAS RUN.\n");
+      std::abort();
+    }
+  }
 
   // Column state.
   View1D<Index> Hs("Hs", ncol);
@@ -529,8 +578,24 @@ int run(const Opts& o) {
       const Index ns = d.id(x, y, Hs(c));
       const Real Hp = f2(ns);
       Real Tp;
-      if constexpr (Enth) { Real fl, T, E, dE; pc.invert(Hp, fl, T, E, dE); Tp = T + dTraw(c); }
-      else                { Tp = Hp + dTraw(c); }
+      if constexpr (Enth) {
+        // dTraw IS AN ENTHALPY INCREMENT ON THIS PATH, not a temperature one:
+        // it is q_net*dt/(rho0*cp*dx) and the gauge puts H in kelvin-equivalent
+        // (cp_s = cp_l = 1, La = L_fus/cp). So it is added to H and the
+        // temperature follows from the inversion.
+        //
+        // ADDING IT TO T INSTEAD CREATES ENERGY, and silently: converting back
+        // through enthalpy_of(T) then adds La*f_l ON TOP of the deposited
+        // energy, so the surface crosses the melting range without paying the
+        // latent heat. Measured on 95 um / 104 W: 279.6 um against the
+        // apparent-cp path's 134.7 um, with ignition 4.9x early. That is what
+        // this branch did until 2026-09-21.
+        Real fl, T, E, dE;
+        pc.invert(Hp + dTraw(c), fl, T, E, dE);
+        Tp = T;
+      } else {
+        Tp = Hp + dTraw(c);
+      }
       Real Tc = Tp;
       if (clampT) {
         if (Tc > Real(Tcap))  { Tc = Real(Tcap);  Kokkos::atomic_add(&cen(1), 1L); }
