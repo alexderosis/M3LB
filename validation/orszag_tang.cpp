@@ -23,10 +23,31 @@
 //    * The paper computes j locally from the distributions. Here j and zeta come
 //      from second-order central differences, so a small difference in the peak
 //      of an L-infinity norm is expected from the operator alone.
+//
+//  WHAT HAPPENS FAR ABOVE THE VALIDATED REYNOLDS NUMBER, measured 2026-09-20 at
+//  Re = 20000, Pr_m = 1, 512^2, D3Q27 + D3Q7 with nz = 1, central moments: the
+//  run BLOWS UP at t = 1.000 s, and nothing after t = 0.96 is usable. j_max
+//  climbs smoothly 160 -> 271 through t = 0.96, reads 363 at 0.98, then 7e66.
+//  The giveaway is spatial, not temporal: a cut through the peak cell at
+//  t = 0.98 alternates sign EVERY CELL -- -154, +219, +24, -215, +363, -25,
+//  -319, +231 -- so the maximum is an odd-even mode nucleating on the current
+//  sheets once they thin past the grid, not a resolved structure. Same
+//  mechanism this tree records for a zero-flux scalar wall at omega -> 2, here
+//  in the BULK at tau = 0.501252.
+//
+//  IT IS NOT A MACH PROBLEM, AND THE OBVIOUS FIX IS THE WRONG ONE. Ma_max was
+//  0.0731 at the last clean probe, so compressibility was nowhere near it. And
+//  Re_cell = u0/nu is Re/N IDENTICALLY -- the Mach number cancels -- so a
+//  smaller dt (-ma) buys no resolution of the sheets whatever: it spends the
+//  tau margin, since nu falls with u0, and multiplies the step count, to reduce
+//  an O(Ma^2) error that was not the failure. Only CELLS move Re_cell. At
+//  Re = 20000 that ladder starts at Re_cell = 39 on 512^2 and is still 20 on
+//  1000^2; neither is resolved, and no run here has reached t = 10.
 //==============================================================================
 #include "Mhd.hpp"
 #include "collision/MhdCentralMoments.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -164,6 +185,44 @@ void dump_fields(FS& fl, MS& mag, double dt, const std::string& tag) {
   put("zeta", zf);
 }
 
+//------------------------------------------------------------------------------
+//  MOVIE FRAMES for the stability run. The scalar j_max says WHEN the current
+//  peaks and nothing about WHERE, and at a Reynolds number far past the one this
+//  case was validated at that distinction is the whole question: a peak carried
+//  by a resolved current sheet and a peak carried by two adjacent cells produce
+//  the same number. So the frames exist to be looked at beside the series, not
+//  to be reduced to one.
+//
+//  Only j is written. zeta is already available from dump_fields() on the
+//  t = 0.5/1 path, and at 512^2 a float32 frame is 1 MB -- a few hundred frames
+//  of both would be most of a gigabyte for a field nobody asked to see.
+//------------------------------------------------------------------------------
+struct Movie { std::string dir; int frames = 200; };
+
+template <class FS, class MS>
+void dump_current(FS& fl, MS& mag, double dt, const std::string& path) {
+  const Domain& d = fl.domain();
+  mag.compute_field();
+  auto bx = Kokkos::create_mirror_view_and_copy(HostSpace{}, mag.Bx());
+  auto by = Kokkos::create_mirror_view_and_copy(HostSpace{}, mag.By());
+  auto w = [&](Index v, Index n) { return ((v % n) + n) % n; };
+  std::vector<float> jf(std::size_t(d.nx * d.ny));
+  for (Index y = 0; y < d.ny; ++y)
+    for (Index x = 0; x < d.nx; ++x) {
+      const Index xp = w(x + 1, d.nx), xm = w(x - 1, d.nx);
+      const Index yp = w(y + 1, d.ny), ym = w(y - 1, d.ny);
+      const double j = 0.5 * (double(by(d.id(xp, y))) - double(by(d.id(xm, y))))
+                     - 0.5 * (double(bx(d.id(x, yp))) - double(bx(d.id(x, ym))));
+      jf[std::size_t(y * d.nx + x)] = float(j / dt);   // lattice -> physical
+    }
+  std::ofstream o(path, std::ios::binary);
+  const int nx = int(d.nx), ny = int(d.ny);
+  o.write(reinterpret_cast<const char*>(&nx), sizeof nx);
+  o.write(reinterpret_cast<const char*>(&ny), sizeof ny);
+  o.write(reinterpret_cast<const char*>(jf.data()),
+          std::streamsize(jf.size() * sizeof(float)));
+}
+
 }  // namespace
 
 //------------------------------------------------------------------------------
@@ -173,17 +232,47 @@ void dump_fields(FS& fl, MS& mag, double dt, const std::string& tag) {
 // built on has been abandoned regardless of what happens next.
 //------------------------------------------------------------------------------
 template <class FluidColl, class ML, class Setup>
-void stability(Index N, double Re, double t_max, const char* opname, Setup setup) {
+void stability(Index N, double Re, double t_max, const char* opname, Setup setup,
+               const Movie& mv = Movie{}, double ma = -1.0) {
+  // -ma REPLACES the acoustic scaling, and only here. run() keeps the paper's
+  // dt because its whole content is a comparison against Table 1 at the
+  // paper's own discretisation; a Mach number chosen here would change the
+  // setup being compared and leave the table headings still claiming it.
+  //
+  // WHAT IT COSTS, because the flag makes it look free. Re_cell = u0/nu is
+  // Re/N identically -- the Mach number cancels -- so lowering it buys NO
+  // resolution of the gradients. What it does buy is a smaller O(Ma^2)
+  // compressibility error, and what it spends is the tau margin (nu falls
+  // with u0, so tau -> 1/2) and the step count (1/Ma of them). That is the
+  // trade named in CLAUDE.md's 'halving u0 hurts twice', and both halves are
+  // printed below rather than left to be discovered.
   const double dx = L_PHYS / double(N);
-  const double dt = DT_REF * double(N_REF) / double(N);
+  const double dt = (ma > 0) ? (ma / std::sqrt(3.0)) * dx / U_PHYS
+                             : DT_REF * double(N_REF) / double(N);
   const double u0 = U_PHYS * dt / dx;
   const double nu = u0 * double(N) / Re;
   const std::size_t n_max = std::size_t(t_max / dt);
   const std::size_t probe = std::size_t(0.02 / dt);
 
+  // The frame stride is derived from n_max, so -nframes asks for a count and
+  // gets it; the probe stride is left alone because the series and the frames
+  // answer different questions and need not share a cadence.
+  const std::size_t fstride =
+      mv.dir.empty() ? 0 : std::max<std::size_t>(1, n_max / std::size_t(mv.frames));
+
   std::printf("  operator = %-38s N = %d   Re = %.0f\n", opname, int(N), Re);
-  std::printf("  nu = eta = %.6e   tau = %.6f   t_max = %.2f s (%zu steps)\n\n",
+  std::printf("  nu = eta = %.6e   tau = %.6f   t_max = %.2f s (%zu steps)\n",
               nu, 3.0 * nu + 0.5, t_max, n_max);
+  std::printf("  dt = %.6e s%s   u0_lat = %.6e   Ma = %.4f\n",
+              dt, (ma > 0) ? "  (from -ma)" : "  (acoustic)", u0, u0 * std::sqrt(3.0));
+  // Re_cell = Re/N identically, and tau - 1/2 is the whole stability margin.
+  // Both are properties of the setup, so both are printed BEFORE the run rather
+  // than reconstructed from a log afterwards.
+  std::printf("  Re_cell = %.1f (= Re/N, independent of Ma)   tau - 1/2 = %.3e\n",
+              u0 / nu, 3.0 * nu);
+  if (fstride) std::printf("  movie: %zu frames every %zu steps -> %s\n",
+                           n_max / fstride, fstride, mv.dir.c_str());
+  std::printf("\n");
 
   using FL = typename FluidColl::Lattice;
   Domain d(N, N, 1, true, true, true);
@@ -218,15 +307,38 @@ void stability(Index N, double Re, double t_max, const char* opname, Setup setup
 
   std::printf("%-10s %-14s %-14s %-10s\n", "t (s)", "j_max", "zeta_max", "Ma_max");
   std::printf("%s\n", std::string(52, '-').c_str());
+  std::ofstream series;
+  if (!mv.dir.empty()) {
+    series.open(mv.dir + "/ot_series.dat");
+    series << "# t(s) j_max zeta_max Ma_max\n";
+  }
   double blow_t = -1.0;
+  int frame = 0;
+  // Frame 0 is the initial condition, written before the first step: an
+  // animation that starts at t = dt cannot show what it started from.
+  if (fstride) {
+    char fn[512];
+    std::snprintf(fn, sizeof fn, "%s/ot_j_%04d.bin", mv.dir.c_str(), frame++);
+    dump_current(fl, mag, dt, fn);
+  }
   for (std::size_t t = 0; t < n_max; ++t) {
     mag.compute_field(); fl.step(true); mag.step(true);
+    if (fstride && (t + 1) % fstride == 0) {
+      char fn[512];
+      std::snprintf(fn, sizeof fn, "%s/ot_j_%04d.bin", mv.dir.c_str(), frame++);
+      dump_current(fl, mag, dt, fn);
+    }
     if ((t + 1) % probe == 0) {
       const Peaks p = peaks(fl, mag);
       const double tt = double(t + 1) * dt;
       std::printf("%-10.3f %-14.4f %-14.4f %-10.4f\n",
                   tt, p.j_max / dt, p.z_max / dt, p.ma_max);
       std::fflush(stdout);
+      if (series) {
+        series << tt << ' ' << p.j_max / dt << ' ' << p.z_max / dt << ' '
+               << p.ma_max << '\n';
+        series.flush();
+      }
       if (!p.finite || p.ma_max > 0.5) { blow_t = tt; break; }
     }
   }
@@ -344,7 +456,8 @@ using EqOf = std::conditional_t<HO, HighOrderEquilibrium<L>, SecondOrderEquilibr
 template <bool HO, class BgkSetup, class CmSetup>
 void dispatch(Index N, double Re, double tmax, const std::string& op,
               const std::string& lat, const std::string& maglat, double wbulk,
-              bool dump, BgkSetup bgk_setup, CmSetup cm_setup) {
+              bool dump, const Movie& mv, double ma, BgkSetup bgk_setup,
+              CmSetup cm_setup) {
     // The Orszag-Tang vortex is a two-dimensional problem. Running it on a 3D
   // lattice with a single cell in z is a genuine reduction test: with nz = 1
   // and periodic z the wrap sends the z-neighbour back to the node itself, so
@@ -360,17 +473,17 @@ void dispatch(Index N, double Re, double tmax, const std::string& op,
   if (tmax > 0) {
     if (op == "cm" && lat == "d3q27")
                              stability<CM27, D3Q7>(N, Re, tmax,
-                               "hybrid central moments, D3Q27 + D3Q7 (nz = 1)", cm_setup);
+                               "hybrid central moments, D3Q27 + D3Q7 (nz = 1)", cm_setup, mv, ma);
     else if (op == "cm")     stability<CM9, D2Q5>(N, Re, tmax,
-                               "hybrid central moments (Eqs. 7-13)", cm_setup);
+                               "hybrid central moments (Eqs. 7-13)", cm_setup, mv, ma);
     else if (lat == "d3q27") {
         // -maglat lets the magnetic lattice be held fixed across fluid lattices,
         // which is the only way to separate the fluid lattice's effect from the
         // magnetic one (D3Q7 has cs2 = 1/4, D2Q5 has 1/3).
-        if (maglat == "d2q5") stability<F27, D2Q5>(N, Re, tmax, "BGK, D3Q27 + D2Q5", bgk_setup);
-        else                  stability<F27, D3Q7>(N, Re, tmax, "BGK, D3Q27 + D3Q7", bgk_setup);
+        if (maglat == "d2q5") stability<F27, D2Q5>(N, Re, tmax, "BGK, D3Q27 + D2Q5", bgk_setup, mv, ma);
+        else                  stability<F27, D3Q7>(N, Re, tmax, "BGK, D3Q27 + D3Q7", bgk_setup, mv, ma);
       }
-    else                     stability<F9,  D2Q5>(N, Re, tmax, "BGK, D2Q9 + D2Q5", bgk_setup);
+    else                     stability<F9,  D2Q5>(N, Re, tmax, "BGK, D2Q9 + D2Q5", bgk_setup, mv, ma);
   } else if (op == "cm" && lat == "d3q27") {
     // The 3D extension the paper prescribes for the velocity field: D3Q27 for
     // the fluid, D3Q7 for the magnetic field. On the Orszag-Tang vortex, with
@@ -407,6 +520,8 @@ int main(int argc, char** argv) {
     std::string lat = "d2q9";    // fluid lattice; the 3D ones run with nz = 1
     std::string maglat = "";     // magnetic lattice override, to isolate its effect
     bool eq2 = false;            // -eq2: second-order equilibrium (published form)
+    Movie mv;                    // -movie DIR: current-field frames + series
+    double ma = -1.0;            // -ma M: pick dt for a target Mach number
     for (int i = 1; i < argc; ++i) {
       const std::string a = argv[i];
       if (a == "-n" && i + 1 < argc)  N = std::atoi(argv[++i]);
@@ -418,6 +533,9 @@ int main(int argc, char** argv) {
       if (a == "-lat" && i + 1 < argc) lat = argv[++i];
       if (a == "-maglat" && i + 1 < argc) maglat = argv[++i];
       if (a == "-eq2") eq2 = true;
+      if (a == "-movie" && i + 1 < argc) mv.dir = argv[++i];
+      if (a == "-nframes" && i + 1 < argc) mv.frames = std::atoi(argv[++i]);
+      if (a == "-ma" && i + 1 < argc) ma = std::atof(argv[++i]);
     }
     // An unrecognised -lat or -maglat is a hard error, not a fall-through to the
     // D2Q9 default. This dispatcher is an else-chain, so before D3Q19 was removed
@@ -435,6 +553,22 @@ int main(int argc, char** argv) {
       std::fprintf(stderr,
           "\nERROR: unknown -maglat %s   (magnetic lattices: d2q5 d3q7)\n"
           "NOTHING WAS RUN.\n\n", maglat.c_str());
+      Kokkos::finalize();
+      return 1;
+    }
+    if (ma > 0 && tmax <= 0) {
+      std::fprintf(stderr,
+          "\nERROR: -ma needs -tmax. The Table 1 path runs at the paper's own dt\n"
+          "on purpose -- changing it there would compare a different setup under\n"
+          "the same headings.\nNOTHING WAS RUN.\n\n");
+      Kokkos::finalize();
+      return 1;
+    }
+    if (!mv.dir.empty() && tmax <= 0) {
+      std::fprintf(stderr,
+          "\nERROR: -movie needs -tmax (frames are written by the stability run;\n"
+          "the Table 1 path dumps only t = 0.5 and t = 1, via -dump)\n"
+          "NOTHING WAS RUN.\n\n");
       Kokkos::finalize();
       return 1;
     }
@@ -459,9 +593,9 @@ int main(int argc, char** argv) {
       c.omega = std::decay_t<decltype(c)>::omega_from_viscosity(nu);
       c.omega_bulk = Real(wbulk);
     };
-    if (eq2) dispatch<false>(N, Re, tmax, op, lat, maglat, wbulk, dump,
+    if (eq2) dispatch<false>(N, Re, tmax, op, lat, maglat, wbulk, dump, mv, ma,
                              bgk_setup, cm_setup);
-    else     dispatch<true> (N, Re, tmax, op, lat, maglat, wbulk, dump,
+    else     dispatch<true> (N, Re, tmax, op, lat, maglat, wbulk, dump, mv, ma,
                              bgk_setup, cm_setup);
   }
   Kokkos::finalize();
