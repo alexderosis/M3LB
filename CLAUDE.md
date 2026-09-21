@@ -480,6 +480,37 @@ These produce plausible, converged, wrong answers rather than crashes.
 - **Coupling order belongs to the solver, not the driver.** For the phase field
   it lives in `step()`; refreshing φ late misplaces the interface rather than
   merely damping it.
+- **A `PhaseChange` THAT WAS NEVER NORMALISED INVERTS THROUGH ITS DEFAULTS AND
+  RETURNS A PLAUSIBLE WRONG TEMPERATURE.** `EnthalpyBGK::set_material` takes its
+  argument **by value** and calls `normalise()` on its OWN copy, so the caller's
+  object keeps the declared defaults `dTm_ = 0, H_l_ = 1, B_ = inv_B_ = 1`.
+  `invert()` then takes the LIQUID branch at any `H > 1` and returns
+  `T_l + (H - 1)/cp_l` instead of `T_l + (H - H_l_)/cp_l` — high by the latent
+  heat in temperature units — and inside the band it returns `T_s` flat. Nothing
+  fails; the run converges. **Take the normalised copy from
+  `coll.material()`**, which is the intended door, or call `normalise()`
+  yourself. Since 2026-09-21 `invert()` **aborts** on `!ready_`, so this is now
+  loud rather than silent; the entry stays because the shape of the mistake
+  (a library that normalises a copy and leaves the caller holding a stale one)
+  generalises. Taking the argument by non-const reference was tried first and
+  rejected: it forces every caller to give up const on its own material, and it
+  still cannot catch an object that never reached a collision.
+  It cost two cases. `validation/melt_pool.cpp` extracted the **1879 K** contour
+  where it asked for 1928 K, moving the melt-pool width by 1.59 um and the depth
+  by 0.75 um. `validation/keyhole.cpp`'s `-enthalpy` path ran 414 K too hot
+  above the band and gave 283.090 um against the apparent-cp path's 134.219 um —
+  **the 2x gap that case recorded as UNEXPLAINED through two earlier bug
+  fixes**. One line took it to 123.594 um, i.e. 0.92x. `validation/stefan.cpp`
+  was never exposed: it calls `normalise()` explicitly and never inverts a bare
+  `pc`, which is why its eleven criteria passed throughout.
+  **AND THE SELF-CHECK BOTH CASES CARRIED WAS STRUCTURALLY BLIND TO IT.** Each
+  inverted the AMBIENT enthalpy and required ambient back; keyhole printed
+  `H_amb = -1578.0000 -> T = 300.00 K` *identically* with and without the bug,
+  because at `H < 0` the SOLID branch reads only `T_s` and `cp_s` — which the
+  caller sets directly — so the branch carrying the defect is never reached. A
+  self-check on a piecewise map must exercise the **band edges**: round-trip
+  `enthalpy_of(T_l, 1) -> T_l` and `enthalpy_of(T_s, 0) -> T_s`. A point in the
+  interior of one branch certifies that branch and nothing else.
 - **`temperature()` is ZERO at an adiabatic scalar node**, because bounce-back
   puts the insulated plane at 0.5 and the node is a ghost outside the fluid
   (`ScalarSolver.hpp`'s `field_kernel`). Harmless when that node is `Solid` for

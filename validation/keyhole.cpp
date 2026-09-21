@@ -149,14 +149,39 @@
 //  check against the Python must therefore run -scheme cp; -scheme enthalpy is
 //  the better model and a DIFFERENT one.
 //
-//  -enthalpy IS DIAGNOSTIC ONLY AND ITS OUTPUT IS NOT TRUSTWORTHY. Measured
-//  2026-09-21 on 95 um / 104 W: 283.1 um against the apparent-cp path's
-//  134.7 um, with ignition 5.1x early and the recession cap binding 96 % of
-//  receding column-steps against 49 %. Two real bugs were found and fixed in
-//  this path on that date -- the ambient seed inverted to the SOLIDUS rather
-//  than to 300 K, and the surface increment was added to T instead of to H,
-//  which added the latent heat on top of the deposited energy -- and the 2x
-//  gap SURVIVED BOTH. It is not explained.
+//  THE 2x GAP IN -enthalpy IS EXPLAINED AND FIXED, AND IT WAS A THIRD BUG.
+//  Measured 2026-09-21 on 95 um / 104 W, one line changed:
+//
+//      -enthalpy, as committed at c31d67d   283.090 um   ignite 0.1309 ms
+//      -enthalpy, + pc = coll.material()    123.594 um   ignite 0.6184 ms
+//      -scheme cp (the reference path)      134.219 um   ignite 0.6725 ms
+//
+//  i.e. 2.11x the apparent-cp path became 0.92x. The cause was that
+//  EnthalpyBGK::set_material took its PhaseChange BY VALUE and normalised its
+//  own copy, so the `pc` in this scope still held the declared defaults
+//  dTm_ = 0 and H_l_ = 1. Every pc.invert() here then took the LIQUID branch
+//  at H > 1 and returned T_l + H - 1 in place of T_l + H - H_l_ -- about
+//  La_k = L_fus/cp = 414 K TOO HOT above the band -- so the surface melted and
+//  vaporised far too early and far too deep. `pc = coll.material()` takes the
+//  normalised copy back, and EnthalpyBGK::invert now aborts on !ready_ so the
+//  same mistake cannot be silent again.
+//
+//  THIS IS THE THIRD BUG IN THIS PATH AND THE SEED SELF-CHECK MISSED ALL OF
+//  THE LAST ONE. The check inverts the AMBIENT enthalpy and prints
+//  "H_amb = -1578.0000 -> T = 300.00 K (ambient 300.00 K)" -- IDENTICALLY,
+//  with and without the bug -- because at H < 0 the SOLID branch reads only
+//  T_s and cp_s, which this scope sets directly. The branch that uses H_l_ is
+//  never reached. A self-check on a piecewise map must exercise the BAND
+//  EDGES; validation/melt_pool.cpp now round-trips both, which is the check
+//  that would have caught this here.
+//
+//  WHAT THE REMAINING 7.9 % IS, AND IS NOT. The enthalpy path is now SHALLOWER
+//  than the apparent-cp path, which is the direction the Neumann measurement
+//  above predicts: the apparent-cp scheme's front error plateaus at +4.4 %
+//  while the enthalpy scheme is at -0.03 %, so the apparent-cp path is the one
+//  running long. That does NOT make 123.594 um the better prediction for THIS
+//  model -- see the paragraph below, the constants were fitted against the
+//  apparent-cp scheme -- and neither number is grid-converged anyway.
 //
 //  The deeper problem is that this switch cannot answer anything even when it
 //  works. All thirteen of the model's constants were fitted against the
@@ -173,9 +198,12 @@
 #include "memory/EsotericPull.hpp"
 #include "solver/ScalarSolver.hpp"
 
+#include "NpyDump.hpp"
+
 #include <Kokkos_Core.hpp>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -279,6 +307,8 @@ struct Opts {
   bool   enthalpy = false;
   bool   d3q27    = false;
   int    every    = 0;          // trace interval in steps, 0 = off
+  std::string frames;           // directory for the animation frames, empty = off
+  int    fevery   = 0;          // frame interval in steps; 0 = aim for ~150 frames
   std::string ref;              // reference CSV to diff against
   std::string out;              // depth trace to write
   bool   muhammad = false;
@@ -371,6 +401,17 @@ int run(const Opts& o) {
     pc.k_s = Real(a_lat_solid); pc.k_l = Real(a_lat_solid);
     pc.La = Real(La_k); pc.E_datum = Real(m.Ts() - m.T0);
     coll.set_material(pc);
+    // TAKE THE NORMALISED COPY BACK. set_material takes PhaseChange BY VALUE
+    // and calls normalise() on its OWN copy, so the `pc` in this scope still
+    // carries the declared defaults H_l_ = 1 and dTm_ = 0 -- and invert() does
+    // not check ready(), although ready() exists. Every pc.invert() below then
+    // took the LIQUID branch at H > 1 and returned T_l + H - 1 instead of
+    // T_l + H - H_l_, i.e. about La_k = L_fus/cp = 414 K TOO HOT above the
+    // band. Too hot means melting and vaporising too early and too far, which
+    // is the direction and roughly the size of this case's unexplained 2x
+    // depth gap in the -enthalpy path. Found 2026-09-21 from
+    // validation/melt_pool.cpp, which had the identical defect.
+    pc = coll.material();
     coll.T_ref = Real(0);
   } else {
     coll.omega = Coll::omega_from_diffusivity(Real(a_lat_solid));
@@ -478,6 +519,15 @@ int run(const Opts& o) {
     std::printf("  reference: %s (%zu points)\n", o.ref.c_str(), ref.t.size());
 
   std::vector<double> hist_t, hist_d;
+
+  // ---- animation frames. Held in host memory and written once at the end, so
+  // ---- a run that is killed loses the movie but never a half-written .npy.
+  const int fev = o.frames.empty() ? 0
+                : (o.fevery > 0 ? o.fevery
+                                : int(std::max<long>(1, steps / 150)));
+  std::vector<float> fr_Ttop, fr_fltop, fr_Txz, fr_flxz, fr_surf;
+  std::vector<float> fr_t, fr_depth;
+  const Index yc_idx = ny / 2;
 
   for (long it = 0; it < steps; ++it) {
     // The ancestor fires a single finite pulse; the descendant is continuous.
@@ -667,6 +717,54 @@ int run(const Opts& o) {
       hist_t.push_back(double(it + 1) * dt);
       hist_d.push_back(double(mx) * dx);
     }
+
+    if (fev && (it + 1) % fev == 0) {
+      // The TOP panels follow the receding surface rather than a fixed z, which
+      // is what makes them comparable with the reference movie: the laser is
+      // absorbed at the current top of each column, so the surface node is the
+      // physically meaningful one. Nodes ABOVE the surface are void; they are
+      // written as NaN so the render leaves them blank instead of drawing them
+      // at ambient, which would fill the keyhole in with cold material.
+      auto fld = s.temperature();
+      auto h_f  = Kokkos::create_mirror_view(fld);
+      auto h_Hs = Kokkos::create_mirror_view(Hs);
+      Kokkos::deep_copy(h_f, fld);
+      Kokkos::deep_copy(h_Hs, Hs);
+      const float nan = std::numeric_limits<float>::quiet_NaN();
+      auto TandFl = [&](Index n, double& T, double& fl) {
+        const Real Hn = h_f(n);
+        if constexpr (Enth) {
+          Real f2v, Tv, Ev, cv; pc.invert(Hn, f2v, Tv, Ev, cv);
+          T = double(Tv); fl = double(f2v);
+        } else {
+          T = double(Hn);
+          fl = std::min(std::max((T - m.Ts()) / (2.0 * m.band), 0.0), 1.0);
+        }
+      };
+      for (Index x = 0; x < nx; ++x)
+        for (Index y = 0; y < ny; ++y) {
+          const Index hz = h_Hs(x * ny + y);
+          double T, fl; TandFl(d.id(x, y, hz), T, fl);
+          fr_Ttop.push_back(float(T));
+          fr_fltop.push_back(float(fl));
+          fr_surf.push_back(float(hz));
+        }
+      for (Index x = 0; x < nx; ++x) {
+        const Index hz = h_Hs(x * ny + yc_idx);
+        for (Index z = 0; z < nz; ++z) {
+          if (z > hz) { fr_Txz.push_back(nan); fr_flxz.push_back(nan); continue; }
+          double T, fl; TandFl(d.id(x, yc_idx, z), T, fl);
+          fr_Txz.push_back(float(T));
+          fr_flxz.push_back(float(fl));
+        }
+      }
+      Real mxf = 0;
+      Kokkos::parallel_reduce("mxf", Range(0, ncol),
+        KOKKOS_LAMBDA(Index c, Real& a) { a = Kokkos::max(a, rec(c)); },
+        Kokkos::Max<Real>(mxf));
+      fr_t.push_back(float(double(it + 1) * dt));
+      fr_depth.push_back(float(double(mxf) * dx));
+    }
   }
 
   Real mx = 0;
@@ -696,6 +794,30 @@ int run(const Opts& o) {
   std::printf("    steps with >=1 ignited column %ld of %ld\n", h_cen(6), steps);
   std::printf("  first ignition at t = %.6f ms  (step %ld)\n",
               (steps - h_cen(6)) * dt * 1e3, steps - h_cen(6));
+
+  if (fev && !fr_t.empty()) {
+    const std::size_t F = fr_t.size();
+    const std::string D = o.frames + "/";
+    write_npy(D + "T_top.npy",  fr_Ttop,  {F, std::size_t(nx), std::size_t(ny)});
+    write_npy(D + "fl_top.npy", fr_fltop, {F, std::size_t(nx), std::size_t(ny)});
+    write_npy(D + "surf.npy",   fr_surf,  {F, std::size_t(nx), std::size_t(ny)});
+    write_npy(D + "T_xz.npy",   fr_Txz,   {F, std::size_t(nx), std::size_t(nz)});
+    write_npy(D + "fl_xz.npy",  fr_flxz,  {F, std::size_t(nx), std::size_t(nz)});
+    write_npy(D + "t.npy",      fr_t,     {F});
+    write_npy(D + "depth.npy",  fr_depth, {F});
+    // The scale factors the render needs, so the figure can carry real units
+    // and not cell indices. Written as one array rather than a second format.
+    const std::vector<float> meta{
+        float(dx), float(dt), float(nx), float(ny), float(nz), float(yc_idx),
+        float(m.Ts()), float(m.Tl()), float(m.T0), float(o.P), float(o.spot),
+        float(m.thickness), float(steps)};
+    write_npy(D + "meta.npy", meta, {meta.size()});
+    std::printf("  frames -> %s (%zu frames, %dx%d top, %dx%d centreline, "
+                "every %d steps)\n", o.frames.c_str(), F, int(nx), int(ny),
+                int(nx), int(nz), fev);
+    std::printf("    meta.npy = [dx, dt, nx, ny, nz, y_centre, T_s, T_l, T_0, "
+                "P, spot_um, thickness, steps]\n");
+  }
 
   if (!o.out.empty()) {
     std::FILE* f = std::fopen(o.out.c_str(), "w");
@@ -768,6 +890,8 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "-decay"))   { double v; next(v); o.decay = v * 1e-6; }
     else if (!std::strcmp(argv[i], "-dignite")) { double v; next(v); o.d_ign = v * 1e-6; }
     else if (!std::strcmp(argv[i], "-enthalpy")) o.enthalpy = true;
+    else if (!std::strcmp(argv[i], "-frames"))   { if (i + 1 < argc) o.frames = argv[++i]; }
+    else if (!std::strcmp(argv[i], "-fevery"))   { double v; next(v); o.fevery = int(v); }
     else if (!std::strcmp(argv[i], "-d3q27"))  o.d3q27 = true;
     else if (!std::strcmp(argv[i], "-every"))  { double v; next(v); o.every = int(v); }
     else if (!std::strcmp(argv[i], "-nz"))     { double v; next(v); o.nz = Index(v); }

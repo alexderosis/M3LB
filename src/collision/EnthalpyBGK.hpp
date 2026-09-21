@@ -260,6 +260,18 @@ struct PhaseChange {
   //----------------------------------------------------------------------------
   KOKKOS_INLINE_FUNCTION
   void invert(Real H, Real& fl, Real& T, Real& E, Real& dEdT) const {
+    // THE DOOR IS NOW GUARDED. Without this, an un-normalised PhaseChange
+    // inverts through the DECLARED DEFAULTS dTm_ = 0, H_l_ = 1, B_ = 1 and
+    // returns a plausible wrong temperature -- high by the latent heat in
+    // temperature units above the band, and pinned to T_s inside it. It cost
+    // validation/keyhole.cpp a factor of 2.11 in depth and
+    // validation/melt_pool.cpp the wrong isotherm, and the ambient-only seed
+    // self-check both cases carried passed with it in place. An abort is the
+    // right response rather than a returned flag: there is no correct answer
+    // to give, and this tree's convention is to say NOTHING WAS RUN.
+    if (!ready_) Kokkos::abort("PhaseChange::invert on an un-normalised "
+                               "material: call normalise(), or take the "
+                               "collision's own copy from material().");
     if (H <= Real(0)) {                       // SOLID
       fl   = Real(0);
       T    = T_s + H / cp_s;
@@ -380,6 +392,35 @@ struct EnthalpyBGK {
   View1D<Real> omega_of;     // ScalarBGK's per-node field; same caveat
 
   //----------------------------------------------------------------------------
+  // BY REFERENCE, AND IT NORMALISES THE CALLER'S OBJECT IN PLACE. It took a
+  // COPY until 2026-09-21, which left the caller holding an object whose
+  // derived members were still the declared defaults dTm_ = 0, H_l_ = 1,
+  // B_ = inv_B_ = 1 -- and invert() does not check ready(), so inverting
+  // through it returned a PLAUSIBLE WRONG TEMPERATURE rather than failing:
+  // the liquid branch reads T_l + (H - 1)/cp_l instead of
+  // T_l + (H - H_l_)/cp_l, i.e. high by (H_l_ - 1), which is the latent heat
+  // in temperature units.
+  //
+  // It cost two cases. validation/melt_pool.cpp reported the T = 1879 K
+  // contour where it asked for 1928 K, moving the melt-pool width by 1.59 um
+  // and the depth by 0.75 um. validation/keyhole.cpp's -enthalpy path ran
+  // 414 K too hot above the band and gave a final depth of 283.1 um against
+  // the apparent-cp path's 134.2 um -- THE 2x GAP THAT CASE RECORDED AS
+  // UNEXPLAINED. One line fixed it to 123.6 um.
+  //
+  // Both cases had a seed self-check that inverted the AMBIENT enthalpy and
+  // both passed it with the bug in place, because at H < 0 the SOLID branch
+  // reads only T_s and cp_s, which the caller sets directly. A self-check on
+  // a piecewise map must exercise the BAND EDGES; a point inside one branch
+  // certifies that branch and nothing else.
+  //
+  // THE ARGUMENT STAYS BY VALUE and the door is guarded in invert() instead.
+  // Taking a non-const reference was tried first and rejected: it forces every
+  // caller to give up const on its own material (it broke
+  // validation/stefan.cpp:299 immediately), and it still cannot catch a
+  // PhaseChange that was never handed to a collision at all. invert() now
+  // aborts on !ready_, which catches both and costs nothing measurable --
+  // tests/frame_check.sh, below.
   void set_material(PhaseChange m) {
     m.normalise();
     pc_   = m;
