@@ -43,10 +43,25 @@
 //  WHAT THIS MODELS, AND WHAT IT DOES NOT. Varying omega alone varies the
 //  diffusivity alpha = lambda / (rho c_p). It therefore reproduces a
 //  conductivity ratio ONLY where rho c_p is uniform, because the scheme
-//  transports sum_i g_i and that sum is the temperature, not the enthalpy. A
-//  jump in volumetric heat capacity needs a different variable and is not
-//  implemented; validation/zhou_thermal.cpp's conduction case is the uniform-
-//  rho-c_p kind, which is also what Zhou et al. (2026) Sec. 3.1 specifies.
+//  transports sum_i g_i and that sum is the temperature, not the enthalpy.
+//  validation/zhou_thermal.cpp's conduction case is the uniform-rho-c_p kind,
+//  which is also what Zhou et al. (2026) Sec. 3.1 specifies.
+//
+//  A jump in volumetric heat capacity needs a different variable, and since
+//  2026-09-21 that variable exists: collision/EnthalpyBGK.hpp transports the
+//  total enthalpy H = e(T) + La f_l and handles melting, solidification and a
+//  capacity jump. Use it rather than reaching for omega_of here.
+//
+//  WHY omega_of CANNOT BE MADE TO DO IT, since it is the first thing anyone
+//  tries. Melting by an apparent heat capacity sets alpha = k/(rho c_app(T))
+//  with c_app carrying the latent heat over a narrow band. But BGK conserves
+//  sum_i g_i LOCALLY for any omega field -- sum_i g_i^eq = T identically,
+//  because sum_i w_i c_i = 0 -- so the conserved integral is the integral of T
+//  and the latent heat is simply not in the budget. No choice of omega can
+//  remove heat from the transported variable when a cell melts. Equivalently,
+//  div(alpha grad T) = (1/rho c_app) div(k grad T) + k grad T . grad(1/rho
+//  c_app), and the second term is the same order as the first and is set by a
+//  physical band width, so it does not refine away.
 //
 //  The interface condition is not imposed anywhere -- continuity of T and of
 //  alpha dT/dn emerges from the streaming, with the effective interface sitting

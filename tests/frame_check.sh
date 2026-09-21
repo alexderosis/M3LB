@@ -37,6 +37,22 @@
 #      PhaseFieldCentralMoments    656 / 1 / 1   (untouched)  432 / 0 / 0  (untouched)
 #      ColourGradient             1200 / 1 /10   480 / 0 / 6  624 / 0 / 6  416 / 0 / 6
 #
+#  The scalar family, added 2026-09-21 with the enthalpy operator. ScalarBGK is
+#  the baseline row; without it the enthalpy rows have nothing to sit beside,
+#  since probe_bgk is a 27-velocity fluid operator taking a Macro.
+#  frame / loops / regidx, and the instruction count, clang -O3, arm64:
+#
+#      operator                    FP64                  FP32
+#      ScalarBGK<D3Q7>             0 / 0 / 0   (80)      0 / 0 / 0   (80)
+#      EnthalpyBGK<D3Q7>           0 / 0 / 0  (104)      0 / 0 / 0  (100)
+#      EnthalpyRegularised<D3Q7>   0 / 0 / 0   (86)      0 / 0 / 0   (84)
+#
+#  The finding: the enthalpy inversion is a three-branch closed form containing
+#  a sqrt, and it costs 24 instructions over ScalarBGK with NO frame, no
+#  surviving loop and no register-indexed array. That was the thing worth
+#  checking -- a branchy per-node nonlinearity is exactly the shape that could
+#  have pushed the population array out of the register file.
+#
 #  The three fixed operators lost their surviving loop and all of their
 #  register-indexed LOCAL accesses at both precisions. The one regidx left in
 #  MultiphaseCentralMoments is a genuine per-node field load, not a demoted
@@ -94,6 +110,9 @@ cat > "$TMP/probe.cpp" <<'CPP'
 #include "collision/ColourGradient.hpp"
 #include "collision/MhdCentralMoments.hpp"
 #include "collision/MhdCentralMomentsShifted.hpp"
+#include "collision/ScalarBGK.hpp"
+#include "collision/EnthalpyBGK.hpp"
+#include "collision/EnthalpyRegularised.hpp"
 using namespace lbm;
 using Bgk  = BGK<D3Q27, SecondOrderEquilibrium<D3Q27>, NoForcing, RawPopulations>;
 using CM   = MomentCollision<D3Q27, NoForcing, RawPopulations, true>;
@@ -102,6 +121,12 @@ using PfCM = PhaseFieldCentralMoments<D3Q27>;
 using CG   = ColourGradient<D3Q27>;
 using MhdS = MhdCentralMomentsShifted<D3Q27>;
 using MhdM = MhdCentralMoments<D2Q9, true>;
+// The scalar family. SBGK is the BASELINE -- without it the two enthalpy rows
+// have nothing to be compared against, since probe_bgk is a 27-velocity fluid
+// operator taking a Macro and is not the same kind of thing.
+using SBGK = ScalarBGK<D3Q7>;
+using EBGK = EnthalpyBGK<D3Q7>;
+using EREG = EnthalpyRegularised<D3Q7>;
 extern "C" void probe_bgk (Real* f, const Macro* m, const Bgk*  c) { c->collide(f, *m, 0); }
 extern "C" void probe_cm  (Real* f, const Macro* m, const CM*   c) { c->collide(f, *m, 0); }
 extern "C" void probe_mpcm(Real* f, const Macro* m, const MpCM* c) { c->collide(f, *m, 0); }
@@ -113,6 +138,20 @@ extern "C" void probe_cg(Real* f, Real rho, const Real* u, Real p, const CG* c) 
 }
 extern "C" void probe_mhds(Real* f, const Macro* m, const MhdS* c) { c->collide(f, *m, 0); }
 extern "C" void probe_mhdm(Real* f, const Macro* m, const MhdM* c) { c->collide(f, *m, 0); }
+extern "C" void probe_sbgk(Real* g, Real d, const Real* u, const SBGK* c) {
+  c->collide(g, d, u[0], u[1], u[2], c->omega);
+}
+// The enthalpy inversion is a closed form with three branches and no table, so
+// these two rows should sit beside SBGK rather than above it. A regidx here
+// would mean the branch defeated the compiler and the population array left
+// the register file -- the mechanism MomentCollision.hpp measures at 47x on a
+// device, wearing a different hat.
+extern "C" void probe_enth(Real* g, Real d, const Real* u, const EBGK* c) {
+  c->collide(g, d, u[0], u[1], u[2], c->omega);
+}
+extern "C" void probe_enthr(Real* g, Real d, const Real* u, const EREG* c) {
+  c->collide(g, d, u[0], u[1], u[2], c->omega);
+}
 CPP
 
 for PREC in double float; do
@@ -131,7 +170,8 @@ for PREC in double float; do
   echo
   echo "  precision $PREC"
   printf "  %-28s %7s %8s %7s %8s\n" operator frame instrs loops regidx
-  for FN in probe_bgk probe_cm probe_mpcm probe_pfcm probe_cg probe_mhds probe_mhdm; do
+  for FN in probe_bgk probe_cm probe_mpcm probe_pfcm probe_cg probe_mhds probe_mhdm \
+          probe_sbgk probe_enth probe_enthr; do
     LN=$(awk -v f="_$FN:" '$0 ~ "^"f {print NR; exit}' "$TMP/probe.s")
     awk -v s="$LN" 'NR>=s{print} NR>s && /\.cfi_endproc/{exit}' "$TMP/probe.s" > "$TMP/b.s"
     # A tail call means the body was not inlined into the probe; follow it,

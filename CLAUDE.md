@@ -76,6 +76,7 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 | free-slip / symmetry wall | `set_specular_walls` | exact mirror; **halfway** (ghost cell) |
 | free-slip where the other walls are on-node | `set_specular_nodes` | exact mirror; **on-node**, collides, takes edges and corners |
 | zero-flux scalar wall | `ScalarSpecular` + `ScalarSolver::set_specular_walls` | **on-node**; the only one usable where the field is differentiated or integrated — see below |
+| + melting / solidification, latent heat | `ScalarSolver` + `EnthalpyBGK` | transports the total enthalpy H, **not** T — `temperature()` returns an ENTHALPY, and `PhaseChange::invert` gives T and f_l. `EnthalpyRegularised` above ω ≈ 1.9 |
 | + charge carriers in an electric field | `ScalarSolver` + `ChargeCentralMoments` | D3Q27, advects at the **drift** velocity `u + KE`, not at `u` |
 | + electric potential (Poisson) | `ScalarSolver` + `ScalarBGK` + `add_source` | no new solver — see `validation/ehd_hydrostatic.cpp` |
 | + magnetic field | `MagneticSolver` | Dellar vector distribution |
@@ -217,9 +218,15 @@ They take the coefficient **already in lattice units**, and each reads its own
 lattice's `cs2`, so they are the safe way to get ω. `ScalarBGK` also accepts a
 *field* of rates, `omega_of`, for conjugate heat transfer — a solid inclusion in
 a fluid. It reproduces a conductivity ratio only where ρc_p is uniform, since the
-scheme transports the temperature rather than the enthalpy; where it applies, the
-interface is exact rather than second order (`validation/zhou_thermal.cpp`
-measures 1e-9 % at ratios from 0.1 to 100). Nothing in `src/` converts
+scheme transports the temperature rather than the enthalpy. **The interface is
+SECOND ORDER, NOT EXACT** — `src/collision/ScalarBGK.hpp:54` says so and
+`validation/zhou_thermal.cpp` measures the cost: 0.11 % at κ = 100 and N = 400,
+falling as N^-2. An earlier version of this entry said "exact rather than second
+order (1e-9 %)", which was the κ = 1 row — where the exact solution is linear and
+the scheme is exact for that reason — misquoted as the whole table. The
+distinction matters for a melting front, which *is* an interface between two
+diffusivities. Where ρc_p is NOT uniform, use `EnthalpyBGK`; that header derives
+why no choice of ω can substitute. Nothing in `src/` converts
 metres and seconds — that arrow belongs to the case. The only worked example in
 the tree is the local `struct Scaling` at `demonstrator/urban.cpp:123`, and it
 is local on purpose: its banner argues one particular strategy (fix `dt` by
@@ -377,9 +384,14 @@ These produce plausible, converged, wrong answers rather than crashes.
 - **Storage × streaming pairings are not free.** Shifted populations centre the
   stored variable on `p̃ = 1`, which is exactly the pressure gauge that must be
   avoided at a density ratio — so the multiphase operators declare
-  `RawPopulations`. `FreeSurfaceSolver` `static_assert`s *against* Esoteric Pull
-  and needs `TwoLattice`, because it reads a neighbour's post-collision state
-  while writing its own.
+  `RawPopulations`. `FreeSurfaceSolver` does not take a streaming policy at all:
+  `src/solver/FreeSurfaceSolver.hpp:222` hardcodes `using Streaming =
+  TwoLattice<L>;`, because it reads a neighbour's post-collision state while
+  writing its own. An earlier version of this entry said it `static_assert`s
+  *against* Esoteric Pull; it does not — its only two assertions are
+  `supports_navier_stokes` and `ProductBasis<L>::enabled`. Same practical
+  effect, but it means there is no streaming clash to resolve when pairing it
+  with a `ScalarSolver`, which carries its own lattice and its own storage.
 - **EVERY NAVIER-STOKES LATTICE HERE IS NOW A PRODUCT LATTICE, AND THE REDUCED
   ONES NEVER WERE.** D2Q9 and D3Q27 are product lattices; **D2Q5 and D3Q7 are
   NOT**, and no removal changed that -- `ProductBasis::is_product_lattice()`
