@@ -199,6 +199,12 @@ void dump_fields(FS& fl, MS& mag, double dt, const std::string& tag) {
 //------------------------------------------------------------------------------
 struct Movie { std::string dir; int frames = 200; };
 
+// The clock. Exactly one of these may be set: -ma names the Mach number and
+// solves for dt, -dt names dt and lets Ma fall out. Neither set is the paper's
+// acoustic scaling. They are one knob reached two ways, so setting both is
+// refused at parse time rather than resolved by precedence.
+struct Clock { double ma = -1.0, dt = -1.0; };
+
 template <class FS, class MS>
 void dump_current(FS& fl, MS& mag, double dt, const std::string& path) {
   const Domain& d = fl.domain();
@@ -233,22 +239,33 @@ void dump_current(FS& fl, MS& mag, double dt, const std::string& path) {
 //------------------------------------------------------------------------------
 template <class FluidColl, class ML, class Setup>
 void stability(Index N, double Re, double t_max, const char* opname, Setup setup,
-               const Movie& mv = Movie{}, double ma = -1.0) {
-  // -ma REPLACES the acoustic scaling, and only here. run() keeps the paper's
-  // dt because its whole content is a comparison against Table 1 at the
-  // paper's own discretisation; a Mach number chosen here would change the
-  // setup being compared and leave the table headings still claiming it.
+               const Movie& mv = Movie{}, const Clock& clk = Clock{}) {
+  // -ma and -dt REPLACE the acoustic scaling, and only here. run() keeps the
+  // paper's dt because its whole content is a comparison against Table 1 at the
+  // paper's own discretisation; a clock chosen here would change the setup being
+  // compared and leave the table headings still claiming it.
   //
-  // WHAT IT COSTS, because the flag makes it look free. Re_cell = u0/nu is
-  // Re/N identically -- the Mach number cancels -- so lowering it buys NO
-  // resolution of the gradients. What it does buy is a smaller O(Ma^2)
-  // compressibility error, and what it spends is the tau margin (nu falls
-  // with u0, so tau -> 1/2) and the step count (1/Ma of them). That is the
-  // trade named in CLAUDE.md's 'halving u0 hurts twice', and both halves are
-  // printed below rather than left to be discovered.
+  // WHICH WAY THE TRADE RUNS, because a flag makes either direction look free.
+  // Re_cell = u0/nu is Re/N identically -- the clock cancels out of it -- so
+  // NEITHER setting buys any resolution of the gradients; only cells do. What
+  // moves is the O(Ma^2) compressibility error against the tau margin and the
+  // step count, and they move in OPPOSITE directions:
+  //
+  //    smaller dt -> smaller Ma, but nu falls with u0 so tau -> 1/2, and the
+  //                  step count goes up as 1/Ma
+  //    larger dt  -> larger Ma, but nu rises so tau leaves the floor, and the
+  //                  steps go down
+  //
+  // That is CLAUDE.md's 'halving u0 hurts twice' read in both directions, and
+  // it is not academic here: at Re = 20000 on 1000^2, Ma = 0.01 gives a margin
+  // tau - 1/2 = 8.66e-4 over 551,329 steps, while dt = 1e-4 gives 4.78e-3 --
+  // 5.5x the margin -- over 100,000. Both are printed below rather than left to
+  // be discovered, and Ma is worth watching against the u0 <= 0.05 rule when
+  // reaching for the second direction.
   const double dx = L_PHYS / double(N);
-  const double dt = (ma > 0) ? (ma / std::sqrt(3.0)) * dx / U_PHYS
-                             : DT_REF * double(N_REF) / double(N);
+  const double dt = (clk.dt > 0) ? clk.dt
+                  : (clk.ma > 0) ? (clk.ma / std::sqrt(3.0)) * dx / U_PHYS
+                                 : DT_REF * double(N_REF) / double(N);
   const double u0 = U_PHYS * dt / dx;
   const double nu = u0 * double(N) / Re;
   const std::size_t n_max = std::size_t(t_max / dt);
@@ -263,8 +280,10 @@ void stability(Index N, double Re, double t_max, const char* opname, Setup setup
   std::printf("  operator = %-38s N = %d   Re = %.0f\n", opname, int(N), Re);
   std::printf("  nu = eta = %.6e   tau = %.6f   t_max = %.2f s (%zu steps)\n",
               nu, 3.0 * nu + 0.5, t_max, n_max);
-  std::printf("  dt = %.6e s%s   u0_lat = %.6e   Ma = %.4f\n",
-              dt, (ma > 0) ? "  (from -ma)" : "  (acoustic)", u0, u0 * std::sqrt(3.0));
+  std::printf("  dt = %.6e s%s   u0_lat = %.6e   Ma = %.4f\n", dt,
+              (clk.dt > 0) ? "  (from -dt)"
+                           : (clk.ma > 0) ? "  (from -ma)" : "  (acoustic)",
+              u0, u0 * std::sqrt(3.0));
   // Re_cell = Re/N identically, and tau - 1/2 is the whole stability margin.
   // Both are properties of the setup, so both are printed BEFORE the run rather
   // than reconstructed from a log afterwards.
@@ -456,7 +475,7 @@ using EqOf = std::conditional_t<HO, HighOrderEquilibrium<L>, SecondOrderEquilibr
 template <bool HO, class BgkSetup, class CmSetup>
 void dispatch(Index N, double Re, double tmax, const std::string& op,
               const std::string& lat, const std::string& maglat, double wbulk,
-              bool dump, const Movie& mv, double ma, BgkSetup bgk_setup,
+              bool dump, const Movie& mv, const Clock& clk, BgkSetup bgk_setup,
               CmSetup cm_setup) {
     // The Orszag-Tang vortex is a two-dimensional problem. Running it on a 3D
   // lattice with a single cell in z is a genuine reduction test: with nz = 1
@@ -473,17 +492,17 @@ void dispatch(Index N, double Re, double tmax, const std::string& op,
   if (tmax > 0) {
     if (op == "cm" && lat == "d3q27")
                              stability<CM27, D3Q7>(N, Re, tmax,
-                               "hybrid central moments, D3Q27 + D3Q7 (nz = 1)", cm_setup, mv, ma);
+                               "hybrid central moments, D3Q27 + D3Q7 (nz = 1)", cm_setup, mv, clk);
     else if (op == "cm")     stability<CM9, D2Q5>(N, Re, tmax,
-                               "hybrid central moments (Eqs. 7-13)", cm_setup, mv, ma);
+                               "hybrid central moments (Eqs. 7-13)", cm_setup, mv, clk);
     else if (lat == "d3q27") {
         // -maglat lets the magnetic lattice be held fixed across fluid lattices,
         // which is the only way to separate the fluid lattice's effect from the
         // magnetic one (D3Q7 has cs2 = 1/4, D2Q5 has 1/3).
-        if (maglat == "d2q5") stability<F27, D2Q5>(N, Re, tmax, "BGK, D3Q27 + D2Q5", bgk_setup, mv, ma);
-        else                  stability<F27, D3Q7>(N, Re, tmax, "BGK, D3Q27 + D3Q7", bgk_setup, mv, ma);
+        if (maglat == "d2q5") stability<F27, D2Q5>(N, Re, tmax, "BGK, D3Q27 + D2Q5", bgk_setup, mv, clk);
+        else                  stability<F27, D3Q7>(N, Re, tmax, "BGK, D3Q27 + D3Q7", bgk_setup, mv, clk);
       }
-    else                     stability<F9,  D2Q5>(N, Re, tmax, "BGK, D2Q9 + D2Q5", bgk_setup, mv, ma);
+    else                     stability<F9,  D2Q5>(N, Re, tmax, "BGK, D2Q9 + D2Q5", bgk_setup, mv, clk);
   } else if (op == "cm" && lat == "d3q27") {
     // The 3D extension the paper prescribes for the velocity field: D3Q27 for
     // the fluid, D3Q7 for the magnetic field. On the Orszag-Tang vortex, with
@@ -521,7 +540,7 @@ int main(int argc, char** argv) {
     std::string maglat = "";     // magnetic lattice override, to isolate its effect
     bool eq2 = false;            // -eq2: second-order equilibrium (published form)
     Movie mv;                    // -movie DIR: current-field frames + series
-    double ma = -1.0;            // -ma M: pick dt for a target Mach number
+    Clock clk;                   // -ma M / -dt S: one knob, two spellings
     for (int i = 1; i < argc; ++i) {
       const std::string a = argv[i];
       if (a == "-n" && i + 1 < argc)  N = std::atoi(argv[++i]);
@@ -535,7 +554,8 @@ int main(int argc, char** argv) {
       if (a == "-eq2") eq2 = true;
       if (a == "-movie" && i + 1 < argc) mv.dir = argv[++i];
       if (a == "-nframes" && i + 1 < argc) mv.frames = std::atoi(argv[++i]);
-      if (a == "-ma" && i + 1 < argc) ma = std::atof(argv[++i]);
+      if (a == "-ma" && i + 1 < argc) clk.ma = std::atof(argv[++i]);
+      if (a == "-dt" && i + 1 < argc) clk.dt = std::atof(argv[++i]);
     }
     // An unrecognised -lat or -maglat is a hard error, not a fall-through to the
     // D2Q9 default. This dispatcher is an else-chain, so before D3Q19 was removed
@@ -556,11 +576,18 @@ int main(int argc, char** argv) {
       Kokkos::finalize();
       return 1;
     }
-    if (ma > 0 && tmax <= 0) {
+    if (clk.ma > 0 && clk.dt > 0) {
       std::fprintf(stderr,
-          "\nERROR: -ma needs -tmax. The Table 1 path runs at the paper's own dt\n"
-          "on purpose -- changing it there would compare a different setup under\n"
-          "the same headings.\nNOTHING WAS RUN.\n\n");
+          "\nERROR: -ma and -dt set the same thing. Give one.\n"
+          "NOTHING WAS RUN.\n\n");
+      Kokkos::finalize();
+      return 1;
+    }
+    if ((clk.ma > 0 || clk.dt > 0) && tmax <= 0) {
+      std::fprintf(stderr,
+          "\nERROR: -ma/-dt need -tmax. The Table 1 path runs at the paper's own\n"
+          "dt on purpose -- changing it there would compare a different setup\n"
+          "under the same headings.\nNOTHING WAS RUN.\n\n");
       Kokkos::finalize();
       return 1;
     }
@@ -593,9 +620,9 @@ int main(int argc, char** argv) {
       c.omega = std::decay_t<decltype(c)>::omega_from_viscosity(nu);
       c.omega_bulk = Real(wbulk);
     };
-    if (eq2) dispatch<false>(N, Re, tmax, op, lat, maglat, wbulk, dump, mv, ma,
+    if (eq2) dispatch<false>(N, Re, tmax, op, lat, maglat, wbulk, dump, mv, clk,
                              bgk_setup, cm_setup);
-    else     dispatch<true> (N, Re, tmax, op, lat, maglat, wbulk, dump, mv, ma,
+    else     dispatch<true> (N, Re, tmax, op, lat, maglat, wbulk, dump, mv, clk,
                              bgk_setup, cm_setup);
   }
   Kokkos::finalize();
