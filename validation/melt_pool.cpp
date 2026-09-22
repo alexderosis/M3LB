@@ -159,6 +159,25 @@
 //           fixes it (5; 16 is what was measured to work). Two separate
 //           dt_f-limited terms were hiding behind one symptom, and neither was
 //           visible while the sink was spelled as a lattice constant.
+//           **RE-MEASURED WITH A_lat DERIVED, AND THE STEEL ANSWER MOVED A LOT.**
+//           -dx 8 -flow -steel, A_lat/nu_lat = 80.44 at both N:
+//
+//               nsub   A_lat    u [m/s]   Ma       2w [um]   d [um]
+//                 16   0.2409   0.2887    0.0149   94.164    16.720
+//                 32   0.1205   0.2885    0.0074   94.259    16.676
+//
+//           Converged: 0.07 % on velocity, 0.10 % on width, 0.26 % on depth, so
+//           -fsub 16 is enough for 316L at this dx. Against the pre-fix run at
+//           the SAME nsub = 16, where the sink was 3.3x too strong, the width is
+//           +2.8 %, the depth -11.6 % and the peak velocity +95.5 %. The old
+//           sequence never settled (u = 0.3884, 0.2225, 0.1477, 0.1477, 0.1336
+//           over N = 4..64); the corrected one is flat at the second point.
+//           The physics is consistent throughout: a weaker sink blocks less, so
+//           the velocity roughly doubles, the Marangoni outflow carries more
+//           heat sideways, and against the conduction-only control (2w = 93.727,
+//           d = 24.416) the pool ends up 0.5 % WIDER and 31.5 % SHALLOWER --
+//           the signature of an outward surface flow at d(gamma)/dT < 0.
+//           Do not quote any tier (d) 316L number from before this fix.
 //           **THE POOL DID NOT CONVERGE UNDER -fsub, AND THE CAUSE WAS THE
 //           MUSHY SINK RATHER THAN THE SURFACE. THIS IS A RETRACTION.** The
 //           table above moves: 2w falls 103.898 -> 100.572 um (3.2 %) and d
