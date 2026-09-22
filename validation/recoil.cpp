@@ -60,10 +60,21 @@
 //   * NO THERMAL COUPLING. The pressure field is PRESCRIBED. Driving it from
 //     P_v(T) is the melt-pool case's job, and doing it here would put a fitted
 //     temperature between the device and its exact answer.
-//   * NO SURFACE TENSION, so no Bond number and no minimum keyhole radius. A
-//     real keyhole is held open against surface tension; this one is held open
-//     against gravity alone. That is the correct scope for measuring the
-//     pressure device, and the wrong scope for a keyhole -- see Stage 6.
+//   * SURFACE TENSION IS NOW HERE, IN SECTION 4, and this entry is kept because
+//     sections 1-3 still run without it deliberately: the pressure device is
+//     measured alone before it is measured in company, so a failure in the sum
+//     cannot hide inside a term. Section 4 adds it and tests the BALANCE,
+//     h_a = p_a/(rho g + sigma k^2) -- which is the keyhole's own balance,
+//     linearised. Measured at Lx = 256 with the forcing scaled to hold the
+//     depression at 8.00 cells while the capillary share of the restoring force
+//     goes 0 -> 32.5 -> 65.8 -> 88.5 %: errors +1.40, -2.84, +0.24, +2.18 %,
+//     i.e. the same band as the sigma = 0 row. Adding surface tension costs no
+//     accuracy, which is what says the two terms compose rather than merely
+//     both being present.
+//     WHAT IS STILL MISSING for a keyhole is the NONLINEAR regime: this is a
+//     small-slope balance, and a real keyhole is a deep cavity whose walls are
+//     not a perturbation of a flat surface. Do not read section 4 as a keyhole
+//     depth.
 //   * NO EVAPORATIVE MASS LOSS. The liquid volume is constant, so <h> is fixed
 //     by conservation and the comparison is of the SHAPE about that mean.
 //
@@ -121,11 +132,23 @@ std::vector<double> surface(const FS& s, const Domain& d, Index Lx, Index Ly) {
 }
 
 // shape == 0: cosine, a cos(kx).  shape == 1: Gaussian bump of width w.
+// sigma > 0 turns on surface tension, which changes BOTH the exact answer and
+// the relaxation rate. It is only meaningful for the cosine: the balance is per
+// MODE, so a localised bump has no single-formula answer.
 Result run(Index Lx, Index Ly, double h0, double g, double nu, double a,
-           std::size_t nsteps, int shape, double w, bool verbose) {
+           std::size_t nsteps, int shape, double w, bool verbose,
+           double sigma = 0.0) {
   Result R;
   constexpr double cs2 = double(lbm::cs2<L, double>());
   const double k = 2.0 * M_PI / double(Lx);
+  // THE RESTORING FORCE IS NOW GRAVITY PLUS CAPILLARITY, and everything that
+  // depended on gravity alone has to take the sum. Linearised Young-Laplace for
+  // a surface h(x) under an applied pressure p_a cos(kx):
+  //     p_a cos(kx) = -sigma h'' + rho g h  =>  h_a = p_a / (rho g + sigma k^2)
+  // which is this file's original p_a/(rho g) at sigma = 0, so the sigma sweep
+  // in section 4 contains the sigma = 0 row as a consistency check rather than
+  // as a separate claim.
+  const double restore = g + sigma * k * k;      // per unit rho, rho = 1
 
   // THE VISCOSITY IS FIXED AT omega = 1, AND THAT IS A MEASURED CHOICE RATHER
   // THAN A DEFAULT. The equilibrium here is hydrostatic, so viscosity cannot
@@ -154,7 +177,11 @@ Result run(Index Lx, Index Ly, double h0, double g, double nu, double a,
   // damped surface gravity wave, omega_0 = sqrt(g k tanh(k h)) damped at
   // gamma = 2 nu k^2, whose slow rate is gamma when underdamped and
   // omega_0^2/gamma when over -- i.e. min of the two, always.
-  const double om0   = std::sqrt(g * k * std::tanh(k * h0));
+  // Capillary-gravity waves: omega_0^2 = (g k + sigma k^3/rho) tanh(k h). Using
+  // the gravity-only frequency here would under-count the restoring force and
+  // pick a step count too small at large sigma -- the same "not converged in
+  // time" failure this file already records, arriving by a different door.
+  const double om0   = std::sqrt((g * k + sigma * k * k * k) * std::tanh(k * h0));
   const double nu_c  = (nu > 0.0) ? nu : 1.0 / 6.0;
   const double gam   = 2.0 * nu_c * k * k;
   const double rate  = std::fmin(gam, om0 * om0 / gam);
@@ -166,6 +193,7 @@ Result run(Index Lx, Index Ly, double h0, double g, double nu, double a,
   FS s(d);
   s.coll.omega = FS::omega_from_viscosity(Real(nu_c));
   s.set_gravity(Real(0), Real(-g));
+  if (sigma != 0.0) s.set_surface_tension(Real(sigma));
 
   const Index Lyi = Ly;
   s.set_geometry([&](Index, Index y, Index) -> FsCell {
@@ -242,10 +270,11 @@ Result run(Index Lx, Index Ly, double h0, double g, double nu, double a,
   hm /= double(Lx);
   for (double v : hsurf) if (!std::isfinite(v)) { R.finite = false; return R; }
 
-  // exact: dz(x) = -cs^2 (dp(x) - <dp>) / (rho g), rho = 1 to O(g h / cs^2)
+  // exact: dz(x) = -cs^2 (dp(x) - <dp>) / (rho g + sigma k^2), rho = 1 to
+  // O(g h / cs^2). At sigma = 0 this is the hydrostatic form unchanged.
   std::vector<double> ex(std::size_t(Lx), 0.0);
   for (Index x = 0; x < Lx; ++x)
-    ex[std::size_t(x)] = -cs2 * (dp[std::size_t(x)] - dp_mean) / g;
+    ex[std::size_t(x)] = -cs2 * (dp[std::size_t(x)] - dp_mean) / restore;
 
   if (shape == 0) {
     // First Fourier mode of each, which for a cosine forcing IS the answer.
@@ -396,6 +425,45 @@ int main(int argc, char** argv) {
     check("Gaussian peak depression, relative error", G.err, 0.0, 0.05);
     check("Gaussian profile L2", G.l2, 0.0, 0.08);
     check("Gaussian mass drift", G.mass_drift, 0.0, 1e-3);
+
+    // ---- 4. RECOIL AND SURFACE TENSION TOGETHER -----------------------------
+    // THE INTEGRATION TEST, and the reason it is here rather than in
+    // validation/surface_tension.cpp: each stage has been measured alone and
+    // nothing yet says they compose. They reach the flow through the SAME
+    // field -- rho_eff = rho_G + sigma kappa/cs^2 -- so a sign error or a
+    // double count in that sum is invisible to either case on its own.
+    //
+    // It is also the keyhole balance in the one regime where it is exact. A
+    // keyhole is a hole held OPEN by recoil and CLOSED by surface tension, and
+    // linearised Young-Laplace gives the balance directly:
+    //     h_a = p_a / (rho g + sigma k^2).
+    //
+    // THE AMPLITUDE IS SCALED WITH THE RESTORING FORCE SO THE ANSWER DOES NOT
+    // MOVE. recoil.cpp's own finding is that the error is set by the depression
+    // measured in CELLS, so a sigma sweep at fixed forcing would shrink the
+    // depression and confound the coupling with the resolution. Here a is
+    // raised in step with (rho g + sigma k^2), so the exact depression is 8.00
+    // cells at EVERY sigma and the measured one must be too -- while the
+    // capillary share of the restoring force goes from 0 to 88.5 %.
+    std::printf("\n4. recoil AND surface tension: h_a = p_a/(rho g + sigma k^2)\n");
+    std::printf("   %-10s %-10s %-12s %-12s %-10s\n",
+                "sigma", "cap share", "depth meas", "depth exact", "rel err");
+    const Index Lx4 = 256;
+    const double g4 = 5e-6, k4 = 2.0 * M_PI / double(Lx4);
+    double worst4 = 0;
+    for (double sg : {0.0, 4.0e-3, 1.6e-2, 6.4e-2}) {
+      const double restore4 = g4 + sg * k4 * k4;
+      const double a4 = 8.0 * restore4 / (1.0 / 3.0);   // hold 8 cells
+      const Result S = run(Lx4, 128, 64.0, g4, 0.0, a4, 0, 0, 0.0, false, sg);
+      std::printf("   %-10.1e %-10.1f %-12.5f %-12.5f %-10.4f\n",
+                  sg, 100.0 * sg * k4 * k4 / restore4,
+                  S.amp_meas, S.amp_exact, S.err);
+      if (!S.finite) { ++checks; ++failures; std::printf("   NON-FINITE\n"); continue; }
+      if (std::fabs(S.err) > std::fabs(worst4)) worst4 = S.err;
+    }
+    // Same band as the sigma = 0 case at this resolution: adding surface
+    // tension must not cost accuracy, and if it does the sum is wrong.
+    check("worst error over the sigma sweep at fixed depression", worst4, 0.0, 0.04);
   }
   Kokkos::finalize();
 

@@ -952,6 +952,17 @@ Do not spend time on these without saying so first; several are deliberate.
   really an ellipse, so its aspect is measured at t = 0 — and that guard read
   1.6863 for a requested 1.30, which is 1.30², a naming error in the seeding
   parameter rather than the bug it was written to catch.
+  **THE TWO COMPOSE, AND THAT IS TESTED RATHER THAN ASSUMED.** They reach the
+  flow through the same field (`rho_eff = rho_G + σκ/cs²`), so a sign error or a
+  double count in that sum is invisible to either case alone. `recoil.cpp`
+  section 4 measures the balance `h_a = p_a/(ρg + σk²)` — linearised
+  Young–Laplace, which IS the keyhole's balance — with the forcing scaled to
+  hold the depression at 8.00 cells while the capillary share of the restoring
+  force goes 0 → 32.5 → 65.8 → 88.5 %. Errors +1.40, −2.84, +0.24, +2.18 %: the
+  same band as the σ = 0 row, so surface tension costs no accuracy.
+  **This is a SMALL-SLOPE balance and not a keyhole depth.** A real keyhole is a
+  deep cavity whose walls are not a perturbation of a flat surface; the
+  nonlinear regime is untested.
   **THE ERROR IS SET BY THE DEPRESSION MEASURED IN CELLS, NOT BY THE GRID.**
   36 % at one cell, 13 % at two, 5.0 % at four, 1.4 % at eight — and the control
   is that a two-cell depression reads 13.06 % at Lx = 128 and 13.16 % at
