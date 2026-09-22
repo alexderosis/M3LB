@@ -148,23 +148,55 @@
 //           velocity converges to about 0.13-0.15 m/s with 10 % scatter still
 //           at nsub = 64 -- slower than Ti's 2.7 %, which is what a run that
 //           started supersonic should look like.
-//           **THE WIDTH FAILS TO CONVERGE HERE TOO, WHICH IS THE POINT.**
-//           Depth increments are +1.892, +0.703, +0.202, +0.143 um, halving
-//           cleanly; width goes -1.405, -1.037, -3.635, -1.047 um, which is not
-//           a sequence converging to anything. Two materials, two cell sizes,
-//           the same signature -- so it is the SURFACE discretisation, where
-//           validation/marangoni.cpp measures first order, and not an artefact
-//           of either alloy. Sub-cycling removes the Mach error and leaves this
-//           one standing; it is the next thing to fix, not a leftover of this.
-//           **THE DEPTH CONVERGES AND THE WIDTH DOES NOT.** Increments per
-//           doubling are +0.375, +0.158, +0.101 um on d (ratios 2.4, 1.6) but
-//           -1.397, -0.861, -1.068 um on 2w -- which is not settling, so the
-//           width is still moving at nsub = 8 and 100.6 um is not a converged
-//           figure. That is consistent with the width being set at the SURFACE,
-//           where validation/marangoni.cpp measures the scheme at FIRST order
-//           against second in the interior; removing the Mach error exposes the
-//           surface discretisation rather than fixing it. Quote the depth trend
-//           and say the width is unconverged.
+//           THE TABLE ABOVE PREDATES THE MUSHY-SINK FIX and is kept because it
+//           is what a fixed lattice A_lat produced: both 2w and d drift, for
+//           the reason retracted under item 1. It ALSO explains the divergence
+//           at nsub = 1 twice over. With A_lat derived, 316L at dx = 8 asks for
+//           A_lat = 3.855 (A_lat/nu_lat = 80.44) -- past the 1.000 bound
+//           validation/mushy_sink.cpp measures for a lagged Guo force -- so the
+//           SINK diverges on its own there, independently of the Mach number.
+//           The run now prints that before it starts and names the -fsub that
+//           fixes it (5; 16 is what was measured to work). Two separate
+//           dt_f-limited terms were hiding behind one symptom, and neither was
+//           visible while the sink was spelled as a lattice constant.
+//           **THE POOL DID NOT CONVERGE UNDER -fsub, AND THE CAUSE WAS THE
+//           MUSHY SINK RATHER THAN THE SURFACE. THIS IS A RETRACTION.** The
+//           table above moves: 2w falls 103.898 -> 100.572 um (3.2 %) and d
+//           rises 20.609 -> 21.243 (3.1 %) over nsub = 1..8. An earlier version
+//           of this banner said the DEPTH converged and only the WIDTH did not,
+//           and attributed the width to validation/marangoni.cpp's first-order
+//           surface stencil. BOTH HALVES WERE WRONG. The depth was drifting
+//           too -- its increments +0.375, +0.158, +0.101 merely shrank fast
+//           enough to read as convergence -- and the surface stencil cannot be
+//           the cause of either, because **-fsub changes only dt_f and a
+//           spatial error at fixed dx cannot drift with the timestep.** That
+//           one sentence is the whole diagnosis and it was available without
+//           running anything.
+//           THE CAUSE: o.A_lat was the mushy sink IN LATTICE UNITS, held fixed
+//           while dt_f shrank. A_lat = C dt_f/(rho eps), so a fixed A_lat means
+//           the PHYSICAL Carman-Kozeny drag C grows as nsub -- 8x at nsub = 8.
+//           Equivalently the Darcy ratio A_lat/nu_lat, which is what sets how
+//           much the mush leaks, grew as nsub instead of staying put. The sink
+//           lives at the pool EDGE where f_l runs 1 -> 0, which is why the
+//           width moved most, and the pool got narrower as the drag rose --
+//           the measured direction.
+//           A_lat IS NOW DERIVED from a physical C (-ck, SI, default 8.0444e6
+//           inside the literature's 1e6..1e8) and the run prints both it and
+//           A_lat/nu_lat. Re-measured at -dx 4 -flow:
+//
+//               nsub   A_lat    2w [um]    d [um]
+//                  1   0.8000   103.898    20.609
+//                  2   0.4000   103.984    20.616
+//                  4   0.2000   104.028    20.600
+//                  8   0.1000   104.073    20.588
+//
+//           0.17 % on width and 0.14 % on depth over 8x, against 3.2 % and
+//           3.1 % before. **The nsub = 1 answer was right all along**; it was
+//           the sub-cycled runs that were wrong, which is the opposite of what
+//           a refinement sweep normally means and is why the drift read as a
+//           discretisation error. A ladder in a parameter that is supposed to
+//           leave the physics alone is only a convergence test once you have
+//           checked that every lattice constant in the run actually does.
 //           TWO UNIT TRAPS were found writing this, both silent. The scalar is
 //           advected by the fluid's velocity Views, whose units are lattice
 //           velocity per dt_f -- handing them over unscaled under-advects the
@@ -785,6 +817,12 @@ Mat steel_316L() {
   return m;
 }
 
+// The floor in the Carman-Kozeny denominator, f_l^3 + eps. It is shared by the
+// force kernel and by the A_lat derivation and MUST be one constant: the kernel
+// multiplies by it so that A_lat means "the coefficient at f_l = 0", so a
+// mismatch rescales the whole sink silently.
+constexpr double kMushyEps = 1e-3;
+
 struct Opts {
   double P = 75.0;          // W
   double v = 0.700;         // m/s
@@ -819,9 +857,16 @@ struct Opts {
   int    fsub  = 1;         // fluid sub-steps per scalar step. The thermal dt is
                             // DIFFUSIVE and has nothing to do with the fluid's
                             // stability limit; -fsub decouples them.
-  double A_lat = 0.8;       // mushy sink strength at f_l = 0, IN LATTICE UNITS.
-                            //          validation/mushy_sink.cpp measures the
-                            //          bound at 1.0 and recommends <= 0.8.
+  double C_ck  = 8.0444e6;  // kg/(m^3 s). The Carman-Kozeny constant, IN SI.
+                            //          THIS USED TO BE THE LATTICE NUMBER A_lat
+                            //          AND THAT WAS A BUG -- see the banner.
+                            //          A_lat is DERIVED from it and from dt_f,
+                            //          so the physics is invariant under -fsub.
+                            //          The AM literature uses 1e6..1e8; this
+                            //          default is the value the old A_lat = 0.8
+                            //          implied at Ti-6Al-4V, dx = 4 um, nsub = 1,
+                            //          so every number measured before this
+                            //          change still reproduces exactly.
 
   // ---- TIER (e): evaporative COOLING. Off by default.
   bool   evap  = false;     // subtract m_dot * L_v from the surface flux
@@ -903,6 +948,16 @@ int run(const Opts& o, const Mat& m) {
   const double nu_lat  = nu_phys * dt_f / (dx * dx);
   // a physical force density [N/m^3] -> lattice, with rho_lat = 1
   const double F_to_lat = dt_f * dt_f / (dx * m.rho);   // F_lat goes as dt^2
+  // THE MUSHY SINK IS A PHYSICAL DRAG AND ITS LATTICE IMAGE CARRIES dt_f.
+  // F = -C (1-f_l)^2/(f_l^3+eps) u in SI; the kernel writes the same law as
+  // A_lat * eps * (...) so that A_lat is the coefficient AT f_l = 0. Equating
+  // the two through F_lat = F_phys dt_f^2/(dx rho) and u_phys = u_lat dx/dt_f:
+  //     A_lat eps = C dt_f / rho     =>     A_lat = C dt_f / (rho eps).
+  // Holding A_lat FIXED while dt_f shrinks therefore multiplies the physical
+  // drag by nsub. What is actually invariant is the Darcy ratio A_lat/nu_lat,
+  // since nu_lat also carries dt_f -- and that ratio is what sets how much the
+  // mush leaks, so getting this wrong changes the answer without failing.
+  const double A_lat = o.C_ck * dt_f / (m.rho * kMushyEps);
 
   View1D<Real> Fx, Fy, Fz;
   View1D<Real> uxs, uys, uzs;      // the scalar's copy, nsub x the fluid's
@@ -956,10 +1011,23 @@ int run(const Opts& o, const Mat& m) {
     if (nsub > 1)
       std::printf("    fluid sub-cycling: %d steps per scalar step, dt_f = %.4e s "
                   "(scalar dt = %.4e s)\n", nsub, dt_f, dt);
-    std::printf("    nu_lat = %.6f  tau_f = %.6f   d(gamma)/dT = %.3e N/(m K)"
-                "   A_sink = %.2f\n", nu_lat,
-                1.0 / double(FColl::omega_from_viscosity(Real(nu_lat))),
-                o.dgdT, o.A_lat);
+    std::printf("    nu_lat = %.6f  tau_f = %.6f   d(gamma)/dT = %.3e N/(m K)\n",
+                nu_lat,
+                1.0 / double(FColl::omega_from_viscosity(Real(nu_lat))), o.dgdT);
+    // A_lat/nu_lat is the invariant. Printing BOTH is the check that -fsub
+    // moved the timestep and not the physics.
+    std::printf("    mushy sink: C = %.4e kg/(m^3 s) -> A_lat = %.4f "
+                "(A_lat/nu_lat = %.2f, invariant under -fsub)\n",
+                o.C_ck, A_lat, A_lat / nu_lat);
+    if (A_lat > 1.0)
+      std::printf("    WARNING: A_lat = %.3f EXCEEDS the stability bound 1.000 that\n"
+                  "    validation/mushy_sink.cpp measures for a lagged Guo force. The\n"
+                  "    sink alone will diverge. Pass -fsub %d or larger.\n",
+                  A_lat, int(std::ceil(A_lat / 0.8)) * nsub);
+    else if (A_lat > 0.8)
+      std::printf("    WARNING: A_lat = %.3f is above the recommended 0.8 margin\n"
+                  "    (bound 1.000). Pass -fsub %d for margin.\n",
+                  A_lat, int(std::ceil(A_lat / 0.8)) * nsub);
     if (nu_lat < 0.02)
       std::printf("    WARNING: tau_f is close to the 1/2 floor; the fluid is "
                   "under-relaxed at this dx and dt.\n");
@@ -1379,7 +1447,7 @@ int run(const Opts& o, const Mat& m) {
         auto ux = fs->ux(); auto uy = fs->uy(); auto uz = fs->uz();
         auto fxv = Fx, fyv = Fy, fzv = Fz;
         const PhaseChange pcd = pcv;
-        const double eps = 1e-3, dgdT = o.dgdT, Alat = o.A_lat;
+        const double eps = kMushyEps, dgdT = o.dgdT, Alat = A_lat;
         const double dxl = dx, Fscale = F_to_lat;
         const Index nxl = nx, nyl = ny, nzl = nz;
         Kokkos::parallel_for("melt_pool_force", d.n_padded, KOKKOS_LAMBDA(Index n) {
@@ -1944,7 +2012,20 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "-betar")) nx(o.betar);
     else if (!std::strcmp(argv[i], "-dgdt"))  nx(o.dgdT);
     else if (!std::strcmp(argv[i], "-mu"))    nx(o.mu_l);
-    else if (!std::strcmp(argv[i], "-asink")) nx(o.A_lat);
+    else if (!std::strcmp(argv[i], "-ck"))    nx(o.C_ck);
+    // -asink set the LATTICE coefficient directly, which is what made the sink
+    // depend on -fsub. Fatal rather than aliased: a saved command line carrying
+    // it meant a fixed A_lat, and silently reinterpreting the number as an SI
+    // constant would be off by rho*eps/dt_f -- about 1e-7.
+    else if (!std::strcmp(argv[i], "-asink")) {
+      std::fprintf(stderr,
+        "melt_pool: -asink is gone. It set the mushy sink in LATTICE units, so the\n"
+        "  physical drag changed with -fsub. Use -ck C with C in kg/(m^3 s); the\n"
+        "  default %.4e reproduces the old -asink 0.8 at Ti-6Al-4V, dx = 4 um.\n"
+        "  A_lat = C dt_f / (rho eps) is derived and printed. NOTHING WAS RUN.\n",
+        Opts{}.C_ck);
+      return 2;
+    }
     else if (!std::strcmp(argv[i], "-fsub"))  { double t; nx(t); o.fsub = std::max(1, int(t)); }
     else if (!std::strcmp(argv[i], "-pulse")) { double t; nx(t); o.pulse = t * 1e-3; }
     else if (!std::strcmp(argv[i], "-thick"))  { double t; nx(t); o.thick = t * 1e-6; }
@@ -1965,7 +2046,7 @@ int main(int argc, char** argv) {
         "  physics:  -P W  -v mm/s  -spot um  -A abs  -pulse ms  -thick um\n"
         "  grid:     -dx um  -Lx/-Ly/-Lz um  -fsub N\n"
         "  material: -steel (SS316L; default Ti-6Al-4V)  -mu Pa.s  -dgdt N/(m K)\n"
-        "  tiers:    -flow  -evap  -recede  -betar  -asink  -la0  -bgk\n"
+        "  tiers:    -flow  -evap  -recede  -betar  -ck  -la0  -bgk\n"
         "  output:   -track  -probe  -frames DIR  -fevery N\n", argv[i]);
       return 2;
     }

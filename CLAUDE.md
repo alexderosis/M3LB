@@ -733,6 +733,39 @@ These produce plausible, converged, wrong answers rather than crashes.
   test is that the PHYSICAL velocity does not depend on N** — measured invariant
   to 2.7 % over N = 1..8 while Ma fell 0.197 -> 0.025, exactly 1/N. A force
   carries `dt_f^2` and a viscosity `dt_f`, so those are two more places to check.
+  **THAT VELOCITY CHECK IS NECESSARY AND NOT SUFFICIENT**, which the next entry
+  cost a day to learn: it passed while the mushy sink was still rescaling with
+  N, because the sink acts at the pool edge and the peak velocity is read at the
+  surface. Check the REPORTED RESULT for N-independence, not only the field the
+  conversion is most obviously about.
+- **A COEFFICIENT SPELLED IN LATTICE UNITS IS A PHYSICAL QUANTITY IN DISGUISE,
+  AND IT SILENTLY RESCALES WHEN THE TIMESTEP MOVES.** `melt_pool`'s Carman-Kozeny
+  mushy sink was `A_lat = 0.8`, "the strength at f_l = 0, IN LATTICE UNITS", and
+  `validation/mushy_sink.cpp` bounds it at 1.0 — so 0.8 looked like a
+  well-argued numerical choice. It is not a free number: `A_lat = C dt_f/(rho
+  eps)` for a physical drag `C` in kg/(m^3 s), so holding it FIXED while the
+  fluid sub-cycled multiplied the real drag by N. What is invariant is the Darcy
+  ratio `A_lat/nu_lat` — both carry `dt_f` — and that ratio is what sets how much
+  the mush leaks, so the error changed the answer without failing. Measured: the
+  pool drifted 3.2 % in width and 3.1 % in depth over `-fsub 1..8`, and 0.17 %
+  and 0.14 % once `A_lat` was derived from `C`. `mushy_sink.cpp`'s banner had
+  already said it — "the C = 1e6..1e8 the AM literature quotes are SI values;
+  what has to be checked is the A they map to in lattice units" — and the case
+  that used it stored the lattice end and never named the SI one.
+  **THE DIAGNOSIS WAS AVAILABLE WITHOUT RUNNING ANYTHING, AND WAS MISSED:
+  `-fsub` changes only `dt_f`, so a SPATIAL error at fixed `dx` cannot drift
+  with it.** An earlier version of this entry's companion in `melt_pool.cpp`
+  blamed the first-order Marangoni surface stencil, which is a `dx` error and
+  was therefore excluded a priori. When a sweep in a parameter that should not
+  touch the physics moves the answer, the fault is a constant that secretly
+  carries that parameter — audit every lattice quantity for the factor before
+  reaching for a discretisation story.
+  **AND THE SAME SLIP HID A SECOND, LOUDER FAILURE.** With `A_lat` derived,
+  SS316L at dx = 8 asks for 3.855, four times the stability bound, so its
+  `-fsub 1` run was diverging from the SINK as well as from Ma — two
+  `dt_f`-limited terms behind one symptom. A driver that derives its lattice
+  constants can check them against their own bounds before starting; one that
+  stores them cannot.
 - **A DEFAULT THAT IS APPLIED AFTER THE ARGUMENT LOOP IS NOT A DEFAULT, IT IS AN
   OVERRIDE.** `melt_pool -steel` selects SS316L and, with it, a viscosity, a
   `d(gamma)/dT` and an evaporation set. Applied after parsing, it silently
