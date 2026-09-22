@@ -716,6 +716,32 @@ These produce plausible, converged, wrong answers rather than crashes.
   **0.33 q0** against a neighbour at 0.075 because the wrap handed it the
   injector. `src/` skips outflow nodes in its field kernel for this reason and
   says so; `GPU/` now does too.
+- **TWO COUPLED LATTICES RUNNING AT DIFFERENT TIMESTEPS DO NOT SHARE A VELOCITY
+  UNIT, AND HANDING ONE THE OTHER'S VIEW COMPILES.** A lattice velocity is
+  `u_lat = u_phys dt / dx`, so if the fluid sub-cycles at `dt_f = dt/N` while a
+  scalar keeps the diffusive `dt`, the scalar's velocity is **N times** the
+  fluid's. `ScalarSolver::set_velocity` takes the Views by handle and cannot
+  know this: at `N = 1` it is exactly right, and at `N > 1` it under-advects the
+  transported field by N — an advection-diffusion problem quietly solved at 1/N
+  of its Peclet number, which converges and looks like a weakly coupled flow.
+  `validation/melt_pool.cpp` passes a scaled copy when `nsub > 1`. The same
+  factor bites every *reported* quantity derived from a lattice velocity:
+  `u_phys = u_lat dx / dt_f`, and using the scalar `dt` there makes the peak
+  speed appear to fall as 1/N, i.e. makes a correct sub-cycle look like a bug.
+  That was three separate sites in one file, including a "the flow is not
+  moving" guard that would then fire on a healthy run. **The self-consistency
+  test is that the PHYSICAL velocity does not depend on N** — measured invariant
+  to 2.7 % over N = 1..8 while Ma fell 0.197 -> 0.025, exactly 1/N. A force
+  carries `dt_f^2` and a viscosity `dt_f`, so those are two more places to check.
+- **A DEFAULT THAT IS APPLIED AFTER THE ARGUMENT LOOP IS NOT A DEFAULT, IT IS AN
+  OVERRIDE.** `melt_pool -steel` selects SS316L and, with it, a viscosity, a
+  `d(gamma)/dT` and an evaporation set. Applied after parsing, it silently
+  discarded an explicit `-mu` or `-dgdT` on the same command line — the run
+  printed the alloy's value and the user's flag did nothing. It is now a first
+  pass over `argv` that sets the defaults, with the ordinary loop second, so a
+  flag wins over the material it follows or precedes. Any flag that changes
+  several others needs this shape.
+
 - **A MOMENT INDEX MUST BE A COMPILE-TIME CONSTANT.** The moment operators reach
   their exponents through `Basis::p_of(n)`, which is a lookup in a 432-byte
   table. Called with a compile-time `n` it folds and the moment arrays live in

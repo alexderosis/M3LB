@@ -96,11 +96,81 @@
 //       accuracy twice here, and the Ma < 0.1 this tier wants is about one
 //       further halving away -- at 8x the cost of the dx = 2 run.
 //
-//       THREE THINGS MAKE THIS COARSE, AND ALL THREE ARE OPEN.
-//        1. Ma = 0.26 and the density excursion is 17.6 %. dt is set by the
-//           THERMAL problem and is far too long for the flow, so the
-//           compressibility error is not small. The number above is an
-//           increment, not a prediction, and this is the main reason.
+//       FOUR THINGS MADE THIS COARSE. THE FIRST IS NOW CLOSED.
+//        1. THE MACH NUMBER WAS 0.26 BECAUSE ONE dt SERVED TWO PROBLEMS, AND
+//           -fsub SEPARATES THEM. dt was set by the THERMAL stability limit and
+//           is far too long for the flow: at dx = 4 um the fluid ran at
+//           Ma = 0.197 with a 17.6 % density excursion, which is why this tier
+//           read as an increment rather than a prediction. The fluid now
+//           sub-cycles at dt_f = dt/N while the scalar keeps the diffusive dt,
+//           so nu_lat goes as dt_f, u_lat as dt_f and F_lat as dt_f^2, and the
+//           Mach number falls as 1/N at a FIXED physical problem.
+//           Measured 2026-09-22, -dx 4 -flow, sweeping -fsub:
+//
+//               nsub   u_peak [m/s]   Ma       2w [um]    d [um]
+//                  1      1.0338      0.1968   103.898    20.609
+//                  2      1.0150      0.0966   102.501    20.984
+//                  4      1.0226      0.0487   101.640    21.142
+//                  8      1.0426      0.0248   100.572    21.243
+//
+//           The test is SELF-CONSISTENCY, not accuracy: the physical velocity
+//           must not depend on N. It is invariant to 2.72 % and non-monotone,
+//           i.e. scatter rather than drift, and Ma x nsub is constant to 0.8 %
+//           -- exactly 1/N. -fsub 4 gives Ma = 0.049, so the compressibility
+//           caveat is retired at 4x the fluid cost.
+//           **THE DEFAULT STAYS -fsub 1 DELIBERATELY.** Every tier (d) number
+//           recorded in this banner and in results/ was measured at nsub = 1,
+//           and a silent default change would make them irreproducible without
+//           making them wrong. There is also no fixed N that is right at every
+//           operating point: Ma depends on P, dx and the material, so the run
+//           PRINTS the N it would take. Pass it; do not assume it.
+//           **-steel AT dx = 8 um DIVERGES AT nsub = 1, AND THE SCALING SAYS SO
+//           IN ADVANCE.** Ma = 1.45e5 and rho runs to +-5.8e14, i.e. it is gone
+//           within the first steps rather than drifting. Nothing is wrong with
+//           316L: dt = 0.249817 dx^2 / alpha_l and 316L's alpha_l is 4.72e-6
+//           against Ti's 9.09e-6, so at TWICE the cell size its dt is 7.7x Ti's
+//           -- 3.39e-6 s against 4.40e-7 s -- and u_lat = u_phys dt/dx is 3.9x
+//           larger for the same physical speed. The Marangoni forcing is a
+//           further 1.41x (|dgamma/dT|/mu is 0.067 against 0.048), so Ti's
+//           Ma = 0.197 predicts about 1.1 here. That is supersonic, and a
+//           lattice Boltzmann fluid does not survive it.
+//           Measured, -dx 8 -flow -steel:
+//
+//               nsub   u_peak [m/s]   Ma       rho exc.   2w [um]   d [um]
+//                  1      DIVERGED    1.5e5    5.8e16 %      --        --
+//                  4      0.3884      0.0801     11.6 %    94.070    16.329
+//                  8      0.2225      0.0229      3.3 %    92.665    18.221
+//                 16      0.1477      0.0076      1.0 %    91.628    18.924
+//                 32      0.1477      0.0038      0.3 %    87.993    19.126
+//                 64      0.1336      0.0017      0.1 %    86.946    19.269
+//
+//           So steel wants nsub ~ 16 where Ti at dx = 4 wanted 1, and the
+//           velocity converges to about 0.13-0.15 m/s with 10 % scatter still
+//           at nsub = 64 -- slower than Ti's 2.7 %, which is what a run that
+//           started supersonic should look like.
+//           **THE WIDTH FAILS TO CONVERGE HERE TOO, WHICH IS THE POINT.**
+//           Depth increments are +1.892, +0.703, +0.202, +0.143 um, halving
+//           cleanly; width goes -1.405, -1.037, -3.635, -1.047 um, which is not
+//           a sequence converging to anything. Two materials, two cell sizes,
+//           the same signature -- so it is the SURFACE discretisation, where
+//           validation/marangoni.cpp measures first order, and not an artefact
+//           of either alloy. Sub-cycling removes the Mach error and leaves this
+//           one standing; it is the next thing to fix, not a leftover of this.
+//           **THE DEPTH CONVERGES AND THE WIDTH DOES NOT.** Increments per
+//           doubling are +0.375, +0.158, +0.101 um on d (ratios 2.4, 1.6) but
+//           -1.397, -0.861, -1.068 um on 2w -- which is not settling, so the
+//           width is still moving at nsub = 8 and 100.6 um is not a converged
+//           figure. That is consistent with the width being set at the SURFACE,
+//           where validation/marangoni.cpp measures the scheme at FIRST order
+//           against second in the interior; removing the Mach error exposes the
+//           surface discretisation rather than fixing it. Quote the depth trend
+//           and say the width is unconverged.
+//           TWO UNIT TRAPS were found writing this, both silent. The scalar is
+//           advected by the fluid's velocity Views, whose units are lattice
+//           velocity per dt_f -- handing them over unscaled under-advects the
+//           enthalpy by N, so a scaled copy is passed when nsub > 1. And the
+//           reported m/s converted with the scalar dt, which made the peak
+//           speed appear to FALL as 1/N; the table above is post-fix.
 //        2. The fluid's free surface is HALF A CELL below the scalar's. The
 //           scalar's zero-flux plane is the top face of cell nz-1; SpecWall's
 //           mirror would be half a cell outside the last fluid node, i.e. at
@@ -111,9 +181,20 @@
 //           VERSION OF THIS BANNER CLAIMED, THE FORCE LOOP. The force field was
 //           rebuilt on the HOST with six mirror copies per step; it now runs as
 //           one Kokkos::parallel_for over the enthalpy and velocity Views, with
-//           byte-identical output (105.736 / 19.519 / 149.476 um and peak
-//           |u| = 1.5229e-01 before and after). Measured at dx = 4 um on four
-//           threads:
+//           byte-identical output before and after.
+//           THE NUMBERS THAT EQUIVALENCE WAS CHECKED ON ARE STALE AND ARE NOT
+//           RESTATED HERE. They were 105.736 / 19.519 / 149.476 um at peak
+//           |u| = 1.5229e-01, measured BEFORE d(gamma)/dT was corrected from
+//           -2.6e-4 to Mohr's -1.9e-4 (item 4 below); at the current constants
+//           the same run gives 103.898 / 20.609 / 148.822 um at 1.1361e-01.
+//           The host-vs-device equivalence is unaffected -- it was a fact about
+//           two implementations of one kernel, not about the constants -- but
+//           quoting the old triple would put a figure in this banner that no
+//           run of this file now reproduces, which is how this tree has been
+//           wrong before. Re-verified against HEAD 2026-09-22: sub-cycling at
+//           nsub = 1 reproduces 103.898 / 20.609 / 148.822 and 1.1361e-01
+//           exactly, so the sub-cycle loop is a no-op where it should be.
+//           Measured at dx = 4 um on four threads:
 //
 //               scalar alone        3.74 s
 //               + coupled flow     43.63 s    the FLUID adds 10.7x the scalar
@@ -684,6 +765,26 @@ struct Evap {
                                        // Anisimov value and -betar sweeps it.
 };
 
+// SS316L, for the Muhammad, Rogers & Li (2013) figure 8 geometry. Selected by
+// -steel. Six values come from that paper's table 1; the rest are the ones
+// THIS case needs and that paper does not carry, each sourced separately and
+// marked, because a property set half-taken from one source and half invented
+// is exactly what this tree's discipline forbids.
+Mat steel_316L() {
+  Mat m;
+  m.rho   = 7950.0;   // Muhammad table 1
+  m.cp_s  = 470.0;    // Muhammad table 1 (single value, no enthalpy mean given)
+  m.cp_l  = 800.0;    // Mills (2002), liquid 316L
+  m.k_s   = 20.0;     // Muhammad table 1
+  m.k_l   = 30.0;     // Mills (2002), liquid
+  m.T_s   = 1698.0;   // 316L solidus; Muhammad uses Tm = 1723 with a 25 K band
+  m.T_l   = 1748.0;   // and this is that band, kept so the two agree
+  m.L_f   = 2.70e5;   // Mills (2002). NOT Muhammad's 2.5e5, which that model's
+                      // own README calls "numerical smoothing only"
+  m.T_0   = 300.0;    // Muhammad table 1
+  return m;
+}
+
 struct Opts {
   double P = 75.0;          // W
   double v = 0.700;         // m/s
@@ -715,6 +816,9 @@ struct Opts {
   double dgdT  = -1.9e-4;   // N/(m K)  Mohr et al. (2020). Band +/- 0.5e-4,
                             //          which is +/-26 % -- sweep it with -dgdt.
   double mu_l  = 4.0e-3;    // Pa s     Mohr et al. (2020), at the liquidus
+  int    fsub  = 1;         // fluid sub-steps per scalar step. The thermal dt is
+                            // DIFFUSIVE and has nothing to do with the fluid's
+                            // stability limit; -fsub decouples them.
   double A_lat = 0.8;       // mushy sink strength at f_l = 0, IN LATTICE UNITS.
                             //          validation/mushy_sink.cpp measures the
                             //          bound at 1.0 and recommends <= 0.8.
@@ -723,6 +827,7 @@ struct Opts {
   bool   evap  = false;     // subtract m_dot * L_v from the surface flux
   double betar = 0.18;      // retro-diffusion coefficient
   bool   recede = false;    // TIER (f): let the evaporated mass actually leave
+  bool   steel = false;     // SS316L instead of Ti-6Al-4V
   double thick = -1.0;      // m; foil thickness. > 0 makes the case detect
                             // BREAKTHROUGH and stop trusting itself after it.
   double rho_l = 4130.0;    // kg/m^3 liquid density at Tm, for m_dot -> v_rec
@@ -786,11 +891,21 @@ int run(const Opts& o, const Mat& m) {
   using LF   = D3Q27;
   using FColl = BGK<LF, SecondOrderEquilibrium<LF>, FieldGuo, ShiftedPopulations>;
   const double nu_phys = o.mu_l / m.rho;
-  const double nu_lat  = nu_phys * dt / (dx * dx);
+  // THE FLUID GETS ITS OWN TIMESTEP. dt here is set by the THERMAL problem --
+  // dt = 0.249817 dx^2 / alpha_l, a diffusive step -- and has nothing to do with
+  // what the flow can take. At Muhammad's 25 um beam the beam deposits 90 % of
+  // the melting range in one such step and the coupled fluid goes non-finite.
+  // Sub-cycling fixes two things at once, because every lattice quantity that
+  // carries a dt shrinks with it: the fluid's own stability margin AND the Mach
+  // number, since u_lat = u_phys dt_f / dx falls as 1/N.
+  const int    nsub    = o.fsub;
+  const double dt_f    = dt / double(nsub);
+  const double nu_lat  = nu_phys * dt_f / (dx * dx);
   // a physical force density [N/m^3] -> lattice, with rho_lat = 1
-  const double F_to_lat = dt * dt / (dx * m.rho);
+  const double F_to_lat = dt_f * dt_f / (dx * m.rho);   // F_lat goes as dt^2
 
   View1D<Real> Fx, Fy, Fz;
+  View1D<Real> uxs, uys, uzs;      // the scalar's copy, nsub x the fluid's
   std::unique_ptr<FluidSolver<LF, EsotericPull<LF>, FColl>> fs;
   if (o.flow) {
     Fx = View1D<Real>("Fx", d.n_padded);
@@ -824,9 +939,23 @@ int run(const Opts& o, const Mat& m) {
       return (z == nz - 1) ? SpecZp : SpecNone;
     });
     fs->initialize(Real(1));
-    s.set_velocity(fs->ux(), fs->uy(), fs->uz());
+    // THE TWO LATTICES DO NOT SHARE A VELOCITY UNIT UNDER SUB-CYCLING.
+    // u_lat = u_phys dt / dx, so the scalar's velocity is nsub TIMES the
+    // fluid's. Handing the fluid's View straight to the scalar is correct only
+    // at nsub = 1, and silently under-advects the enthalpy by nsub otherwise.
+    if (nsub == 1) {
+      s.set_velocity(fs->ux(), fs->uy(), fs->uz());
+    } else {
+      uxs = View1D<Real>("uxs", d.n_padded);
+      uys = View1D<Real>("uys", d.n_padded);
+      uzs = View1D<Real>("uzs", d.n_padded);
+      s.set_velocity(uxs, uys, uzs);
+    }
     std::printf("\n  TIER (d): COUPLED FLOW ON.  mu = %.4e Pa s  nu = %.4e m^2/s\n",
                 o.mu_l, nu_phys);
+    if (nsub > 1)
+      std::printf("    fluid sub-cycling: %d steps per scalar step, dt_f = %.4e s "
+                  "(scalar dt = %.4e s)\n", nsub, dt_f, dt);
     std::printf("    nu_lat = %.6f  tau_f = %.6f   d(gamma)/dT = %.3e N/(m K)"
                 "   A_sink = %.2f\n", nu_lat,
                 1.0 / double(FColl::omega_from_viscosity(Real(nu_lat))),
@@ -1112,7 +1241,12 @@ int run(const Opts& o, const Mat& m) {
   Kokkos::deep_copy(Hs, Index(nz - 1));
   auto flags_v = s.flags();
 
-  const Evap ev;
+  Evap ev;
+  if (o.steel) {                  // Muhammad table 1 + Fe molar mass
+    ev.Lv = 2.6e6;                // J/kg, table 1
+    ev.Tb = 3100.0;               // K, table 1
+    ev.Rs = 8.314 / 0.055845;     // Fe
+  }
   const bool do_evap = o.evap;
   const bool do_rec = o.recede;
   const double rho_liq = o.rho_l;
@@ -1143,7 +1277,6 @@ int run(const Opts& o, const Mat& m) {
   // Found by noticing that -evap alone moved the pool far less than -flow -evap
   // did, which is the wrong way round: evaporation is a bigger term than
   // Marangoni at this surface temperature.
-  double worst_evap_frac = 0.0;
   for (long it = 0; it < steps; ++it) {
     if (do_evap) {
       s.compute_field();
@@ -1216,67 +1349,84 @@ int run(const Opts& o, const Mat& m) {
       return Real((q_in - mdot * ev_Lv) * flux_to_K);
     });
     if (o.flow) {
-      // ---- the force field, rebuilt each step, ON THE DEVICE ---------------
-      // Marangoni: tau = (dgamma/dT) grad_s T on the free surface, applied as a
-      // BODY FORCE tau/dx in the top cell. validation/marangoni.cpp validates
-      // exactly this device against the exact profile and measures what it
-      // costs: the surface velocity is FIRST order, the interior second, so a
-      // pool dimension read off an isotherm away from the surface is unharmed.
-      //
-      // Mushy sink: F = -A u with A = A_lat eps (1-f_l)^2/(f_l^3+eps) in
-      // lattice units. validation/mushy_sink.cpp measures the stability bound
-      // at A = 1.000 (a two-step recurrence, NOT the textbook A < 2) and the
-      // residual leakage floor at about 2 % of u_max. THE eps IS NOT
-      // DECORATION: A(0) = C/eps, so naming C "the strength at f_l = 0" makes
-      // it 1/eps too large -- 800 against a bound of 1, and the run went NaN.
-      //
-      // ONE KERNEL, NO MIRRORS. This was a host loop with six device-host
-      // copies per step, which was tolerable at dx = 4 um and not at dx = 2.
-      // PhaseChange::invert is KOKKOS_INLINE_FUNCTION, so the phase-change
-      // inverse runs on the device as happily as on the host; the host version
-      // existed only because it was easier to get right first.
-      s.compute_field();
-      auto Th = s.temperature();
-      auto ux = fs->ux(); auto uy = fs->uy(); auto uz = fs->uz();
-      auto fxv = Fx, fyv = Fy, fzv = Fz;
-      const PhaseChange pcd = pcv;
-      const double eps = 1e-3, dgdT = o.dgdT, Alat = o.A_lat;
-      const double dxl = dx, Fscale = F_to_lat;
-      const Index nxl = nx, nyl = ny, nzl = nz;
-      Kokkos::parallel_for("melt_pool_force", d.n_padded, KOKKOS_LAMBDA(Index n) {
-        Index px, py, pz; d.coords(n, px, py, pz);
-        if (!d.is_interior(px, py, pz)) return;
-        const Index i = px - d.hx, j = py - d.hy, kk = pz - d.hz;
-        auto Tof = [&](Index a, Index b, Index c) {
-          Real fl, T, E, dE; pcd.invert(Th(d.id(a, b, c)), fl, T, E, dE);
-          return double(T);
-        };
-        Real flr, Tr, Er, dEr;
-        pcd.invert(Th(n), flr, Tr, Er, dEr);
-        const double fl = double(flr);
-        double fx = 0, fy = 0, fz = 0;
-        if (kk == nzl - 1 && fl > 0.0) {
-          // central differences on the surface plane; one-sided at the rim.
-          // ONLY WHERE THERE IS LIQUID: a surface tension gradient on solid is
-          // not a stress, and applying it there would drive the solid.
-          const Index ip = (i + 1 < nxl) ? i + 1 : i, im = (i > 0) ? i - 1 : i;
-          const Index jp = (j + 1 < nyl) ? j + 1 : j, jm = (j > 0) ? j - 1 : j;
-          const double dTdx = (Tof(ip, j, kk) - Tof(im, j, kk)) /
-                              (double(ip - im) * dxl);
-          const double dTdy = (Tof(i, jp, kk) - Tof(i, jm, kk)) /
-                              (double(jp - jm) * dxl);
-          fx = fl * dgdT * dTdx / dxl * Fscale;
-          fy = fl * dgdT * dTdy / dxl * Fscale;
-        }
-        const double A = Alat * eps * (1.0 - fl) * (1.0 - fl) /
-                         (fl * fl * fl + eps);
-        fx -= A * double(ux(n));
-        fy -= A * double(uy(n));
-        fz -= A * double(uz(n));
-        fxv(n) = Real(fx); fyv(n) = Real(fy); fzv(n) = Real(fz);
-      });
-      fs->step();
-      fs->compute_macroscopic();
+      // THE FORCE IS REBUILT EVERY SUB-STEP, not once per outer step. The
+      // Marangoni part depends on T, which is frozen across the sub-cycle, but
+      // the mushy sink depends on u, which is exactly what the sub-cycle is
+      // advancing -- holding it fixed would reintroduce the lag whose stability
+      // cost validation/mushy_sink.cpp measures.
+      for (int sub = 0; sub < nsub; ++sub) {
+        // ---- the force field, rebuilt each step, ON THE DEVICE ---------------
+        // Marangoni: tau = (dgamma/dT) grad_s T on the free surface, applied as a
+        // BODY FORCE tau/dx in the top cell. validation/marangoni.cpp validates
+        // exactly this device against the exact profile and measures what it
+        // costs: the surface velocity is FIRST order, the interior second, so a
+        // pool dimension read off an isotherm away from the surface is unharmed.
+        //
+        // Mushy sink: F = -A u with A = A_lat eps (1-f_l)^2/(f_l^3+eps) in
+        // lattice units. validation/mushy_sink.cpp measures the stability bound
+        // at A = 1.000 (a two-step recurrence, NOT the textbook A < 2) and the
+        // residual leakage floor at about 2 % of u_max. THE eps IS NOT
+        // DECORATION: A(0) = C/eps, so naming C "the strength at f_l = 0" makes
+        // it 1/eps too large -- 800 against a bound of 1, and the run went NaN.
+        //
+        // ONE KERNEL, NO MIRRORS. This was a host loop with six device-host
+        // copies per step, which was tolerable at dx = 4 um and not at dx = 2.
+        // PhaseChange::invert is KOKKOS_INLINE_FUNCTION, so the phase-change
+        // inverse runs on the device as happily as on the host; the host version
+        // existed only because it was easier to get right first.
+        s.compute_field();
+        auto Th = s.temperature();
+        auto ux = fs->ux(); auto uy = fs->uy(); auto uz = fs->uz();
+        auto fxv = Fx, fyv = Fy, fzv = Fz;
+        const PhaseChange pcd = pcv;
+        const double eps = 1e-3, dgdT = o.dgdT, Alat = o.A_lat;
+        const double dxl = dx, Fscale = F_to_lat;
+        const Index nxl = nx, nyl = ny, nzl = nz;
+        Kokkos::parallel_for("melt_pool_force", d.n_padded, KOKKOS_LAMBDA(Index n) {
+          Index px, py, pz; d.coords(n, px, py, pz);
+          if (!d.is_interior(px, py, pz)) return;
+          const Index i = px - d.hx, j = py - d.hy, kk = pz - d.hz;
+          auto Tof = [&](Index a, Index b, Index c) {
+            Real fl, T, E, dE; pcd.invert(Th(d.id(a, b, c)), fl, T, E, dE);
+            return double(T);
+          };
+          Real flr, Tr, Er, dEr;
+          pcd.invert(Th(n), flr, Tr, Er, dEr);
+          const double fl = double(flr);
+          double fx = 0, fy = 0, fz = 0;
+          if (kk == nzl - 1 && fl > 0.0) {
+            // central differences on the surface plane; one-sided at the rim.
+            // ONLY WHERE THERE IS LIQUID: a surface tension gradient on solid is
+            // not a stress, and applying it there would drive the solid.
+            const Index ip = (i + 1 < nxl) ? i + 1 : i, im = (i > 0) ? i - 1 : i;
+            const Index jp = (j + 1 < nyl) ? j + 1 : j, jm = (j > 0) ? j - 1 : j;
+            const double dTdx = (Tof(ip, j, kk) - Tof(im, j, kk)) /
+                                (double(ip - im) * dxl);
+            const double dTdy = (Tof(i, jp, kk) - Tof(i, jm, kk)) /
+                                (double(jp - jm) * dxl);
+            fx = fl * dgdT * dTdx / dxl * Fscale;
+            fy = fl * dgdT * dTdy / dxl * Fscale;
+          }
+          const double A = Alat * eps * (1.0 - fl) * (1.0 - fl) /
+                           (fl * fl * fl + eps);
+          fx -= A * double(ux(n));
+          fy -= A * double(uy(n));
+          fz -= A * double(uz(n));
+          fxv(n) = Real(fx); fyv(n) = Real(fy); fzv(n) = Real(fz);
+        });
+        fs->step();
+        fs->compute_macroscopic();
+      }
+      // The scalar advects in ITS OWN lattice units: u_lat = u_phys dt / dx, so
+      // the scalar's velocity is nsub times the fluid's.
+      if (nsub > 1) {
+        auto sx = uxs, sy = uys, sz = uzs;
+        auto fx2 = fs->ux(), fy2 = fs->uy(), fz2 = fs->uz();
+        const Real sc = Real(nsub);
+        Kokkos::parallel_for("melt_pool_uscale", d.n_padded, KOKKOS_LAMBDA(Index n) {
+          sx(n) = sc * fx2(n); sy(n) = sc * fy2(n); sz(n) = sc * fz2(n);
+        });
+      }
     }
 
     s.step();
@@ -1410,7 +1560,7 @@ int run(const Opts& o, const Mat& m) {
         auto qx = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->ux());
         auto qy = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->uy());
         auto qz = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->uz());
-        const double to_ms = dx / dt;
+        const double to_ms = dx / dt_f;   // fluid dt, not the scalar's
         for (Index i = 0; i < nx; ++i)
           for (Index j = 0; j < ny; ++j) {
             const Index n = d.id(i, j, nz - 1);
@@ -1527,16 +1677,23 @@ int run(const Opts& o, const Mat& m) {
         }
     const double Ma = um / std::sqrt(double(cs2<LF, Real>()));
     std::printf("\n  TIER (d) flow report:\n");
+    // u_phys = u_lat dx / dt_FLUID. Using the scalar's dt here under-reported
+    // the speed by nsub -- the lattice velocity falls as 1/nsub and the physical
+    // one must not move at all, which is the check that sub-cycling is right.
     std::printf("    peak |u| = %.4e lattice = %.4f m/s   surface peak = %.4e\n",
-                um, um * dx / dt, usurf);
+                um, um * dx / dt_f, usurf);
     std::printf("    Mach = %.4f   rho in [%.4f, %.4f] (%.1f %% excursion)\n",
                 Ma, rmin, rmax, 100.0 * (rmax - rmin));
     if (Ma > 0.1)
       std::printf("    WARNING: Ma > 0.1. The compressibility error grows as Ma^2 and\n"
-                  "    the density excursion above is its symptom. This tier is a\n"
-                  "    MEASURED INCREMENT, and at this Mach number it is a coarse one:\n"
-                  "    dt is set by the THERMAL problem and is too long for the flow.\n");
-    if (um * dx / dt <= 1e-3)
+                  "    the density excursion above is its symptom. dt is set by the\n"
+                  "    THERMAL problem and is too long for the flow -- pass -fsub %d to\n"
+                  "    sub-cycle the fluid and bring Ma to %.3f at %dx the fluid cost.\n",
+                  nsub * int(std::ceil(Ma / 0.05)),
+                  Ma / std::ceil(Ma / 0.05), int(std::ceil(Ma / 0.05)));
+    // Physical, so dt_f -- with the scalar dt this reads 1/nsub of the real
+    // speed and fires on a healthy sub-cycled flow.
+    if (um * dx / dt_f <= 1e-3)
       std::printf("    THE FLOW IS NOT MOVING -- check that the surface force is not\n"
                   "    being written into a non-colliding node.\n");
   }
@@ -1598,7 +1755,8 @@ int run(const Opts& o, const Mat& m) {
     // statement about the OPERATING POINT and not a number to suppress.
     s.compute_field();
     auto he = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.temperature());
-    const Evap ev2;
+    Evap ev2;                     // MUST follow the material, like `ev` above;
+    if (o.steel) { ev2.Lv = 2.6e6; ev2.Tb = 3100.0; ev2.Rs = 8.314 / 0.055845; }
     Tmax_surf = 0; qfrac = 0;
     double& Tmax = Tmax_surf; double& fr = qfrac;
     for (Index i = 0; i < nx; ++i)
@@ -1750,6 +1908,24 @@ int run(const Opts& o, const Mat& m) {
 
 int main(int argc, char** argv) {
   Opts o; Mat m;
+  // TWO PASSES, BECAUSE -steel CHANGES DEFAULTS AND NOT VALUES. Applying it
+  // after the loop would let it clobber an explicit -mu or -dgdT that appeared
+  // on the same command line, silently; taking it first means the ordinary
+  // flags overwrite the alloy's defaults, which is what a flag is for.
+  // THE EVAPORATION CONSTANTS TRAVEL WITH THE MATERIAL. Reading one alloy's
+  // constant as another's is the error this file has already had to retract
+  // once; the two sets are swapped together or not at all (see the Evap block).
+  for (int i = 1; i < argc; ++i)
+    if (!std::strcmp(argv[i], "-steel")) {
+      o.steel = true;
+      m = steel_316L();
+      o.mu_l  = 6.4e-3;    // Pa s, liquid 316L at the liquidus (Mills 2002)
+      o.dgdT  = -4.3e-4;   // N/(m K), CLEAN 316L. See the note below: this is
+                           // the alloy where the surfactant sign flip is
+                           // established, so the sign is not safe without a
+                           // sulfur analysis.
+      o.rho_l = 6881.0;    // Muhammad eq (10)
+    }
   for (int i = 1; i < argc; ++i) {
     auto nx = [&](double& v) { if (i + 1 < argc) v = std::atof(argv[++i]); };
     if      (!std::strcmp(argv[i], "-P"))     nx(o.P);
@@ -1769,14 +1945,30 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "-dgdt"))  nx(o.dgdT);
     else if (!std::strcmp(argv[i], "-mu"))    nx(o.mu_l);
     else if (!std::strcmp(argv[i], "-asink")) nx(o.A_lat);
+    else if (!std::strcmp(argv[i], "-fsub"))  { double t; nx(t); o.fsub = std::max(1, int(t)); }
     else if (!std::strcmp(argv[i], "-pulse")) { double t; nx(t); o.pulse = t * 1e-3; }
     else if (!std::strcmp(argv[i], "-thick"))  { double t; nx(t); o.thick = t * 1e-6; }
+    else if (!std::strcmp(argv[i], "-steel"))  { /* handled in pass 1 */ }
     else if (!std::strcmp(argv[i], "-frames")) { if (i + 1 < argc) o.frames = argv[++i]; }
     else if (!std::strcmp(argv[i], "-fevery")) { double t; nx(t); o.fevery = int(t); }
     else if (!std::strcmp(argv[i], "-la0"))   o.la0 = true;
     else if (!std::strcmp(argv[i], "-bgk"))   o.bgk = true;
     else if (!std::strncmp(argv[i], "--kokkos", 8)) {}
-    else std::fprintf(stderr, "melt_pool: unknown option %s\n", argv[i]);
+    // FATAL, NOT A WARNING. A mistyped flag used to print one line to stderr
+    // and then run the DEFAULT -- so "-dgdT" instead of "-dgdt" reported the
+    // material's own value and looked like a flag that did nothing. That is the
+    // same failure the tree already fixed for a stale "-lat d3q19": a run that
+    // silently is not the run that was asked for. Name the options and stop.
+    else {
+      std::fprintf(stderr,
+        "melt_pool: unknown option '%s'. NOTHING WAS RUN.\n"
+        "  physics:  -P W  -v mm/s  -spot um  -A abs  -pulse ms  -thick um\n"
+        "  grid:     -dx um  -Lx/-Ly/-Lz um  -fsub N\n"
+        "  material: -steel (SS316L; default Ti-6Al-4V)  -mu Pa.s  -dgdt N/(m K)\n"
+        "  tiers:    -flow  -evap  -recede  -betar  -asink  -la0  -bgk\n"
+        "  output:   -track  -probe  -frames DIR  -fevery N\n", argv[i]);
+      return 2;
+    }
   }
   Kokkos::initialize(argc, argv);
   int rc = 0;
