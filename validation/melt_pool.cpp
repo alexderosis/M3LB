@@ -48,6 +48,28 @@
 //       MEASURED 2026-09-22 at TWO resolutions, dgamma/dT = -2.6e-4 N/(m K),
 //       mu = 3.25e-3 Pa s, A_sink = 0.8:
 //
+//        RE-MEASURED 2026-09-22 with the VERIFIED constants (Mohr et al. 2020,
+//        d(gamma)/dT = -1.9e-4 N/(m K), mu = 4.0e-3 Pa s). The earlier table
+//        ran -2.6e-4 and 3.25e-3, which made the Marangoni forcing 1.68x too
+//        strong -- forcing goes as |d(gamma)/dT|/mu and both were wrong the
+//        same way. dx = 4 um, against a conduction row of 2w 96.651, d 23.888,
+//        w/d 4.05:
+//
+//          d(gamma)/dT    2w (um)   d (um)   w/d    peak u (m/s)
+//          -1.4e-4        102.323   21.084   4.85      0.844
+//          -1.9e-4        103.898   20.609   5.04      1.034      <- measured
+//          -2.4e-4        104.724   19.930   5.25      1.204
+//
+//        so the increment at the measured value is +7.5 % on width and -13.7 %
+//        on depth, NOT the +9.4 % and -18.3 % this banner reported with the
+//        unverified constants. The band is the measurement's own +/- 0.5e-4,
+//        which is +/-26 % on the coefficient and moves w/d from 4.85 to 5.25 --
+//        so the aspect ratio is predicted to about +/-4 %, and that is the
+//        honest precision of this tier.
+//
+//        The older two-grid table, kept because the GRID conclusion from it
+//        still stands (the effect survives halving dx and is therefore physical
+//        rather than numerical), was run at the wrong coefficient:
 //        dx    quantity   conduction   + Marangoni   change   Ma    rho excursion
 //        4 um    2w        96.651 um   105.736 um    + 9.4 %
 //                d         23.888       19.519       -18.3 %  0.264    17.6 %
@@ -107,11 +129,25 @@
 //           minutes, so the estimate was 35 % light -- the extra is memory
 //           traffic at 4.6 M nodes carrying 27 fluid populations beside 7
 //           scalar ones. Slow, not impossible.
-//        4. d(gamma)/dT is a BAND, not a value. The clean-alloy figure is
-//           negative; surface-active sulfur or oxygen can make it positive over
-//           a temperature range, which INVERTS the aspect-ratio change above.
-//           The sign has not been settled for this alloy here, so the -18.3 %
-//           depth change must not be quoted without it.
+//        4. d(gamma)/dT IS NOW VERIFIED, AND THE VALUE THIS CASE USED WAS WRONG.
+//           Mohr et al. (2020) measured Ti64 containerless by electromagnetic
+//           levitation on the ISS and fit
+//               gamma(T) = (1.493 +/- 0.008) - (1.9 +/- 0.5)e-4 (T - 1933 K) N/m
+//           so d(gamma)/dT = -1.9e-4 N/(m K) at the liquidus. This case ran
+//           -2.6e-4, which is 37 % high and OUTSIDE the measured band. The
+//           viscosity was 3.25e-3 Pa s against a measured 4e-3, 19 % low.
+//           Marangoni forcing goes as |d(gamma)/dT| / mu, so the two errors
+//           compounded and the forcing was 1.68x too strong.
+//           A third figure, -1.38e-3 N/(m K), turns up in secondary sources; it
+//           is 7x Mohr's, larger in magnitude than iron's -4.3e-4, and arrived
+//           without a traceable citation. It is not used.
+//           THE SIGN IS SETTLED FOR CLEAN MATERIAL: negative, measured in
+//           microgravity with no crucible. The surfactant sign flip remains
+//           real for sulfur- or oxygen-bearing melts -- it is established for
+//           Fe, Ni, Cu and Ag -- and would INVERT the aspect-ratio change, so
+//           a contaminated feedstock is still outside what this case models.
+//           The +/-0.5e-4 uncertainty is +/-26 % and is a band to sweep with
+//           -dgdt, not a number to quote alone.
 //
 //   (e) `-evap`: EVAPORATIVE COOLING. Hertz-Knudsen mass flux with a
 //       Clausius-Clapeyron vapour pressure, q_evap = m_dot L_v subtracted from
@@ -615,9 +651,16 @@ struct Opts {
   // ---- already reports is unchanged and the validated conduction row stays
   // ---- exactly what validation/melt_pool.cpp was validated as.
   bool   flow  = false;     // Marangoni + mushy sink + advection of H by u
-  double dgdT  = -2.6e-4;   // N/(m K)  d(gamma)/dT. SEE THE BANNER: the SIGN is
-                            //          solute dependent and is run as a band.
-  double mu_l  = 3.25e-3;   // Pa s     dynamic viscosity of the liquid
+  // VERIFIED 2026-09-22 against Mohr et al. (2020), "Precise Measurements of
+  // Thermophysical Properties of Liquid Ti-6Al-4V (Ti64) Alloy On Board the
+  // International Space Station", Adv. Eng. Mater. -- containerless
+  // electromagnetic levitation in microgravity, which fits
+  //     gamma(T) = (1.493 +/- 0.008) - (1.9 +/- 0.5)e-4 (T - 1933 K)  N/m
+  // The reference temperature 1933 K is this alloy's liquidus, so the
+  // coefficient applies directly here.
+  double dgdT  = -1.9e-4;   // N/(m K)  Mohr et al. (2020). Band +/- 0.5e-4,
+                            //          which is +/-26 % -- sweep it with -dgdt.
+  double mu_l  = 4.0e-3;    // Pa s     Mohr et al. (2020), at the liquidus
   double A_lat = 0.8;       // mushy sink strength at f_l = 0, IN LATTICE UNITS.
                             //          validation/mushy_sink.cpp measures the
                             //          bound at 1.0 and recommends <= 0.8.
