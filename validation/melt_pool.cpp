@@ -264,13 +264,41 @@
 //  STAGE 4 -- THE EXPERIMENTAL COMPARISON -- IS BLOCKED, AND THE TWO REASONS
 //  ARE WORTH MORE THAN A WEAK COMPARISON WOULD HAVE BEEN. Searched 2026-09-21.
 //
-//   1. THE BARE-PLATE SINGLE-TRACK BENCHMARK IS FOR IN625, NOT THIS ALLOY.
-//      NIST AM-Bench AMB2018-02 -- the well-characterised bare-plate laser
-//      track set with published width, depth and length -- is Nickel Alloy 625.
-//      This case cites A-AMB2022-01 for its BEAM SIZE only, which is legitimate
-//      and is a different dataset from the dimensional one. So there is nothing
-//      here to compare a Ti-6Al-4V pool against, and comparing it against an
-//      IN625 benchmark would be comparing two alloys.
+//   1. THAT WAS WRONG, AND THE BENCHMARK THIS CASE ALREADY CITES IS THE RIGHT
+//      ONE. An earlier version of this entry said the only bare-plate
+//      single-track benchmark was AMB2018-02, which is Nickel Alloy 625, and
+//      concluded there was nothing to compare a Ti-6Al-4V pool against. AMB2018-02
+//      IS IN625 -- but A-AMB2022-01, which this case already cites for its beam
+//      size, is TI-6AL-4V BARE PLATE and carries exactly the measurements
+//      needed: simultaneous integrating-sphere radiometry for ABSOLUTE
+//      absorptivity and high-speed X-ray radiography of the melt pool, for both
+//      a stationary and a scanned beam. The conclusion came from reading the
+//      2018 round and not the 2022 one.
+//
+//      ITS CONDITIONS, AND THE POWER IS NOT THE ONE THIS CASE RUNS:
+//        scanned     473 W, 700 mm/s, 122.5 um 1/e^2, 1.980 ms
+//        stationary  501 W, 1.982 ms, same spot
+//        sample      Ti-6Al-4V from NIST SRM 654b, 300 um thick, bare
+//        incidence   7 degrees from normal
+//      The speed and spot size are this case's defaults BECAUSE they were taken
+//      from here. The POWER was not: Opts carries 75 W against the benchmark's
+//      473 W, a factor of 6.3, and that was never checked against the dataset
+//      the beam came from.
+//
+//      PREDICTION AT THE BENCHMARK POINT, made before the measured values were
+//      obtained, dx = 4 um, full stack (-flow -recede), A = 0.33 assumed:
+//        2w = 188.45 um   d = 67.54 um   peak surface T = 4539 K
+//        recession 41.78 um   peak flow 1.79 m/s   energy closure 0.9929
+//      It is firmly KEYHOLING at 4539 K against a 3315 K boiling point, so the
+//      conduction tier is invalid there and the comparison needs tiers (d)-(f).
+//      The pool is 67.5 um deep in a 300 um foil, so no breakthrough.
+//
+//      WHAT IS STILL MISSING is two numbers, both in the NIST Public Data
+//      Repository rather than on the description pages: the MEASURED melt-pool
+//      width and depth, and the MEASURED absorptivity. The second matters more
+//      than it looks -- A = 0.33 is assumed here and scales the whole result,
+//      while the benchmark measured it absolutely with an integrating sphere,
+//      which is precisely the input this case currently runs as a band.
 //      NOTE FOR WHOEVER DOES THE IN625 ROUTE: AMB2018-02's COMMANDED powers
 //      were 150/195/195 W, the laser calibration was found to be wrong, and the
 //      TRUE powers are 137.9 W at 400 mm/s and 179.2 W at 800 and 1200 mm/s.
