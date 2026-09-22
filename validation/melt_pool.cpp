@@ -1254,6 +1254,8 @@ int run(const Opts& o, const Mat& m) {
   }
 
   if (o.recede) {
+    auto hh2 = Kokkos::create_mirror_view_and_copy(HostSpace{}, Hs);
+    for (Index c = 0; c < nx * ny; ++c) hsurf[std::size_t(c)] = hh2(c);
     auto hr = Kokkos::create_mirror_view_and_copy(HostSpace{}, rec);
     double rmax = 0, vol = 0; long ncols = 0;
     for (Index c = 0; c < ncol; ++c) {
@@ -1284,7 +1286,15 @@ int run(const Opts& o, const Mat& m) {
     double Tmax = 0, fr = 0;
     for (Index i = 0; i < nx; ++i)
       for (Index j = 0; j < ny; ++j) {
-        Real fl, T, E, dE; pcv.invert(he(d.id(i, j, nz - 1)), fl, T, E, dE);
+        // THE COLUMN'S OWN SURFACE. This read nz-1 and was the THIRD place in
+        // this file with that defect -- after the pool extraction and the frame
+        // dump -- so under recession it sampled voided cells and under-reported
+        // the peak surface temperature by 758 K (4050 against 4808 at 1200 W).
+        // The pattern: anything that means "the surface" must ask the column,
+        // because tier (f) moved it.
+        Real fl, T, E, dE;
+        pcv.invert(he(d.id(i, j, o.recede ? hsurf[std::size_t(i * ny + j)] : nz - 1)),
+                   fl, T, E, dE);
         const double Ts = std::max(double(T), 1.0);
         Tmax = std::max(Tmax, Ts);
         const double Pv = ev2.P0 * std::exp(std::min((ev2.Lv / ev2.Rs) *
