@@ -113,6 +113,48 @@
 //           The sign has not been settled for this alloy here, so the -18.3 %
 //           depth change must not be quoted without it.
 //
+//   (e) `-evap`: EVAPORATIVE COOLING. Hertz-Knudsen mass flux with a
+//       Clausius-Clapeyron vapour pressure, q_evap = m_dot L_v subtracted from
+//       the surface flux in the SAME source term the beam enters, because above
+//       the boiling point the two are comparable and splitting them lets the
+//       surface overshoot between them. Constants matched to
+//       validation/keyhole.cpp's so the two cases cannot disagree about the
+//       same alloy. NOT CLAMPED: keyhole.cpp clamps this identical feedback and
+//       its own banner records that the clamp became the integrator, so here
+//       the balance is REPORTED instead.
+//
+//       MEASURED 2026-09-22, dx = 4 um. THE POOL BARELY MOVES AND THE SURFACE
+//       TEMPERATURE IS TRANSFORMED, which is the opposite of what was expected:
+//
+//         tier              2w (um)   d (um)   peak surface T   q_evap/q_peak
+//         conduction         96.651   23.888      4710 K             --
+//         + evap             96.422   23.369      3238 K           0.065
+//         + flow            105.736   19.519      2913 K             --
+//         + flow + evap     105.533   19.430      2902 K           0.011
+//
+//       Evaporative cooling is a THERMOSTAT. q_evap rises exponentially in T,
+//       so the surface self-limits just BELOW the boiling point -- 3238 K
+//       against 3315 -- and at that point consumes only 6.5 % of the beam. It
+//       costs 0.2 % of the width and 2.2 % of the depth. So the conduction
+//       model's 4710 K was the unphysical part, not its pool size, and the two
+//       failures were never the same size.
+//       With Marangoni also on, convection has already removed most of the
+//       heat and evaporation has little left to do: 1.1 % of the beam.
+//
+//       AND THAT UNDOES THE KEYHOLE CRITERION'S VERDICT AT THIS POINT. The
+//       criterion reports the ANALYTIC reference's peak, 4981 K, and condemns
+//       tier (c). The reference has neither evaporation nor convection. With
+//       both, the SIMULATED surface is 2902 K, 400 K below boiling. The
+//       operating point is admissible; it was the conduction-only criterion
+//       that was not. The criterion now says which problem it bounds.
+//
+//       WHAT THIS TIER DOES NOT DO: no mass loss and no recession -- the
+//       surface is flat and stays flat -- and no recoil pressure. If q_evap
+//       ever exceeds the beam the case says so and says that the missing mass
+//       loss makes the reported pool a lower bound on the error. beta_r = 0.18
+//       is the one non-measured number, the conventional Anisimov
+//       retro-diffusion value, and -betar sweeps it.
+//
 //  STAGE 4 -- THE EXPERIMENTAL COMPARISON -- IS BLOCKED, AND THE TWO REASONS
 //  ARE WORTH MORE THAN A WEAK COMPARISON WOULD HAVE BEEN. Searched 2026-09-21.
 //
@@ -464,6 +506,21 @@ struct Mat {
   double alpha_l() const { return k_l / rc_l(); }
 };
 
+// Evaporation constants, MATCHED TO validation/keyhole.cpp's Mat so the two
+// cases cannot disagree about the same alloy. L_v = 8.86e6 J/kg, T_b = 3315 K,
+// R_s = R/M_Ti with M = 0.047867 kg/mol, P_0 = 1 atm.
+struct Evap {
+  double Lv = 8.86e6;                  // J/kg   latent heat of vaporisation
+  double Tb = 3315.0;                  // K      boiling point at P_0
+  double Rs = 8.314 / 0.047867;        // J/(kg K)
+  double P0 = 101325.0;                // Pa
+  double beta_r = 0.18;                // retro-diffusion: the fraction of
+                                       // vapour that recondenses. THE ONE
+                                       // NON-MEASURED NUMBER HERE -- see the
+                                       // banner; 0.18 is the conventional
+                                       // Anisimov value and -betar sweeps it.
+};
+
 struct Opts {
   double P = 75.0;          // W
   double v = 0.700;         // m/s
@@ -489,6 +546,12 @@ struct Opts {
   double A_lat = 0.8;       // mushy sink strength at f_l = 0, IN LATTICE UNITS.
                             //          validation/mushy_sink.cpp measures the
                             //          bound at 1.0 and recommends <= 0.8.
+
+  // ---- TIER (e): evaporative COOLING. Off by default.
+  bool   evap  = false;     // subtract m_dot * L_v from the surface flux
+  double betar = 0.18;      // retro-diffusion coefficient
+  bool   recede = false;    // TIER (f): let the evaporated mass actually leave
+  double rho_l = 4130.0;    // kg/m^3 liquid density at Tm, for m_dot -> v_rec
 };
 
 }  // namespace
@@ -679,11 +742,21 @@ int run(const Opts& o, const Mat& m) {
     for (double s2 = -6.0; s2 <= 2.0; s2 += 0.02)
       Tpk = std::max(Tpk, rq.T(s2 * sigma, 0.0, 0.0, t_end_for_peak));
     const double T_boil = 3315.0;   // Ti-6Al-4V, approximate; Mills (2002)
-    std::printf("  KEYHOLE CRITERION: reference peak surface T = %.0f K against a boiling "
-                "point near %.0f K -- %s\n", Tpk, T_boil,
+    // THIS CRITERION IS THE ANALYTIC REFERENCE'S PEAK, AND THE REFERENCE HAS
+    // NEITHER EVAPORATION NOR CONVECTION -- so on its own it CONDEMNS operating
+    // points that the fuller model permits. Measured at this point: the
+    // reference says 4981 K, the simulation with evaporative cooling reaches
+    // 3238 K and with Marangoni as well 2902 K, both BELOW boiling. Read the
+    // tier (e) report at the end of the run for the simulated number; this line
+    // bounds the CONDUCTION problem and nothing more.
+    std::printf("  KEYHOLE CRITERION (conduction reference, no evaporation or "
+                "convection):\n    peak surface T = %.0f K against a boiling point "
+                "near %.0f K -- %s\n", Tpk, T_boil,
                 Tpk < T_boil ? "below, conduction mode"
-                             : "ABOVE. Tier (a) is unaffected (both sides solve the same "
-                               "linear problem); tier (c) is INVALID here.");
+                             : "ABOVE for the REFERENCE. Tier (a) is unaffected "
+                               "(both sides solve the same linear problem). Whether "
+                               "tier (c) is invalid depends on the SIMULATED peak -- "
+                               "run -evap and read the tier (e) report.");
   }
   std::printf("  q_peak = %.4e W/m^2   flux_to_K = %.4e   peak dH/step = %.2f K (%.2f %% of T_s-T_0)\n",
               q_peak, flux_to_K, q_peak * flux_to_K,
@@ -755,6 +828,13 @@ int run(const Opts& o, const Mat& m) {
   // verdict printed underneath it, which is the kind of gap a reader cannot
   // see. `colmap`, when non-null, also receives the per-column isotherm depth,
   // which is what the 3-D panel draws as the pool's lower surface.
+  // WITH RECESSION THE TOP LAYER IS PARTLY VOID, so every scan starts at the
+  // COLUMN'S OWN SURFACE rather than at nz-1. Reading nz-1 regardless made the
+  // isotherm search run through vacuum and reported L = 41.7 um against a true
+  // 150 -- the width and depth were wrong too, less visibly. Depths stay
+  // measured from the ORIGINAL surface, which is what a metallograph sees.
+  std::vector<Index> hsurf(std::size_t(nx * ny), nz - 1);
+  auto surf_of = [&](Index i, Index j) { return hsurf[std::size_t(i * ny + j)]; };
   auto extract = [&](auto& hf, double& w_out, double& d_out, double& L_out,
                      Index& iw_out, Index& id_out, std::vector<float>* colmap) {
     auto Tat = [&](Index i, Index j, Index kk) {
@@ -764,14 +844,15 @@ int run(const Opts& o, const Mat& m) {
     for (Index i = 0; i < nx; ++i) {
       double wv = 0;
       for (Index j = ny / 2; j + 1 < ny; ++j) {
-        const double a1 = Tat(i, j, nz - 1), b1 = Tat(i, j + 1, nz - 1);
+        const double a1 = Tat(i, j, surf_of(i, j)),
+                     b1 = Tat(i, j + 1, surf_of(i, j + 1));
         if (a1 >= m.T_l && b1 < m.T_l) {
           wv = (double(j - ny / 2) + (a1 - m.T_l) / (a1 - b1)) * dx; break;
         }
       }
       if (wv > w_out) { w_out = wv; iw_out = i; }
       double dv = 0;
-      for (Index kk = nz - 1; kk > 0; --kk) {
+      for (Index kk = surf_of(i, ny / 2); kk > 0; --kk) {
         const double a1 = Tat(i, ny / 2, kk), b1 = Tat(i, ny / 2, kk - 1);
         if (a1 >= m.T_l && b1 < m.T_l) {
           // +0.5: cell nz-1's CENTRE is dx/2 below the free surface (halfway
@@ -791,10 +872,12 @@ int run(const Opts& o, const Mat& m) {
     // reported L = dx for a run with no melt; both went with the cell count.
     Index i1 = -1, i2 = -1;
     for (Index i = 0; i < nx; ++i)
-      if (Tat(i, ny / 2, nz - 1) >= m.T_l) { if (i1 < 0) i1 = i; i2 = i; }
+      if (Tat(i, ny / 2, surf_of(i, ny / 2)) >= m.T_l) { if (i1 < 0) i1 = i; i2 = i; }
     if (i1 > 0 && i2 + 1 < nx) {
-      const double a0 = Tat(i1 - 1, ny / 2, nz - 1), b0 = Tat(i1, ny / 2, nz - 1);
-      const double a2 = Tat(i2, ny / 2, nz - 1),     b2 = Tat(i2 + 1, ny / 2, nz - 1);
+      const double a0 = Tat(i1 - 1, ny / 2, surf_of(i1 - 1, ny / 2)),
+                   b0 = Tat(i1,     ny / 2, surf_of(i1,     ny / 2));
+      const double a2 = Tat(i2,     ny / 2, surf_of(i2,     ny / 2)),
+                   b2 = Tat(i2 + 1, ny / 2, surf_of(i2 + 1, ny / 2));
       const double xlo = (double(i1 - 1) + (m.T_l - a0) / (b0 - a0)) * dx;
       const double xhi = (double(i2)     + (a2 - m.T_l) / (a2 - b2)) * dx;
       L_out = xhi - xlo;
@@ -804,7 +887,7 @@ int run(const Opts& o, const Mat& m) {
       for (Index i = 0; i < nx; ++i)
         for (Index j = 0; j < ny; ++j) {
           double dv = 0;
-          for (Index kk = nz - 1; kk > 0; --kk) {
+          for (Index kk = surf_of(i, j); kk > 0; --kk) {
             const double a1 = Tat(i, j, kk), b1 = Tat(i, j, kk - 1);
             if (a1 >= m.T_l && b1 < m.T_l) {
               dv = (double(nz - 1 - kk) + 0.5 + (a1 - m.T_l) / (a1 - b1)) * dx; break;
@@ -824,21 +907,88 @@ int run(const Opts& o, const Mat& m) {
   const int fev = o.frames.empty() ? 0
                 : (o.fevery > 0 ? o.fevery : int(std::max<long>(1, steps / 150)));
   std::vector<float> fr_Ttop, fr_Txz, fr_pool, fr_t, fr_w, fr_d, fr_L, fr_xb;
+  // TIER (d) only: the velocity the pool is actually stirred by. Dumped in
+  // PHYSICAL units (m/s), because a quiver in lattice units is unreadable and
+  // the whole point of the panel is that these are real speeds.
+  std::vector<float> fr_usx, fr_usy, fr_ucx, fr_ucz;
+  // TIER (f): the surface itself, in micrometres BELOW the original plane, so
+  // the render can draw the material leaving rather than infer it.
+  std::vector<float> fr_rec, fr_removed;   // um below datum; ng total
   const Index jc = ny / 2;
 
+  // ---- TIER (f): A RECEDING SURFACE. The evaporated mass actually leaves, at
+  // ---- v_rec = m_dot / rho_liquid -- no recoil, no melt ejection, no fitted
+  // ---- constant, just the Hertz-Knudsen flux tier (e) already computes
+  // ---- divided by a density. validation/keyhole.cpp's recession is driven by
+  // ---- recoil pressure with thirteen fitted constants; this one has none.
+  const Index ncol = nx * ny;
+  View1D<Index> Hs("Hs", ncol);
+  View1D<Real>  rec("rec", ncol);
+  Kokkos::deep_copy(Hs, Index(nz - 1));
+  auto flags_v = s.flags();
+
+  const Evap ev;
+  const bool do_evap = o.evap;
+  const bool do_rec = o.recede;
+  const double rho_liq = o.rho_l;
+  const Index nyc = ny;
+  const double ev_Lv = ev.Lv, ev_Tb = ev.Tb, ev_Rs = ev.Rs, ev_P0 = ev.P0;
+  const double ev_br = o.betar;
+  const PhaseChange pcs = pcv;
+  auto field_now = s.temperature();
+
+  // THE EVAPORATION NEEDS A CURRENT SURFACE TEMPERATURE, AND NOTHING ELSE WAS
+  // COMPUTING ONE. compute_field() is called inside the loop only when -probe
+  // or -flow is on; without them the field the source lambda reads is whatever
+  // the last call left, so the evaporation was evaluated against a stale -- at
+  // the start, ambient -- temperature and lost almost all of its magnitude. The
+  // first -evap run read -0.35 % on width where it should have been large.
+  // Found by noticing that -evap alone moved the pool far less than -flow -evap
+  // did, which is the wrong way round: evaporation is a bigger term than
+  // Marangoni at this surface temperature.
+  double worst_evap_frac = 0.0;
   for (long it = 0; it < steps; ++it) {
+    if (do_evap) s.compute_field();
     const double xb = x0 + o.v * (double(it) + 0.5) * dt;   // MIDPOINT of this step
     const double cut = 3.0 * a_beam;
     s.add_source(KOKKOS_LAMBDA(Index n) -> Real {
       Index px, py, pz; d.coords(n, px, py, pz);
       if (!d.is_interior(px, py, pz)) return Real(0);
       const Index i = px - d.hx, j = py - d.hy, kk = pz - d.hz;
-      if (kk != nz - 1) return Real(0);                     // the top layer only
+      // the CURRENT surface of this column, which recedes under -recede and is
+      // the fixed top layer otherwise.
+      if (kk != (do_rec ? Hs(i * nyc + j) : nz - 1)) return Real(0);
       const double xm = (double(i) + 0.5) * dx - xb;
       const double ym = (double(j) + 0.5) * dx - yc;
       const double r2 = xm * xm + ym * ym;
-      if (r2 > cut * cut) return Real(0);
-      return Real(q_peak * Kokkos::exp(-2.0 * r2 / (a_beam * a_beam)) * flux_to_K);
+      const double q_in = (r2 > cut * cut)
+                        ? 0.0
+                        : q_peak * Kokkos::exp(-2.0 * r2 / (a_beam * a_beam));
+      if (!do_evap) return Real(q_in * flux_to_K);
+
+      // ---- TIER (e): EVAPORATIVE COOLING ----------------------------------
+      // Hertz-Knudsen with a Clausius-Clapeyron vapour pressure:
+      //     P_v(T) = P_0 exp[ (L_v/R_s) (1/T_b - 1/T) ]
+      //     m_dot  = (1 - beta_r) P_v sqrt( 1 / (2 pi R_s T) )
+      //     q_evap = m_dot L_v                                   [W/m^2]
+      // It is a SINK on the same surface the beam heats, so it enters the same
+      // source term rather than as a separate pass -- that matters, because
+      // above the boiling point q_evap is comparable to the beam and applying
+      // the two at different points in the step lets the surface overshoot.
+      Real flv, Tlv, Elv, dElv;
+      pcs.invert(field_now(n), flv, Tlv, Elv, dElv);
+      const double Tsurf = Kokkos::fmax(double(Tlv), 1.0);
+      const double expo = Kokkos::fmin((ev_Lv / ev_Rs) * (1.0 / ev_Tb - 1.0 / Tsurf),
+                                       60.0);
+      const double Pv = ev_P0 * Kokkos::exp(expo);
+      const double mdot = (1.0 - ev_br) * Pv *
+                          Kokkos::sqrt(1.0 / (2.0 * M_PI * ev_Rs * Tsurf));
+      // NOT CLAMPED, deliberately. validation/keyhole.cpp clamps this feedback
+      // and its own banner records that the clamp became the integrator. Here
+      // the balance is reported instead: if q_evap exceeds the beam the case
+      // says so, and that is a statement about the operating point rather than
+      // a number to be suppressed.
+      return Real((q_in - mdot * ev_Lv) * flux_to_K);
     });
     if (o.flow) {
       // ---- the force field, rebuilt each step, ON THE DEVICE ---------------
@@ -906,6 +1056,46 @@ int run(const Opts& o, const Mat& m) {
 
     s.step();
 
+    if (do_rec) {
+      // v_rec = m_dot / rho_liquid, integrated explicitly. The increment is NOT
+      // capped: validation/keyhole.cpp caps this and its banner records that the
+      // cap became the integrator, so here an excursion is reported at the end
+      // instead of being quietly bounded.
+      s.compute_field();
+      auto Th2 = s.temperature();
+      auto Hs2 = Hs; auto rec2 = rec;
+      const PhaseChange pcr = pcv;
+      const double eLv = ev.Lv, eTb = ev.Tb, eRs = ev.Rs, eP0 = ev.P0, ebr = o.betar;
+      const double dtl = dt, dxl2 = dx, rl = rho_liq;
+      const Index nzc2 = nz, nyc2 = ny;
+      Kokkos::parallel_for("melt_pool_recede", ncol, KOKKOS_LAMBDA(Index c) {
+        const Index i = c / nyc2, j = c % nyc2;
+        const Index h = Hs2(c);
+        Real fl, T, E, dE; pcr.invert(Th2(d.id(i, j, h)), fl, T, E, dE);
+        const double Ts = Kokkos::fmax(double(T), 1.0);
+        const double Pv = eP0 * Kokkos::exp(Kokkos::fmin(
+            (eLv / eRs) * (1.0 / eTb - 1.0 / Ts), 60.0));
+        const double md = (1.0 - ebr) * Pv *
+                          Kokkos::sqrt(1.0 / (2.0 * M_PI * eRs * Ts));
+        // ONLY LIQUID LEAVES. Evaporating solid would be sublimation, which is
+        // not this process and not modelled.
+        rec2(c) += Real(double(fl) * (md / rl) * dtl / dxl2);
+        Index nh = Index(Kokkos::round(double(nzc2 - 1) - double(rec2(c))));
+        Hs2(c) = Kokkos::min(Kokkos::max(nh, Index(0)), Index(nzc2 - 1));
+      });
+      // what is above the surface is gone: excluded, and its enthalpy with it
+      auto fv = flags_v; auto Hs3 = Hs; auto Th3 = s.temperature();
+      const Index nyc3 = ny;
+      Kokkos::parallel_for("melt_pool_void", d.n_padded, KOKKOS_LAMBDA(Index n) {
+        Index px, py, pz; d.coords(n, px, py, pz);
+        if (!d.is_interior(px, py, pz)) return;
+        const Index i = px - d.hx, j = py - d.hy, kk = pz - d.hz;
+        const bool out = kk > Hs3(i * nyc3 + j);
+        fv(n) = out ? std::uint8_t(ScalarExcluded) : std::uint8_t(ScalarBulk);
+        if (out) Th3(n) = Real(0);
+      });
+    }
+
     if (o.probe && (it + 1) % o.probe == 0) {
       s.compute_field();
       auto h = Kokkos::create_mirror_view(s.temperature());
@@ -936,10 +1126,19 @@ int run(const Opts& o, const Mat& m) {
       auto Tof = [&](Index i, Index j, Index kk) {
         Real fl, T, E, dE; pcv.invert(hf(d.id(i, j, kk)), fl, T, E, dE); return float(T);
       };
+      // THE COLUMN'S OWN SURFACE, not nz-1. Reading the fixed top layer under
+      // recession samples VOIDED cells, which invert to the solidus and paint a
+      // uniform false trail behind the pool.
       for (Index i = 0; i < nx; ++i)
-        for (Index j = 0; j < ny; ++j) fr_Ttop.push_back(Tof(i, j, nz - 1));
+        for (Index j = 0; j < ny; ++j)
+          fr_Ttop.push_back(Tof(i, j, o.recede ? hsurf[std::size_t(i * ny + j)]
+                                               : nz - 1));
       for (Index i = 0; i < nx; ++i)
         for (Index kk = 0; kk < nz; ++kk) fr_Txz.push_back(Tof(i, jc, kk));
+      if (o.recede) {
+        auto hh = Kokkos::create_mirror_view_and_copy(HostSpace{}, Hs);
+        for (Index c = 0; c < nx * ny; ++c) hsurf[std::size_t(c)] = hh(c);
+      }
       std::vector<float> colmap;
       double wf, df, Lf; Index a, b;
       extract(hf, wf, df, Lf, a, b, &colmap);
@@ -947,6 +1146,36 @@ int run(const Opts& o, const Mat& m) {
       fr_t.push_back(float(double(it + 1) * dt));
       fr_w.push_back(float(2.0 * wf)); fr_d.push_back(float(df)); fr_L.push_back(float(Lf));
       fr_xb.push_back(float(x0 + o.v * double(it + 1) * dt));
+      if (o.recede) {
+        auto hrc = Kokkos::create_mirror_view_and_copy(HostSpace{}, rec);
+        double vol = 0;
+        for (Index i = 0; i < nx; ++i)
+          for (Index j = 0; j < ny; ++j) {
+            const double r = double(hrc(i * ny + j));
+            fr_rec.push_back(float(r * dx * 1e6));
+            vol += r * dx * dx * dx;
+          }
+        fr_removed.push_back(float(vol * o.rho_l * 1e12));   // ng
+      }
+      if (o.flow) {
+        fs->compute_macroscopic();
+        auto qx = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->ux());
+        auto qy = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->uy());
+        auto qz = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->uz());
+        const double to_ms = dx / dt;
+        for (Index i = 0; i < nx; ++i)
+          for (Index j = 0; j < ny; ++j) {
+            const Index n = d.id(i, j, nz - 1);
+            fr_usx.push_back(float(double(qx(n)) * to_ms));
+            fr_usy.push_back(float(double(qy(n)) * to_ms));
+          }
+        for (Index i = 0; i < nx; ++i)
+          for (Index kk = 0; kk < nz; ++kk) {
+            const Index n = d.id(i, jc, kk);
+            fr_ucx.push_back(float(double(qx(n)) * to_ms));
+            fr_ucz.push_back(float(double(qz(n)) * to_ms));
+          }
+      }
     }
   }
   s.compute_field();
@@ -1024,9 +1253,64 @@ int run(const Opts& o, const Mat& m) {
                   "    being written into a non-colliding node.\n");
   }
 
+  if (o.recede) {
+    auto hr = Kokkos::create_mirror_view_and_copy(HostSpace{}, rec);
+    double rmax = 0, vol = 0; long ncols = 0;
+    for (Index c = 0; c < ncol; ++c) {
+      const double r = double(hr(c));
+      rmax = std::max(rmax, r);
+      vol += r * dx * dx * dx;
+      if (r > 0.5) ++ncols;
+    }
+    std::printf("\n  TIER (f) recession report:\n");
+    std::printf("    deepest column receded %.3f um = %.2f cells\n",
+                rmax * dx * 1e6, rmax);
+    std::printf("    material removed %.4e um^3 = %.3f ng   (%ld of %ld columns "
+                "lost >= half a cell)\n", vol * 1e18,
+                vol * o.rho_l * 1e12, ncols, long(ncol));
+    if (rmax < 1.0)
+      std::printf("    LESS THAN ONE CELL. At this operating point the removal is\n"
+                  "    sub-grid and the recession is not resolved -- raise the power\n"
+                  "    until the beam outruns the evaporative thermostat, or refine.\n");
+  }
+  if (o.evap) {
+    // The balance, reported and not clamped. validation/keyhole.cpp clamps this
+    // same feedback and its banner records that the clamp became the
+    // integrator; here the ratio is printed, because q_evap > q_in is a
+    // statement about the OPERATING POINT and not a number to suppress.
+    s.compute_field();
+    auto he = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.temperature());
+    const Evap ev2;
+    double Tmax = 0, fr = 0;
+    for (Index i = 0; i < nx; ++i)
+      for (Index j = 0; j < ny; ++j) {
+        Real fl, T, E, dE; pcv.invert(he(d.id(i, j, nz - 1)), fl, T, E, dE);
+        const double Ts = std::max(double(T), 1.0);
+        Tmax = std::max(Tmax, Ts);
+        const double Pv = ev2.P0 * std::exp(std::min((ev2.Lv / ev2.Rs) *
+                          (1.0 / ev2.Tb - 1.0 / Ts), 60.0));
+        const double md = (1.0 - o.betar) * Pv *
+                          std::sqrt(1.0 / (2.0 * M_PI * ev2.Rs * Ts));
+        fr = std::max(fr, md * ev2.Lv / q_peak);
+      }
+    std::printf("\n  TIER (e) evaporation report:\n");
+    std::printf("    simulated peak surface T = %.0f K   (boiling %.0f K)\n",
+                Tmax, ev2.Tb);
+    std::printf("    worst q_evap / q_peak = %.4f   beta_r = %.2f\n", fr, o.betar);
+    if (fr > 1.0)
+      std::printf("    q_evap EXCEEDS the beam: at this operating point the surface\n"
+                  "    cannot be in a quasi-steady balance without mass loss, which\n"
+                  "    this tier does NOT model (the surface is flat and does not\n"
+                  "    recede). Treat the pool below as a lower bound on the error.\n");
+  }
+
   //---- extract the pool from the simulated field, as an envelope ----
   auto h = Kokkos::create_mirror_view(s.temperature());
   Kokkos::deep_copy(h, s.temperature());
+  if (o.recede) {
+    auto hh = Kokkos::create_mirror_view_and_copy(HostSpace{}, Hs);
+    for (Index c = 0; c < nx * ny; ++c) hsurf[std::size_t(c)] = hh(c);
+  }
   double w_sim = 0, d_sim = 0, L_sim = 0; Index iw = 0, id_ = 0;
   extract(h, w_sim, d_sim, L_sim, iw, id_, nullptr);
 
@@ -1066,13 +1350,27 @@ int run(const Opts& o, const Mat& m) {
         float(dx), float(dt), float(nx), float(ny), float(nz), float(jc),
         float(m.T_s), float(m.T_l), float(m.T_0), float(o.P), float(o.v),
         float(o.spot), float(o.A), float(2 * pa.w), float(pa.d), float(pa.L),
-        float(t_therm), float(o.la0 ? 1 : 0), float(steps)};
+        float(t_therm), float(o.la0 ? 1 : 0), float(steps),
+        float(o.flow ? 1 : 0), float(o.evap ? 1 : 0), float(o.dgdT),
+        float(o.recede ? 1 : 0), float(o.rho_l)};
     write_npy(D + "meta.npy", meta, {meta.size()});
+    if (o.recede && !fr_rec.empty()) {
+      write_npy(D + "recess.npy",  fr_rec,     {F, std::size_t(nx), std::size_t(ny)});
+      write_npy(D + "removed.npy", fr_removed, {F});
+    }
+    if (o.flow && !fr_usx.empty()) {
+      write_npy(D + "us_x.npy", fr_usx, {F, std::size_t(nx), std::size_t(ny)});
+      write_npy(D + "us_y.npy", fr_usy, {F, std::size_t(nx), std::size_t(ny)});
+      write_npy(D + "uc_x.npy", fr_ucx, {F, std::size_t(nx), std::size_t(nz)});
+      write_npy(D + "uc_z.npy", fr_ucz, {F, std::size_t(nx), std::size_t(nz)});
+      std::printf("    + velocity (m/s): us_x, us_y on the surface; uc_x, uc_z "
+                  "on the centreline\n");
+    }
     std::printf("\n  frames -> %s (%zu frames, %dx%d top, %dx%d centreline, "
                 "every %d steps)\n", o.frames.c_str(), F, int(nx), int(ny),
                 int(nx), int(nz), fev);
     std::printf("    meta.npy = [dx, dt, nx, ny, nz, y_centre, T_s, T_l, T_0, P, v, "
-                "spot_um, A, 2w_an, d_an, L_an, t_therm, la0, steps]\n");
+                "spot_um, A, 2w_an, d_an, L_an, t_therm, la0, steps, flow, evap, dgdT]\n");
   }
 
   std::printf("\n[melt_pool] %d checks, %d failures\n", checks, failures);
@@ -1094,6 +1392,9 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "-track")) { double t; nx(t); o.track = t * 1e-6; }
     else if (!std::strcmp(argv[i], "-probe")) { double t; nx(t); o.probe = int(t); }
     else if (!std::strcmp(argv[i], "-flow"))  o.flow = true;
+    else if (!std::strcmp(argv[i], "-evap"))  o.evap = true;
+    else if (!std::strcmp(argv[i], "-recede")) { o.evap = true; o.recede = true; }
+    else if (!std::strcmp(argv[i], "-betar")) nx(o.betar);
     else if (!std::strcmp(argv[i], "-dgdt"))  nx(o.dgdT);
     else if (!std::strcmp(argv[i], "-mu"))    nx(o.mu_l);
     else if (!std::strcmp(argv[i], "-asink")) nx(o.A_lat);
