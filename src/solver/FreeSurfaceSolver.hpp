@@ -187,6 +187,7 @@
 #include "equilibrium/Equilibrium.hpp"
 #include "forcing/Forcing.hpp"
 #include "grid/Domain.hpp"
+#include "lattice/GradientLattice.hpp"
 #include "lattice/Lattices.hpp"
 #include "memory/TwoLattice.hpp"
 
@@ -294,6 +295,21 @@ class FreeSurfaceSolver {
   // it. That combination is untested -- no case in this tree pairs a rigid body
   // with a non-uniform gas pressure.
   View1D<Real> rho_G_of;         // optional per-node rho_G; empty means uniform
+
+  // SURFACE TENSION. Zero (the default) means none and costs nothing -- no
+  // storage is allocated and no kernel runs. set_surface_tension() turns it on.
+  //
+  // It reaches the flow through rho_G_of's own door: the dynamic condition sets
+  // the liquid's normal stress to the imposed gas pressure, so imposing
+  // p_G + sigma kappa instead of p_G puts exactly the Laplace jump across the
+  // interface. In lattice terms the reconstruction sees
+  //     rho_eff(n) = rho_G(n) + sigma kappa(n) / cs^2
+  // and the two effects ADD, which is what a keyhole needs: recoil pushes the
+  // surface down and surface tension resists it, in one field.
+  //
+  // SIGN: kappa is POSITIVE for a liquid drop (convex liquid), so the pressure
+  // inside a drop is higher, which is Laplace's law the right way up.
+  Real sigma = Real(0);
   // Conversion hysteresis. A cell is promoted only past 1 + fill_offset and
   // demoted only below -fill_offset, so a cell sitting exactly at a threshold
   // cannot convert back and forth every step. The literature's value; without
@@ -385,7 +401,118 @@ class FreeSurfaceSolver {
   //----------------------------------------------------------------------------
   // One step. Five fenced passes; see the banner for why they cannot be fewer.
   //----------------------------------------------------------------------------
+  // Allocates the five curvature fields and switches the term on. Calling it
+  // with 0 switches it off again but does not free the storage.
+  void set_surface_tension(Real s) {
+    sigma = s;
+    if (s != Real(0) && cf_.size() == 0) {
+      cf_  = View1D<Real>("fs_colour",   dom_.n_padded);
+      cfs_ = View1D<Real>("fs_colour_s", dom_.n_padded);
+      knx_ = View1D<Real>("fs_nx",       dom_.n_padded);
+      kny_ = View1D<Real>("fs_ny",       dom_.n_padded);
+      knz_ = View1D<Real>("fs_nz",       dom_.n_padded);
+      kap_ = View1D<Real>("fs_kappa",    dom_.n_padded);
+    }
+  }
+
+  //----------------------------------------------------------------------------
+  //  CURVATURE FROM THE FILL LEVEL, in four passes.
+  //
+  //  kappa = -div(n) with n = grad(eps)/|grad(eps)|. The sign is what makes a
+  //  drop's interior the high-pressure side: eps falls outward, so grad(eps)
+  //  points INTO the liquid and div of it is -1/R for a 2-D disc; negating
+  //  gives +1/R.
+  //
+  //  THE FILL LEVEL IS NOT A FIELD UNTIL IT IS MADE ONE. eps_ is meaningful
+  //  only at interface cells -- a Fluid cell's entry is not maintained at 1 --
+  //  so pass 1 builds the colour function the differencing needs: 1 in fluid,
+  //  eps at the interface, 0 in gas. Reading eps_ directly would differentiate
+  //  whatever was left in the bulk.
+  //
+  //  AND IT IS SMOOTHED BEFORE IT IS DIFFERENTIATED, because a one-cell-thick
+  //  interface is very nearly a step and the curvature of a step is noise.
+  //  Pass 2 is one lattice-weighted average, sum_i w_i eps(x + c_i), whose
+  //  weights sum to one so it is a mollifier and not a gain. One pass, not
+  //  several: each one widens the effective interface and biases kappa toward
+  //  zero, and the measurement in validation/surface_tension.cpp is what
+  //  settled the count rather than a preference.
+  //
+  //  THE STENCIL IS THE GRADIENT LATTICE'S, NOT THIS LATTICE'S -- D2Q9 for a
+  //  2-D field, D3Q27 for a 3-D one -- for the reason GradientLattice.hpp
+  //  gives: the isotropy of the gradient stencil is what sets the
+  //  spurious-current floor around a static drop, and an axis-only stencil is
+  //  markedly worse. That is the whole quantity this case measures, so it is
+  //  not a detail.
+  //
+  //  WHERE |grad eps| IS BELOW A FLOOR the normal is left at zero rather than
+  //  normalised, which is the bulk and is correct there. It does mean the
+  //  divergence at the OUTER edge of the interface band reads some zero
+  //  normals from the bulk, and that is a real error of this construction; it
+  //  is why kappa is used only at interface cells, where the band is centred.
+  //----------------------------------------------------------------------------
+  void compute_curvature() {
+    using GL = typename GradientLatticeOf<L>::type;
+    const Domain d = dom_;
+    auto flags = flags_; auto eps = eps_;
+    auto cf = cf_, cfs = cfs_, knx = knx_, kny = kny_, knz = knz_, kap = kap_;
+    constexpr Real icsg = inv_cs2<GL, Real>();
+
+    // pass 1: the colour function
+    Kokkos::parallel_for("fs_colour", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+      const std::uint8_t f = flags(n);
+      cf(n) = (f == FsFluid) ? Real(1)
+            : (f == FsInterface) ? eps(n) : Real(0);
+    });
+    Kokkos::fence();
+
+    // pass 2: one mollifying pass
+    Kokkos::parallel_for("fs_colour_smooth", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+      Neighbours<GL> nb;
+      d.template fill_neighbours<GL, 1, 1>(n, nb);
+      Real a = weight<GL, Real>(0) * cf(n);
+      for (int i = 1; i < GL::Q; ++i) a += weight<GL, Real>(i) * cf(nb.j[i]);
+      cfs(n) = a;
+    });
+    Kokkos::fence();
+
+    // pass 3: the unit normal
+    Kokkos::parallel_for("fs_normal", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+      Neighbours<GL> nb;
+      d.template fill_neighbours<GL, 1, 1>(n, nb);
+      Real g[3] = {Real(0), Real(0), Real(0)};
+      for (int i = 1; i < GL::Q; ++i) {
+        const Real wp = weight<GL, Real>(i) * cfs(nb.j[i]);
+        for (int a = 0; a < GL::D; ++a) g[a] += wp * Real(cvel<GL>(i, a));
+      }
+      for (int a = 0; a < 3; ++a) g[a] *= icsg;
+      const Real m = Kokkos::sqrt(g[0]*g[0] + g[1]*g[1] + g[2]*g[2]);
+      // The floor is on the GRADIENT, not on eps: it is the bulk that must be
+      // excluded, and the bulk is where the colour function is flat.
+      const Real inv = (m > Real(1e-6)) ? Real(1) / m : Real(0);
+      knx(n) = g[0] * inv;  kny(n) = g[1] * inv;  knz(n) = g[2] * inv;
+    });
+    Kokkos::fence();
+
+    // pass 4: kappa = -div(n)
+    Kokkos::parallel_for("fs_kappa", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+      if (flags(n) != FsInterface) { kap(n) = Real(0); return; }
+      Neighbours<GL> nb;
+      d.template fill_neighbours<GL, 1, 1>(n, nb);
+      Real div = Real(0);
+      for (int i = 1; i < GL::Q; ++i) {
+        const Real w = weight<GL, Real>(i);
+        const Index j = nb.j[i];
+        div += w * (Real(cvel<GL>(i, 0)) * knx(j)
+                  + Real(cvel<GL>(i, 1)) * kny(j)
+                  + Real(cvel<GL>(i, 2)) * knz(j));
+      }
+      kap(n) = -icsg * div;
+    });
+    Kokkos::fence();
+  }
+
   void step() {
+    if (sigma != Real(0)) compute_curvature();
     stream_collide();
     mass_exchange();
     classify();
@@ -651,6 +778,9 @@ class FreeSurfaceSolver {
     auto obst = obst_;
     const Real rg = rho_G;
     const auto rgf = rho_G_of;          // empty unless the caller set it
+    const auto kap = kap_;              // empty unless surface tension is on
+    const Real sig = sigma;
+    constexpr Real icsL = inv_cs2<L, Real>();
     const Index hx = dom_.hx, hy = dom_.hy;
     const Real bcx = bcx_, bcy = bcy_;
     constexpr Real ics = inv_cs2<L, Real>();
@@ -662,7 +792,11 @@ class FreeSurfaceSolver {
         if (fl != FsFluid && fl != FsInterface) return;
         // Same test as ScalarBGK's omega_of: the field, once set, is
         // authoritative and the scalar is not consulted.
-        const Real rgn = rgf.data() ? rgf(n) : rg;
+        Real rgn = rgf.data() ? rgf(n) : rg;
+        // Surface tension ADDS to whatever pressure the caller imposed: a
+        // recoil field and a Laplace jump are both normal stresses and they
+        // superpose. p -> p + sigma kappa, i.e. rho -> rho + sigma kappa / cs^2.
+        if (sig != Real(0) && kap.data()) rgn += sig * kap(n) * icsL;
 
         Neighbours<L> nb;
         d.template fill_neighbours<L, NF, NS>(n, nb);
@@ -1030,6 +1164,8 @@ class FreeSurfaceSolver {
   View1D<std::uint8_t> uncov_;
   HostView1D<std::uint8_t> h_flags_;
   View1D<Real> mass_, eps_, excess_;
+  // Curvature working set. Empty until set_surface_tension() is called.
+  View1D<Real> cf_, cfs_, knx_, kny_, knz_, kap_;
   View1D<Real> wux_, wuy_, wuz_;      // wall velocity, meaningful in body cells
   // WHICH SOLID CELLS ARE THE BODY'S. A tank wall and a moving obstacle are both
   // FsSolid and must not be confused: the wall does not move, does not get

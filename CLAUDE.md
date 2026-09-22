@@ -932,6 +932,26 @@ Do not spend time on these without saying so first; several are deliberate.
   recoil pressure — `validation/recoil.cpp` measures it against the exact
   hydrostatic depression `dz = −[p_G(x) − ⟨p_G⟩]/(ρg)`, converging at order
   1.84 to 1.4 % at Lx = 256.
+  **SURFACE TENSION NOW EXISTS TOO, so the sentence above is the history rather
+  than the state.** `set_surface_tension(σ)` (2026-09-22) computes
+  `κ = −∇·(∇ε/|∇ε|)` on the GRADIENT lattice and adds `σκ/cs²` to whatever gas
+  density is imposed, so recoil and capillarity superpose in one field — which
+  is what a keyhole needs, being a hole held open by recoil and closed by
+  surface tension. `validation/surface_tension.cpp` measures Laplace's law:
+  **1.2 % for R ≥ 12 and 3.4 % at R = 8**, with spurious currents of 1e-8 to
+  5e-6. Zero storage and zero kernels when σ = 0, which is the default.
+  **NO ORDER IS QUOTED AND THAT IS DELIBERATE.** The error is +3.39, +0.88,
+  −0.64, +1.14 % at R = 8/12/16/24 — NOT monotone, because curvature on a
+  volume-of-fluid field depends on how the circle happens to sit on the grid, so
+  two radii can land on opposite sides of the answer. A rate fitted through
+  those points would be arithmetic, not a measurement. Quote the band.
+  Two guards make the case non-vacuous, and the second caught something: σ = 0
+  gives *exactly* zero pressure jump, isolating the term from the rest of the
+  solver; and an ellipse must relax to a circle, which tests the SIGN that no
+  static measurement can see. That second test is worthless unless the seed is
+  really an ellipse, so its aspect is measured at t = 0 — and that guard read
+  1.6863 for a requested 1.30, which is 1.30², a naming error in the seeding
+  parameter rather than the bug it was written to catch.
   **THE ERROR IS SET BY THE DEPRESSION MEASURED IN CELLS, NOT BY THE GRID.**
   36 % at one cell, 13 % at two, 5.0 % at four, 1.4 % at eight — and the control
   is that a two-cell depression reads 13.06 % at Lx = 128 and 13.16 % at
