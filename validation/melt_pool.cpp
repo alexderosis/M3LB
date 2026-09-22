@@ -45,17 +45,34 @@
 //       sink against the exact reduced channel and measures its stability
 //       bound.
 //
-//       MEASURED 2026-09-21, dx = 4 um, dgamma/dT = -2.6e-4 N/(m K),
+//       MEASURED 2026-09-22 at TWO resolutions, dgamma/dT = -2.6e-4 N/(m K),
 //       mu = 3.25e-3 Pa s, A_sink = 0.8:
 //
-//           quantity   conduction   + Marangoni    change
-//           2w          96.651 um   105.736 um     +9.4 %
-//           d           23.888 um    19.519 um    -18.3 %
-//           w/d           4.05         5.42       wider and shallower
+//        dx    quantity   conduction   + Marangoni   change   Ma    rho excursion
+//        4 um    2w        96.651 um   105.736 um    + 9.4 %
+//                d         23.888       19.519       -18.3 %  0.264    17.6 %
+//        2 um    2w       100.911      107.221       + 6.3 %
+//                d         25.916       20.552       -20.7 %  0.190     7.0 %
 //
 //       Wider and shallower is the correct SIGN for outward thermocapillary
 //       flow at dgamma/dT < 0, and it is the direction a conduction-only model
-//       structurally cannot produce. Peak speed 1.39 m/s.
+//       structurally cannot produce. Peak speed 1.39 m/s at dx = 4, 2.00 m/s
+//       at dx = 2.
+//
+//       TWO RESOLUTIONS MATTER MORE THAN ONE HERE, because the increment is
+//       the whole claim and a single grid cannot separate it from a
+//       discretisation artefact. The sign and the magnitude survive halving dx
+//       (+9.4/+6.3 % on width, -18.3/-20.7 % on depth), so the effect is
+//       physical rather than numerical. It is NOT converged -- the two rows
+//       differ by about 3 points on width -- so the increment is quotable as
+//       "order 10 % wider, order 20 % shallower" and no further.
+//
+//       AND THE COMPRESSIBILITY PROBLEM IMPROVES UNDER REFINEMENT, which was
+//       not obvious: dt goes as dx^2 while dx goes as dx, so the LATTICE
+//       velocity falls as dx even though the physical speed rose. Ma 0.264 ->
+//       0.190 and the density excursion 17.6 -> 7.0 %. So refinement buys
+//       accuracy twice here, and the Ma < 0.1 this tier wants is about one
+//       further halving away -- at 8x the cost of the dx = 2 run.
 //
 //       THREE THINGS MAKE THIS COARSE, AND ALL THREE ARE OPEN.
 //        1. Ma = 0.26 and the density excursion is 17.6 %. dt is set by the
@@ -68,13 +85,28 @@
 //           nz, outside the array -- so within one Domain the two surfaces
 //           cannot coincide. SpecNode is used instead, which collides (and so
 //           can carry the stress) but sits on the node.
-//        3. TIER (d) IS SLOW, AND IT IS THE IMPLEMENTATION AND NOT THE PHYSICS.
-//           The force field is rebuilt ON THE HOST every step -- six
-//           device-host mirror copies and an O(N) host loop per step -- which
-//           is tolerable at dx = 4 um and not at dx = 2 um. It belongs in a
-//           Kokkos::parallel_for reading the enthalpy and velocity Views
-//           directly; it is written this way because the phase-change inverse
-//           was easier to get right on the host first. Fixing it is mechanical.
+//        3. TIER (d) IS SLOW, AND THE COST IS THE FLUID -- NOT, AS AN EARLIER
+//           VERSION OF THIS BANNER CLAIMED, THE FORCE LOOP. The force field was
+//           rebuilt on the HOST with six mirror copies per step; it now runs as
+//           one Kokkos::parallel_for over the enthalpy and velocity Views, with
+//           byte-identical output (105.736 / 19.519 / 149.476 um and peak
+//           |u| = 1.5229e-01 before and after). Measured at dx = 4 um on four
+//           threads:
+//
+//               scalar alone        3.74 s
+//               + coupled flow     43.63 s    the FLUID adds 10.7x the scalar
+//               host force loop    50.15 s    the loop was 13 % of the total
+//
+//           So the move to the device is worth 1.15x here and is the right
+//           implementation -- on an actual device those mirror copies are
+//           off-chip traffic rather than a no-op, which is where it would
+//           matter -- but it was NEVER what blocked dx = 2 um. What blocks that
+//           is arithmetic: a D3Q27 fluid carries 27 populations per node
+//           against the scalar's 7, and dx = 2 um is 32x the work (8x cells,
+//           4x steps). Estimated 23 minutes from the dx = 4 run; MEASURED 31
+//           minutes, so the estimate was 35 % light -- the extra is memory
+//           traffic at 4.6 M nodes carrying 27 fluid populations beside 7
+//           scalar ones. Slow, not impossible.
 //        4. d(gamma)/dT is a BAND, not a value. The clean-alloy figure is
 //           negative; surface-active sulfur or oxygen can make it positive over
 //           a temperature range, which INVERTS the aspect-ratio change above.
@@ -809,72 +841,65 @@ int run(const Opts& o, const Mat& m) {
       return Real(q_peak * Kokkos::exp(-2.0 * r2 / (a_beam * a_beam)) * flux_to_K);
     });
     if (o.flow) {
-      // ---- the force field, rebuilt each step -------------------------------
+      // ---- the force field, rebuilt each step, ON THE DEVICE ---------------
       // Marangoni: tau = (dgamma/dT) grad_s T on the free surface, applied as a
       // BODY FORCE tau/dx in the top cell. validation/marangoni.cpp validates
       // exactly this device against the exact profile and measures what it
       // costs: the surface velocity is FIRST order, the interior second, so a
       // pool dimension read off an isotherm away from the surface is unharmed.
       //
-      // Mushy sink: F = -A u with A = A_lat (1-f_l)^2/(f_l^3+eps) in lattice
-      // units. validation/mushy_sink.cpp measures the stability bound at
-      // A = 1.000 (a two-step recurrence, NOT the textbook A < 2) and the
-      // residual leakage floor at about 2 % of u_max.
+      // Mushy sink: F = -A u with A = A_lat eps (1-f_l)^2/(f_l^3+eps) in
+      // lattice units. validation/mushy_sink.cpp measures the stability bound
+      // at A = 1.000 (a two-step recurrence, NOT the textbook A < 2) and the
+      // residual leakage floor at about 2 % of u_max. THE eps IS NOT
+      // DECORATION: A(0) = C/eps, so naming C "the strength at f_l = 0" makes
+      // it 1/eps too large -- 800 against a bound of 1, and the run went NaN.
+      //
+      // ONE KERNEL, NO MIRRORS. This was a host loop with six device-host
+      // copies per step, which was tolerable at dx = 4 um and not at dx = 2.
+      // PhaseChange::invert is KOKKOS_INLINE_FUNCTION, so the phase-change
+      // inverse runs on the device as happily as on the host; the host version
+      // existed only because it was easier to get right first.
       s.compute_field();
-      auto hT = Kokkos::create_mirror_view(s.temperature());
-      Kokkos::deep_copy(hT, s.temperature());
-      auto hfx = Kokkos::create_mirror_view(Fx);
-      auto hfy = Kokkos::create_mirror_view(Fy);
-      auto hfz = Kokkos::create_mirror_view(Fz);
-      auto hux = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->ux());
-      auto huy = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->uy());
-      auto huz = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->uz());
-      auto Tof = [&](Index i, Index j, Index kk) {
-        Real fl, T, E, dE; pcv.invert(hT(d.id(i, j, kk)), fl, T, E, dE);
-        return double(T);
-      };
-      auto FLof = [&](Index i, Index j, Index kk) {
-        Real fl, T, E, dE; pcv.invert(hT(d.id(i, j, kk)), fl, T, E, dE);
-        return double(fl);
-      };
-      const double eps = 1e-3;
-      for (Index i = 0; i < nx; ++i)
-        for (Index j = 0; j < ny; ++j)
-          for (Index kk = 0; kk < nz; ++kk) {
-            const Index n = d.id(i, j, kk);
-            double fx = 0, fy = 0, fz = 0;
-            if (kk == nz - 1) {
-              // central differences on the surface plane; one-sided at the rim
-              const Index ip = (i + 1 < nx) ? i + 1 : i, im = (i > 0) ? i - 1 : i;
-              const Index jp = (j + 1 < ny) ? j + 1 : j, jm = (j > 0) ? j - 1 : j;
-              const double dTdx = (Tof(ip, j, kk) - Tof(im, j, kk)) /
-                                  (double(ip - im) * dx);
-              const double dTdy = (Tof(i, jp, kk) - Tof(i, jm, kk)) /
-                                  (double(jp - jm) * dx);
-              // ONLY WHERE THERE IS LIQUID. A surface tension gradient on solid
-              // is not a stress, and applying it there would drive the solid.
-              const double fl = FLof(i, j, kk);
-              if (fl > 0.0) {
-                fx = fl * o.dgdT * dTdx / dx * F_to_lat;
-                fy = fl * o.dgdT * dTdy / dx * F_to_lat;
-              }
-            }
-            const double fl = FLof(i, j, kk);
-            // THE eps IS NOT DECORATION. A = C (1-f_l)^2/(f_l^3+eps) has
-            // A(0) = C/eps, so naming C "the strength at f_l = 0" makes it
-            // 1/eps times too large -- 800 here against the bound of 1.000 that
-            // validation/mushy_sink.cpp measures, and the run went NaN. Scaling
-            // by eps makes A_lat mean what it says.
-            const double A = o.A_lat * eps * (1.0 - fl) * (1.0 - fl) /
-                             (fl * fl * fl + eps);
-            fx -= A * double(hux(n));
-            fy -= A * double(huy(n));
-            fz -= A * double(huz(n));
-            hfx(n) = Real(fx); hfy(n) = Real(fy); hfz(n) = Real(fz);
-          }
-      Kokkos::deep_copy(Fx, hfx);
-      Kokkos::deep_copy(Fy, hfy);
-      Kokkos::deep_copy(Fz, hfz);
+      auto Th = s.temperature();
+      auto ux = fs->ux(); auto uy = fs->uy(); auto uz = fs->uz();
+      auto fxv = Fx, fyv = Fy, fzv = Fz;
+      const PhaseChange pcd = pcv;
+      const double eps = 1e-3, dgdT = o.dgdT, Alat = o.A_lat;
+      const double dxl = dx, Fscale = F_to_lat;
+      const Index nxl = nx, nyl = ny, nzl = nz;
+      Kokkos::parallel_for("melt_pool_force", d.n_padded, KOKKOS_LAMBDA(Index n) {
+        Index px, py, pz; d.coords(n, px, py, pz);
+        if (!d.is_interior(px, py, pz)) return;
+        const Index i = px - d.hx, j = py - d.hy, kk = pz - d.hz;
+        auto Tof = [&](Index a, Index b, Index c) {
+          Real fl, T, E, dE; pcd.invert(Th(d.id(a, b, c)), fl, T, E, dE);
+          return double(T);
+        };
+        Real flr, Tr, Er, dEr;
+        pcd.invert(Th(n), flr, Tr, Er, dEr);
+        const double fl = double(flr);
+        double fx = 0, fy = 0, fz = 0;
+        if (kk == nzl - 1 && fl > 0.0) {
+          // central differences on the surface plane; one-sided at the rim.
+          // ONLY WHERE THERE IS LIQUID: a surface tension gradient on solid is
+          // not a stress, and applying it there would drive the solid.
+          const Index ip = (i + 1 < nxl) ? i + 1 : i, im = (i > 0) ? i - 1 : i;
+          const Index jp = (j + 1 < nyl) ? j + 1 : j, jm = (j > 0) ? j - 1 : j;
+          const double dTdx = (Tof(ip, j, kk) - Tof(im, j, kk)) /
+                              (double(ip - im) * dxl);
+          const double dTdy = (Tof(i, jp, kk) - Tof(i, jm, kk)) /
+                              (double(jp - jm) * dxl);
+          fx = fl * dgdT * dTdx / dxl * Fscale;
+          fy = fl * dgdT * dTdy / dxl * Fscale;
+        }
+        const double A = Alat * eps * (1.0 - fl) * (1.0 - fl) /
+                         (fl * fl * fl + eps);
+        fx -= A * double(ux(n));
+        fy -= A * double(uy(n));
+        fz -= A * double(uz(n));
+        fxv(n) = Real(fx); fyv(n) = Real(fy); fzv(n) = Real(fz);
+      });
       fs->step();
       fs->compute_macroscopic();
     }
