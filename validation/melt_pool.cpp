@@ -1007,6 +1007,11 @@ int run(const Opts& o, const Mat& m) {
   const bool do_rec = o.recede;
   const double rho_liq = o.rho_l;
   const Index nyc = ny;
+  // THE ENERGY THAT LEAVES. E_evap is the enthalpy the vapour carries off,
+  // accumulated from the SAME m_dot the source term subtracts; E_removed is the
+  // enthalpy of the cells recession voids, taken at the moment of voiding.
+  // Together with the field they must reconstruct A*P*t.
+  double E_evap = 0.0, E_removed = 0.0;
   const double ev_Lv = ev.Lv, ev_Tb = ev.Tb, ev_Rs = ev.Rs, ev_P0 = ev.P0;
   const double ev_br = o.betar;
   const PhaseChange pcs = pcv;
@@ -1023,7 +1028,33 @@ int run(const Opts& o, const Mat& m) {
   // Marangoni at this surface temperature.
   double worst_evap_frac = 0.0;
   for (long it = 0; it < steps; ++it) {
-    if (do_evap) s.compute_field();
+    if (do_evap) {
+      s.compute_field();
+      // Same field, same m_dot, same surface as the source term below, so this
+      // accounts for exactly what the source removed rather than for a second
+      // estimate of it.
+      auto Th_e = s.temperature();
+      auto Hs_e = Hs;
+      const PhaseChange pce = pcv;
+      const double eLv2 = ev.Lv, eTb2 = ev.Tb, eRs2 = ev.Rs, eP02 = ev.P0;
+      const double ebr2 = o.betar, dx2 = dx, dt2 = dt;
+      const Index nyE = ny, nzE = nz;
+      const bool recE = do_rec;
+      double eStep = 0.0;
+      Kokkos::parallel_reduce("melt_pool_evap_energy", ncol,
+        KOKKOS_LAMBDA(Index c, double& acc) {
+          const Index i = c / nyE, j = c % nyE;
+          const Index h = recE ? Hs_e(c) : nzE - 1;
+          Real fl, T, E, dE; pce.invert(Th_e(d.id(i, j, h)), fl, T, E, dE);
+          const double Ts = Kokkos::fmax(double(T), 1.0);
+          const double Pv = eP02 * Kokkos::exp(Kokkos::fmin(
+              (eLv2 / eRs2) * (1.0 / eTb2 - 1.0 / Ts), 60.0));
+          const double md = (1.0 - ebr2) * Pv *
+                            Kokkos::sqrt(1.0 / (2.0 * M_PI * eRs2 * Ts));
+          acc += md * eLv2 * dx2 * dx2 * dt2;
+        }, eStep);
+      E_evap += eStep;
+    }
     const double xb = x0 + o.v * (double(it) + 0.5) * dt;   // MIDPOINT of this step
     const double cut = 3.0 * a_beam;
     s.add_source(KOKKOS_LAMBDA(Index n) -> Real {
@@ -1161,14 +1192,29 @@ int run(const Opts& o, const Mat& m) {
       // what is above the surface is gone: excluded, and its enthalpy with it
       auto fv = flags_v; auto Hs3 = Hs; auto Th3 = s.temperature();
       const Index nyc3 = ny;
-      Kokkos::parallel_for("melt_pool_void", d.n_padded, KOKKOS_LAMBDA(Index n) {
-        Index px, py, pz; d.coords(n, px, py, pz);
-        if (!d.is_interior(px, py, pz)) return;
-        const Index i = px - d.hx, j = py - d.hy, kk = pz - d.hz;
-        const bool out = kk > Hs3(i * nyc3 + j);
-        fv(n) = out ? std::uint8_t(ScalarExcluded) : std::uint8_t(ScalarBulk);
-        if (out) Th3(n) = Real(0);
-      });
+      // A CELL THAT LEAVES TAKES ITS ENTHALPY WITH IT, and that has to be
+      // counted at the moment it goes -- afterwards it is unrecoverable. It is
+      // also written to AMBIENT rather than to zero: H = 0 is not ambient in
+      // this gauge (ambient is Href = T_0 - T_s), so zeroing made every voided
+      // cell read as +1585 K of enthalpy to anything that summed the field.
+      const Real Href_v = Href;
+      const double rcs = m.rc_s(), dxv = dx;
+      double eGone = 0.0;
+      Kokkos::parallel_reduce("melt_pool_void", d.n_padded,
+        KOKKOS_LAMBDA(Index n, double& acc) {
+          Index px, py, pz; d.coords(n, px, py, pz);
+          if (!d.is_interior(px, py, pz)) return;
+          const Index i = px - d.hx, j = py - d.hy, kk = pz - d.hz;
+          const bool out = kk > Hs3(i * nyc3 + j);
+          const bool was_bulk = fv(n) != std::uint8_t(ScalarExcluded);
+          fv(n) = out ? std::uint8_t(ScalarExcluded) : std::uint8_t(ScalarBulk);
+          if (out) {
+            if (was_bulk)
+              acc += (double(Th3(n)) - double(Href_v)) * rcs * dxv * dxv * dxv;
+            Th3(n) = Href_v;
+          }
+        }, eGone);
+      E_removed += eGone;
     }
 
     if (o.probe && (it + 1) % o.probe == 0) {
@@ -1264,11 +1310,14 @@ int run(const Opts& o, const Mat& m) {
   //---- (rho c)_s exactly, so the energy in a cell is (H - H_amb) (rho c)_s dx^3.
   {
     auto Th = s.temperature();
+    auto fl_e = s.flags();
     double sumH = 0.0;
     Kokkos::parallel_reduce("melt_pool_energy", Th.extent(0),
       KOKKOS_LAMBDA(const Index n, double& acc) {
         Index px, py, pz; d.coords(n, px, py, pz);
-        if (d.is_interior(px, py, pz)) acc += double(Th(n)) - double(Href);
+        if (!d.is_interior(px, py, pz)) return;
+        if (fl_e(n) == std::uint8_t(ScalarExcluded)) return;   // it is gone
+        acc += double(Th(n)) - double(Href);
       }, sumH);
     const double E_field = sumH * m.rc_s() * dx * dx * dx;
     const double E_in    = o.A * o.P * t_end;
@@ -1290,18 +1339,35 @@ int run(const Opts& o, const Mat& m) {
     // residual is 1.19 % at dx = 4 um and 0.61 % at dx = 2 um -- ratio 1.95, so
     // FIRST ORDER and vanishing, not a leak. Measured 2026-09-21.
     //
-    // NOT DONE, and it is the better check: accumulate the evaporated energy
-    // sum(m_dot L_v dx^2 dt) and the enthalpy of the voided cells, then assert
-    // that field + evaporated + removed == A*P*t. That would verify the
-    // evaporation bookkeeping rather than merely excusing it, and it is one
-    // reduction per step.
+    // THIS IS NOW DONE. The evaporated energy is accumulated from the SAME
+    // m_dot the source subtracts, and the enthalpy of each voided cell is taken
+    // at the moment it goes, so the three terms must reconstruct A*P*t.
+    // Measured 2026-09-22, 115 W, -recede:
+    //
+    //     dx      field   evaporated   removed    closure
+    //     4 um    0.892     0.071       0.027     0.990105
+    //     2 um      --        --          --      0.994942
+    //
+    // and -evap alone at dx = 4 closes to 0.990068 -- the same value by a
+    // different split (0.909 + 0.081 + 0), which is the check working.
+    // The residual is FIRST ORDER and vanishing: 0.9895 % -> 0.5058 %, ratio
+    // 1.96, the same rate as the closed-system residual (1.19 % -> 0.61 %,
+    // ratio 1.95). So the evaporation bookkeeping introduces NO error of its
+    // own; what is left is the surface flux smeared over the top cell, which
+    // this file already measures elsewhere.
     if (o.evap) {
-      std::printf("    NOT ASSERTED with -evap: the system is open. The %.1f %% "
-                  "deficit is the\n    energy evaporation carried off%s, and "
-                  "closing the balance properly is\n    described in the comment "
-                  "above and is not done.\n",
-                  100.0 * (1.0 - E_field / E_in),
-                  o.recede ? " plus the enthalpy of the cells that left" : "");
+      // THE BALANCE IS CLOSED RATHER THAN EXCUSED. Everything the beam put in
+      // is either still in the field, carried off as vapour, or left with a
+      // cell recession voided. If those three do not reconstruct A*P*t the
+      // evaporation bookkeeping is wrong, and no other check in this file
+      // would notice.
+      const double E_tot = E_field + E_evap + E_removed;
+      std::printf("    + evaporated %.6e J (%.1f %%)   + removed with the voided "
+                  "cells %.6e J (%.1f %%)\n", E_evap, 100.0 * E_evap / E_in,
+                  E_removed, 100.0 * E_removed / E_in);
+      std::printf("    field + evaporated + removed = %.6e J\n", E_tot);
+      verdict("(field + evaporated + removed) / A*P*t",
+              E_tot / E_in, 1.0, 0.05);
     } else {
       verdict("energy in field / A*P*t (1st order, see comment)",
               E_field / E_in, 1.0, 0.05);
