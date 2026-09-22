@@ -317,6 +317,37 @@ class FreeSurfaceSolver {
   Real fill_offset = Real(1e-3);
   bool drop_detached = true;   // isolated specks -> gas; see classify()
 
+  // NO CELL MAY BECOME LIQUID THAT WAS GAS. Off by default, and everything in
+  // this file behaves exactly as before when it is off.
+  //
+  // WHY IT EXISTS. Coupling this solver to a TRANSPORTED FIELD -- an enthalpy,
+  // for a melt pool -- runs into one hard question: when a gas cell becomes
+  // liquid, what temperature does it have? The liquid arrives from nowhere, and
+  // ScalarSolver has no notion of a domain that changes shape. Forbidding the
+  // transition deletes the question rather than answering it: the liquid region
+  // then only ever SHRINKS, so every liquid cell has a continuous history back
+  // to the initial condition and no cell is ever created from nothing. Only the
+  // receding direction is left, where a cell's field has to be removed rather
+  // than invented.
+  //
+  // IT IS A MODEL, NOT A TRICK, AND IT IS RIGHT FOR DRILLING. A hole being
+  // bored only deepens. Melt displaced sideways into EXISTING liquid is
+  // unaffected -- the prohibition is on filling GAS -- so what it actually
+  // forbids is melt piling up above the surface into a recast rim. That melt is
+  // instead accounted as EJECTED, which is what melt leaving a keyhole does.
+  //
+  // WHAT IT COSTS, stated so a case cannot quietly rely on it.
+  //   * NO RECAST RIM and no resolidified crown. Real drilling makes one.
+  //   * NO REFILL after the pulse, so only the drilling phase is modelled.
+  //   * The bias is ONE-DIRECTIONAL: removing the only sink for displaced melt
+  //     other than ejection can only increase removal, so a hole predicted this
+  //     way is biased DEEP. How much is not measured.
+  //   * MASS IS NO LONGER CONSERVED, deliberately. total_mass() alone stops
+  //     being a correctness check; the budget that replaces it is
+  //     total_mass() + ejected_mass() = the initial mass, and a case using this
+  //     must assert THAT instead.
+  bool no_refill = false;
+
   static Real omega_from_viscosity(Real nu) {
     return Collision::omega_from_viscosity(nu);
   }
@@ -574,6 +605,10 @@ class FreeSurfaceSolver {
     mark_obstacle(inside, wall_vel);
     transfer_covered_mass();
   }
+  // Cumulative mass removed because no neighbour could accept it. Zero unless
+  // no_refill is on. total_mass() + ejected_mass() is the conserved quantity
+  // there, and it is what a case must assert instead of total_mass() alone.
+  Real ejected_mass() const { return ejected_; }
   View1D<Real> fill() const { return eps_; }
   View1D<Real> mass() const { return mass_; }
   View1D<Real> rho()  const { return rho_; }
@@ -971,6 +1006,7 @@ class FreeSurfaceSolver {
     auto mass = mass_, eps = eps_, rho = rho_, excess = excess_;
     const Real off = fill_offset;
     const bool do_detach = drop_detached;
+    const bool nrf = no_refill;
 
     Kokkos::parallel_for("fs_classify", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
       const std::uint8_t fl = flags(n);
@@ -983,6 +1019,18 @@ class FreeSurfaceSolver {
       eps(n) = e;
 
       if (e > Real(1) + off) {
+        if (nrf) {
+          // Stay an interface cell, full. The surplus is published exactly as
+          // it would have been on promotion, so settle() hands it on unchanged;
+          // what differs is that the cell does NOT become Fluid, so no gas
+          // neighbour is promoted behind it and the liquid cannot advance.
+          // mass is reset HERE because the FsFluid branch of settle() -- which
+          // normally does it -- is no longer reached.
+          excess(n) = mass(n) - r;
+          mass(n) = r;
+          eps(n) = Real(1);
+          return;
+        }
         newf(n) = FsFluid;
         excess(n) = mass(n) - r;        // the part that will not fit
         return;
@@ -1032,7 +1080,43 @@ class FreeSurfaceSolver {
   //----------------------------------------------------------------------------
   void close_interface() {
     promote();
+    if (no_refill) account_ejected();
     settle();
+  }
+
+  //----------------------------------------------------------------------------
+  // The mass that no neighbour can accept, measured rather than dropped.
+  //
+  // settle() shares a donor's excess among the neighbours that end up
+  // Interface and, when there are none, `if (takers > 0)` simply does not run --
+  // so the mass vanishes silently. That is tolerable in a closed free-surface
+  // flow, where it is a rounding-level leak; it is NOT tolerable under
+  // no_refill, where it is the whole ejection signal. This reads the same
+  // predicate settle() uses, from the same array, before settle() runs, and
+  // adds up what is about to be lost.
+  //
+  // THE PREDICATE MUST MATCH settle()'s EXACTLY or the ledger is wrong in the
+  // quiet direction -- it would under-count ejection and the budget would still
+  // appear to close against a total that had already lost the mass.
+  //----------------------------------------------------------------------------
+  void account_ejected() {
+    const Domain d = dom_;
+    auto fin = final_; auto excess = excess_; auto flags = flags_;
+    Real lost = 0;
+    Kokkos::parallel_reduce("fs_ejected", Range(0, dom_.n_padded),
+      KOKKOS_LAMBDA(Index n, Real& acc) {
+        const std::uint8_t was = flags(n);
+        if (was == FsSolid || was == FsExcluded) return;
+        const Real ex = excess(n);
+        if (ex == Real(0)) return;
+        Neighbours<L> nb;
+        d.template fill_neighbours<L, NF, NS>(n, nb);
+        int takers = 0;
+        for (int k = 1; k < Q; ++k)
+          if (fin(nb.j[k]) == FsInterface) ++takers;
+        if (takers == 0) acc += ex;
+      }, lost);
+    ejected_ += lost;
   }
 
   //----------------------------------------------------------------------------
@@ -1162,6 +1246,7 @@ class FreeSurfaceSolver {
   // uncovered cells got, and OVERWRITING the mass the gas-arrivals had just
   // been given. This mask means only what its name says.
   View1D<std::uint8_t> uncov_;
+  Real ejected_ = 0;          // see ejected_mass()
   HostView1D<std::uint8_t> h_flags_;
   View1D<Real> mass_, eps_, excess_;
   // Curvature working set. Empty until set_surface_tension() is called.

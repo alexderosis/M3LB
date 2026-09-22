@@ -971,6 +971,37 @@ Do not spend time on these without saying so first; several are deliberate.
   of the surface within it, so the error is a fixed fraction of a cell rather
   than of the answer. Size a free-surface deformation in cells before believing
   it.
+- **`no_refill` FORBIDS GAS -> LIQUID, AND IT IS A MODEL RATHER THAN A TRICK —
+  BUT ITS MASS LEDGER DOES NOT CLOSE.** Off by default; nothing changes when it
+  is off. Coupling `FreeSurfaceSolver` to a transported field runs into one hard
+  question — when a gas cell becomes liquid, what enthalpy does it have? — and
+  `ScalarSolver` has no notion of a domain that changes shape. Forbidding the
+  transition DELETES the question: the liquid region then only shrinks, so every
+  liquid cell has a continuous history back to the initial condition and nothing
+  is ever created from nothing. It is right for DRILLING, where a hole only
+  deepens; melt displaced into EXISTING liquid is unaffected, since the
+  prohibition is on filling GAS. **Verified: the liquid region never grows
+  (4096 -> 3669 cells), and the control with it OFF does grow (4096 -> 4127),
+  so that test is not vacuous.**
+  **WHAT IT COSTS:** no recast rim, no refill after the pulse, and mass
+  conservation is given up deliberately — `total_mass()` alone stops being a
+  check and `total_mass() + ejected_mass()` is meant to replace it. The bias is
+  one-directional: removing the only sink for displaced melt other than ejection
+  can only deepen a predicted hole.
+  **AND THE REPLACEMENT LEDGER IS BROKEN, SO EJECTION IS NOT QUANTIFIABLE YET.**
+  `ejected_mass()` reads EXACTLY ZERO at every amplitude — the "no taker" path
+  never fires — while mass goes missing in proportion to the displacement:
+  -1.5e-7, -4.5e-5, -8.8e-5, -2.0e-4 as the forcing goes 0 -> 6e-4. At zero
+  forcing it is nothing, so the leak belongs to the prohibition *while liquid
+  moves*, not to the prohibition itself. It is 0.92 mass units over 427
+  conversions, 0.002 per event — distributed, not whole cells. **The mechanism
+  is NOT diagnosed.** Ruled out: the accounted ejection path (exactly zero), the
+  moving-obstacle transfer (no body present), and the scheme's own drift (the
+  control is 10x smaller and of opposite sign). 2.2e-4 is the same order as a
+  real ejection signal, so a hole volume read off this ledger would be measuring
+  the leak as much as the physics. **Use the invariant; do not use the ejection
+  number.** `validation/recoil.cpp` section 5 pins today's value so a fix or a
+  regression shows as a change.
 - **The free surface's moving obstacle is not reliable.** The cause is in
   `transfer_covered_mass()` and `settle()`, is written up in the module banner
   with measurements, and is not a caller error. Do not present a run with a

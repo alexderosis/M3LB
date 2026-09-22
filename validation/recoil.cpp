@@ -316,6 +316,83 @@ Result run(Index Lx, Index Ly, double h0, double g, double nu, double a,
   return R;
 }
 
+// ---- the no_refill invariant -------------------------------------------------
+// Two things have to hold and neither is visible in a pool dimension.
+//   1. The liquid region never GROWS. Gas -> liquid is forbidden, so the count
+//      of Fluid + Interface cells is monotone non-increasing. This is the
+//      invariant the whole simplification rests on: it is what lets a coupled
+//      enthalpy never be asked for a value it cannot have.
+//   2. The books close. Mass conservation is deliberately given up, so
+//      total_mass() alone stops being a check; what replaces it is
+//      total_mass() + ejected_mass() = the initial mass.
+struct NrfResult {
+  long n0 = 0, n_end = 0, n_max = 0;
+  double budget_err = 0, ejected_frac = 0;
+  bool monotone = true, finite = true;
+};
+
+NrfResult run_no_refill(Index Lx, Index Ly, double h0, double g, double a,
+                        std::size_t nsteps, bool nrf = true) {
+  NrfResult R;
+  const double k = 2.0 * M_PI / double(Lx);
+  Domain d(Lx, Ly, 1, true, false, true);
+  FS s(d);
+  s.coll.omega = FS::omega_from_viscosity(Real(1.0 / 6.0));
+  s.set_gravity(Real(0), Real(-g));
+  s.no_refill = nrf;
+  const Index Lyi = Ly;
+  s.set_geometry([&](Index, Index y, Index) -> FsCell {
+    return (y == 0 || y == Lyi - 1) ? FsSolid : FsGas;
+  });
+  s.rho_G_of = View1D<Real>("rho_G_of", d.n_padded);
+  {
+    const Domain dd = d; const Index hx = d.hx;
+    const Real ar = Real(a), kr = Real(k);
+    auto rgf = s.rho_G_of;
+    Kokkos::parallel_for("nrf_pG", d.n_padded, KOKKOS_LAMBDA(Index n) {
+      Index px, py, pz; dd.coords(n, px, py, pz);
+      rgf(n) = Real(1) + ar * Kokkos::cos(kr * Real(px - hx));
+    });
+  }
+  const Domain dd = d; const Index hy = d.hy;
+  const Real hr = Real(h0), gr = Real(g);
+  constexpr Real ics = inv_cs2<L, Real>();
+  s.initialize(KOKKOS_LAMBDA(Index n) {
+    Index px, py, pz; dd.coords(n, px, py, pz);
+    const Real y = Real(py - hy);
+    Real e = hr - (y - Real(0.5));
+    e = e < Real(0) ? Real(0) : (e > Real(1) ? Real(1) : e);
+    const Real dz = hr - y;
+    return typename FS::Seed{e, Real(1) + (dz > Real(0) ? gr * dz * ics : Real(0))};
+  });
+
+  auto count_liquid = [&]() {
+    auto hf = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.flags());
+    long c = 0;
+    for (Index i = 0; i < d.n_padded; ++i)
+      if (hf(i) == FsFluid || hf(i) == FsInterface) ++c;
+    return c;
+  };
+  const double m0 = double(s.total_mass());
+  R.n0 = count_liquid();  R.n_max = R.n0;
+  long prev = R.n0;
+  for (std::size_t t = 0; t < nsteps; ++t) {
+    s.step();
+    if (t % 200 == 199) {
+      const long c = count_liquid();
+      if (c > prev) R.monotone = false;     // GREW: the invariant is broken
+      if (c > R.n_max) R.n_max = c;
+      prev = c;
+    }
+  }
+  R.n_end = count_liquid();
+  const double m1 = double(s.total_mass()), ej = double(s.ejected_mass());
+  R.finite = std::isfinite(m1) && std::isfinite(ej);
+  R.budget_err = (m1 + ej - m0) / m0;       // the ledger that replaces conservation
+  R.ejected_frac = ej / m0;
+  return R;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -464,6 +541,70 @@ int main(int argc, char** argv) {
     // Same band as the sigma = 0 case at this resolution: adding surface
     // tension must not cost accuracy, and if it does the sum is wrong.
     check("worst error over the sigma sweep at fixed depression", worst4, 0.0, 0.04);
+
+    // ---- 5. no_refill: the invariant and the ledger -------------------------
+    // Forbidding gas -> liquid is what makes a coupled ENTHALPY tractable: the
+    // liquid region then only shrinks, so no cell is ever created from nothing
+    // and no field has to be invented for it. Two things must hold, and a pool
+    // dimension shows neither.
+    std::printf("\n5. no_refill: liquid may only shrink, and the books must close\n");
+    const NrfResult NR = run_no_refill(128, 64, 32.0, 1e-5, 6.0e-4, 6000);
+    std::printf("   liquid cells %ld -> %ld (max seen %ld), ejected %.4f of m0\n",
+                NR.n0, NR.n_end, NR.n_max, NR.ejected_frac);
+    std::printf("   mass + ejected against m0: %.3e\n", NR.budget_err);
+    ++checks;
+    if (!NR.monotone || NR.n_max > NR.n0) ++failures;
+    std::printf("  %-52s %12s  %s\n",
+                "the liquid region never grows", "",
+                (NR.monotone && NR.n_max <= NR.n0) ? "PASS" : "FAIL");
+    // THE CONTROL, AND IT IS WHAT TURNED A GUESS INTO A MEASUREMENT. The
+    // identical run with no_refill OFF isolates the prohibition from the
+    // scheme's own drift. I expected the residual to BE that drift; it is not,
+    // and the control is the only reason that is known.
+    const NrfResult CT = run_no_refill(128, 64, 32.0, 1e-5, 6.0e-4, 6000, false);
+    std::printf("   control, no_refill OFF: liquid %ld -> %ld, mass drift %.3e\n",
+                CT.n0, CT.n_end, CT.budget_err);
+    std::printf("   -> the prohibition adds %.3e\n", NR.budget_err - CT.budget_err);
+    check("baseline drift is the scheme's usual", CT.budget_err, 0.0, 1e-3);
+    // The control also makes the invariant test NON-VACUOUS: with the
+    // prohibition off the liquid region GREW (4096 -> 4127), so "it never grew"
+    // above is a property of no_refill and not of this particular forcing.
+    ++checks;
+    if (CT.n_end <= CT.n0) ++failures;
+    std::printf("  %-52s %12s  %s\n",
+                "control DOES grow, so the invariant test is not vacuous", "",
+                (CT.n_end > CT.n0) ? "PASS" : "FAIL");
+
+    // ---- THE LEDGER DOES NOT CLOSE, AND IT IS PINNED RATHER THAN CLAIMED ----
+    // ejected_mass() reads EXACTLY ZERO at every amplitude -- the "no taker"
+    // path never fires -- while mass goes missing in proportion to how much
+    // liquid is being displaced:
+    //
+    //     a          liquid        ejected      budget
+    //     0          4096 -> 4096  0.000e+00   -1.549e-07
+    //     1.5e-4     4096 -> 3953  0.000e+00   -4.496e-05
+    //     3.0e-4     4096 -> 3868  0.000e+00   -8.790e-05
+    //     6.0e-4     4096 -> 3669  0.000e+00   -2.012e-04
+    //
+    // At a = 0 it is 1.5e-7, i.e. nothing: the leak is not a property of the
+    // prohibition on its own but of the prohibition WHILE liquid is being
+    // displaced. It is 0.92 mass units over 427 conversions, 0.002 per event,
+    // so it is a small distributed leak and not whole cells vanishing.
+    // **THE MECHANISM IS NOT DIAGNOSED.** What is ruled out: the accounted
+    // ejection path (exactly zero), the moving-obstacle mass transfer (no body
+    // here), and the scheme's ordinary drift (the control, 10x smaller and of
+    // the opposite sign).
+    // **SO EJECTION CANNOT BE QUANTIFIED YET.** 2.2e-4 is the same order as a
+    // real ejection signal would be, so a hole volume computed from this ledger
+    // would be measuring the leak as much as the physics. The invariant above
+    // is usable -- it is what makes a coupled enthalpy tractable -- and the
+    // ejection accounting is NOT. The bound below pins today's value so that a
+    // fix, or a regression, shows up as a change rather than as noise.
+    std::printf("   NOTE: ejected reads 0 while %.3e of mass goes missing --\n"
+                "   the ledger does NOT close and ejection is not yet quantifiable.\n",
+                NR.budget_err - CT.budget_err);
+    check("the undiagnosed no_refill leak stays at its measured size",
+          NR.budget_err - CT.budget_err, -2.24e-4, 1.0e-4);
   }
   Kokkos::finalize();
 
