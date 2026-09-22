@@ -117,11 +117,41 @@
 //       Clausius-Clapeyron vapour pressure, q_evap = m_dot L_v subtracted from
 //       the surface flux in the SAME source term the beam enters, because above
 //       the boiling point the two are comparable and splitting them lets the
-//       surface overshoot between them. Constants matched to
-//       validation/keyhole.cpp's so the two cases cannot disagree about the
-//       same alloy. NOT CLAMPED: keyhole.cpp clamps this identical feedback and
-//       its own banner records that the clamp became the integrator, so here
-//       the balance is REPORTED instead.
+//       surface overshoot between them. NOT CLAMPED: keyhole.cpp clamps this
+//       identical feedback and its own banner records that the clamp became the
+//       integrator, so here the balance is REPORTED instead.
+//
+//       THIS CASE AND validation/keyhole.cpp DISAGREE ABOUT L_v BY 3.4x, AND AN
+//       EARLIER VERSION OF THIS BANNER CLAIMED THEY WERE MATCHED. They are not.
+//       keyhole.cpp:230 declares Lv = 8.86e6 J/kg as its struct default, but
+//       line 280 OVERRIDES it to 2.6e6 for the Cunningham configuration, and
+//       that override is what feeds its Clausius-Clapeyron exponent (line 586)
+//       and its evaporative cooling (line 597). The default was matched here;
+//       the value that case actually runs was not.
+//         This one is right: L_v(Ti) = 425 kJ/mol / 0.047867 kg/mol = 8.879e6
+//       J/kg, so 8.86e6 is the physical latent heat of vaporisation and 2.6e6
+//       is a "table 1" figure inherited from Muhammad, Rogers & Li (2013) --
+//       plausibly an EFFECTIVE value for a model carrying thirteen fitted
+//       constants rather than a measured one.
+//         It matters more than a 3.4x usually would, because L_v enters the
+//       vapour pressure as exp(L_v/R_s (1/T_b - 1/T)) -- in the EXPONENT -- so
+//       the disagreement GROWS with temperature. Measured, P_v in Pa:
+//
+//           T (K)     L_v = 8.86e6     L_v = 2.6e6     ratio
+//            3400        1.49e5           1.13e5        1.3
+//            3500        2.29e5           1.29e5        1.8
+//            3800        7.22e5           1.80e5        4.0
+//            4200        2.59e6           2.62e5        9.9
+//            4800        1.18e7           4.10e5       28.9
+//
+//       (An earlier draft of this paragraph said "orders of magnitude at
+//       3500 K". It is 1.8x at 3500 K. The arithmetic was run because the
+//       sentence was about to be committed without it.)
+//         So the two cases agree closely just above boiling, where keyhole
+//       spends most of its time, and diverge hard in the regime tier (f)
+//       reaches: at 1200 W this case's surface is 5162 K, where the gap is
+//       nearly 30x. Evaporation rates are NOT comparable between the two cases
+//       at high power, and nothing there should be read across.
 //
 //       MEASURED 2026-09-22, dx = 4 um. THE POOL BARELY MOVES AND THE SURFACE
 //       TEMPERATURE IS TRANSFORMED, which is the opposite of what was expected:
@@ -546,9 +576,14 @@ struct Mat {
   double alpha_l() const { return k_l / rc_l(); }
 };
 
-// Evaporation constants, MATCHED TO validation/keyhole.cpp's Mat so the two
-// cases cannot disagree about the same alloy. L_v = 8.86e6 J/kg, T_b = 3315 K,
-// R_s = R/M_Ti with M = 0.047867 kg/mol, P_0 = 1 atm.
+// Evaporation constants. L_v = 8.86e6 J/kg, T_b = 3315 K, R_s = R/M_Ti with
+// M = 0.047867 kg/mol, P_0 = 1 atm.
+//
+// NOT MATCHED TO validation/keyhole.cpp, although an earlier comment here said
+// they were. That case overrides its own Lv default to 2.6e6 (keyhole.cpp:280)
+// and runs the override, so the two differ by 3.4x in the CLAUSIUS-CLAPEYRON
+// EXPONENT. 8.86e6 is the physical value -- 425 kJ/mol over 47.867 g/mol --
+// and is kept; see this file's banner for why the two are not comparable.
 struct Evap {
   double Lv = 8.86e6;                  // J/kg   latent heat of vaporisation
   double Tb = 3315.0;                  // K      boiling point at P_0

@@ -40,6 +40,11 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 BG = "#0b0d12"
 D = sys.argv[1] if len(sys.argv) > 1 else "frames"
 OUT = sys.argv[2] if len(sys.argv) > 2 else "melt_pool_3d.mp4"
+# --plain drops the caveat rows for a presentation figure. They are the honest
+# statement of what the model does NOT contain, so they are the default and the
+# flag has to be asked for; whoever passes it is taking the caveats into their
+# caption instead.
+PLAIN = "--plain" in sys.argv[3:]
 
 ld = lambda n: np.load(os.path.join(D, n))
 have = lambda n: os.path.exists(os.path.join(D, n))
@@ -91,8 +96,8 @@ for ax in (ax_top, ax_xz, ax_tr):
         sp.set_color("#39405a")
 ax3d.set_facecolor(BG)
 
-fig.subplots_adjust(top=0.878, bottom=0.05, left=0.095, right=0.875)
-ax3d.set_position([0.02, 0.515, 0.95, 0.358])
+fig.subplots_adjust(top=(0.945 if PLAIN else 0.878), bottom=0.05, left=0.095, right=0.875)
+ax3d.set_position([0.02, 0.515, 0.95, (0.412 if PLAIN else 0.358)])
 
 im_top = ax_top.imshow(T_top[0].T, origin="lower", extent=[0, nx * um, 0, ny * um],
                        cmap=cmap, norm=norm, aspect="auto", interpolation="bilinear")
@@ -136,7 +141,7 @@ lg = ax_tr.legend(loc="lower right", fontsize=7, facecolor=BG, edgecolor="#39405
 _phys = (("Marangoni" if FLOW else "conduction") + (" + evaporation" if _EVAP else "")
          + (" + recession" if _REC else ""))
 fig.suptitle(f"M3LB melt pool: {_phys}   Ti-6Al-4V, {P:.0f} W, {v*1e3:.0f} mm/s, "
-             f"dx = {um:.1f} $\mu$m", color="w", fontsize=10.5, y=0.988)
+             f"dx = {um:.1f} $\mu$m", color="w", fontsize=10.5, y=(0.982 if PLAIN else 0.988))
 # TIER (d) IS NOT A PREDICTION AND THE FIGURE MUST NOT SAY IT IS. With the flow
 # on, the analytic solution is no longer the right reference -- Eagar & Tsai
 # contains no Marangoni -- so the deviation from it is the EFFECT, not an error,
@@ -150,7 +155,8 @@ _dev = max(abs(1 - w2[-1] / w2_an), abs(1 - dd[-1] / d_an)) * 100
 _extra = FLOW or _EVAP or _REC
 _missing = ", ".join(x for x, on in (("Marangoni", FLOW), ("evaporation", _EVAP),
                                      ("recession", _REC)) if on)
-fig.text(0.5, 0.9615,
+if not PLAIN:
+    fig.text(0.5, 0.9615,
          (f"Departs the conduction analytic by {_dev:.0f} % BY DESIGN: Eagar & Tsai "
           f"has no {_missing}.  A MEASURED INCREMENT, not a prediction."
           if _extra else
@@ -170,17 +176,18 @@ fig.text(0.5, 0.9615,
 # conduction run's and can cross the threshold.
 _pk = float(T_top.max())
 _TB = 3315.0
-fig.text(0.5, 0.9435,
+if not PLAIN:
+    fig.text(0.5, 0.9435,
          (f"Peak surface T = {_pk:.0f} K, BELOW the ~{_TB:.0f} K boiling point"
           + ("  (conduction alone reaches 4710 K here)" if (FLOW or _EVAP) else "")
           if _pk < _TB else
           f"Peak surface T = {_pk:.0f} K, ABOVE the ~{_TB:.0f} K boiling point: a solver "
           f"check only, NOT comparable to a real track"),
          color=("#8fffa3" if _pk < _TB else "#ffd39a"), fontsize=7.5, ha="center")
-fig.text(0.105, 0.8905, "Receding free surface, coloured by temperature" if _REC
+fig.text(0.105, (0.952 if PLAIN else 0.8905), "Receding free surface, coloured by temperature" if _REC
          else "Melt pool, lower surface, coloured by surface temperature",
          color="w", fontsize=9)
-if _extra:
+if _extra and not PLAIN:
     fig.text(0.5, 0.9265,
              (f"Arrows are the real flow, peak {umax_ms:.2f} m/s." if FLOW else
               "beta_r = 0.18 is the one non-measured constant here.") +
