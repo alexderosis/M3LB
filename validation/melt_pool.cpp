@@ -155,6 +155,46 @@
 //       is the one non-measured number, the conventional Anisimov
 //       retro-diffusion value, and -betar sweeps it.
 //
+//   (f) `-recede`: THE EVAPORATED MASS ACTUALLY LEAVES, at v = m_dot/rho_liquid.
+//       No recoil, no melt ejection, NO FITTED CONSTANTS -- validation/keyhole.cpp's
+//       recession has thirteen. Only liquid evaporates; evaporating solid would
+//       be sublimation, which is not this process. Cells above the receding
+//       surface are voided and their enthalpy goes with them.
+//
+//       MEASURED 2026-09-22, dx = 4 um, v = 700 mm/s:
+//
+//         P (W)   peak surface T   recession    removed
+//           75        3238 K         0.34 um       8 ng
+//          150        3966 K         6.76 um     313 ng
+//          400        4461 K        34.22 um    2326 ng
+//          800        4736 K        75.94 um    5947 ng
+//         1200        5162 K       117.68 um    9596 ng
+//
+//       16x the power buys 1.59x the temperature and 1200x the removal, so the
+//       beam does go mostly into vaporising rather than heating. THE FLATNESS
+//       WAS OVERSTATED ONCE: an earlier sweep read the peak at layer nz-1 and
+//       reported 4115 / 4197 / 4216 K at 400 / 800 / 1200 W, from which
+//       "3x the power, 101 K" was concluded. nz-1 is VOID once the surface has
+//       receded and a voided cell inverts to the solidus. The true rise over
+//       that range is 701 K. Commit af33a99 retracts it.
+//
+//       ANYTHING MEANING "THE SURFACE" MUST ASK THE COLUMN, and three sites in
+//       this file did not -- the pool extraction, the frame dump and the tier
+//       (e) report. They failed DIFFERENTLY, which is why it took three finds:
+//       a nonsense L (41.7 um against 190.6), a false uniform trail in a
+//       picture, and a PLAUSIBLE temperature that was only caught because the
+//       figure and the case's own report disagreed by 758 K. The plausible one
+//       is the expensive kind.
+//
+//       Grid sensitivity, 1200 W: 117.68 um at dx = 4 against 115.66 at dx = 2,
+//       1.7 % apart -- against validation/keyhole.cpp's 12-16 % over the same
+//       refinement. A recession with no fitted constants is far less grid
+//       sensitive than a calibrated one, which is the point of having built it.
+//
+//       NOT MODELLED: no recoil pressure and no melt ejection, so the removal
+//       is a LOWER BOUND on what a real keyhole loses. beta_r = 0.18 is the one
+//       non-measured constant; -betar sweeps it.
+//
 //  STAGE 4 -- THE EXPERIMENTAL COMPARISON -- IS BLOCKED, AND THE TWO REASONS
 //  ARE WORTH MORE THAN A WEAK COMPARISON WOULD HAVE BEEN. Searched 2026-09-21.
 //
