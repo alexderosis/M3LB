@@ -1501,10 +1501,52 @@ int run(const Opts& o, const Mat& m) {
 
   std::printf("\nacceptance:\n");
   if (o.la0) {
-    verdict("2w / analytic", 2*w_sim / (2*pa.w), 1.0, 0.10);
-    verdict("d  / analytic", d_sim / pa.d, 1.0, 0.15);
-    std::printf("  thresholds above are PROVISIONAL and derived from the cell size, "
-                "not measured.\n  Replace them with the measured worst x 1.5 and date the banner.\n");
+    // THE TOLERANCE SCALES WITH dx, BECAUSE THE ERROR DOES. The old +/-10 %
+    // and +/-15 % were fixed numbers "derived from the cell size, not
+    // measured", and a fixed tolerance on a FIRST-ORDER quantity asserts the
+    // mesh rather than the scheme: it passes trivially when the grid is fine
+    // and it would have passed the 6 % systematic bias this case carried before
+    // the datum errors were found.
+    //
+    // Measured tier (a) deviations, 2026-09-22:
+    //     dx = 4 um   2w 1.33 %   d 1.01 %
+    //     dx = 2 um   2w 0.66 %   d 0.51 %
+    // i.e. 0.33 %/um and 0.25 %/um, first order (ratios 2.02 and 1.98). The
+    // tolerances are those slopes x 1.5, so the margin is the same at every
+    // rung instead of growing as the grid refines.
+    //
+    // THE FLOOR IS NOT COSMETIC. Below about dx = 0.6 um the dx-scaled bound
+    // would fall under the other errors this case carries -- the analytic
+    // quadrature at 1e-11, the sub-cell isotherm interpolation, the envelope's
+    // discrete search over i -- and the case would start failing on those
+    // rather than on the scheme. 0.3 % is that floor.
+    //
+    // FITTED ON dx = 4 AND 2, AND CHECKED AT dx = 8, WHERE IT PART-HOLDS:
+    //
+    //     dx     2w dev   d dev    tol      margin (2w, d)
+    //     8 um   2.89 %   1.53 %   4.0/3.2   1.38, 2.10
+    //     4 um   1.33 %   1.02 %   2.0/1.6   1.50, 1.57
+    //     2 um   0.67 %   0.51 %   1.0/0.8   1.50, 1.57
+    //
+    // The WIDTH is first order across all three (ratios 2.17 and 2.00). The
+    // DEPTH is not, above dx = 4: it grows only 1.50x from 4 to 8 um, because
+    // the pool is 3.3 cells deep there and outside the asymptotic range. So the
+    // 2w margin narrows to 1.38 at dx = 8 rather than holding at 1.5, and the
+    // bound is calibrated for dx <= 4 um. Coarser than that it still passes,
+    // with less room than designed.
+    //
+    // WHAT IT WOULD HAVE CAUGHT: the 6.4 % width and 5.9 % depth bias this case
+    // carried before the datum errors were found fails at 2.0 % and 1.6 %. The
+    // old +/-10 % and +/-15 % passed it, which is how it survived.
+    const double tol_w = std::max(0.005 * (dx * 1e6), 0.003);
+    const double tol_d = std::max(0.004 * (dx * 1e6), 0.003);
+    verdict("2w / analytic", 2*w_sim / (2*pa.w), 1.0, tol_w);
+    verdict("d  / analytic", d_sim / pa.d, 1.0, tol_d);
+    std::printf("  tolerances are dx-scaled: %.2f %% and %.2f %% at dx = %.2f um\n"
+                "  (measured slope x 1.5, floor 0.3 %%). A FIXED tolerance here "
+                "would assert the mesh,\n  not the scheme -- it passes trivially "
+                "as dx falls.\n",
+                100.0 * tol_w, 100.0 * tol_d, dx * 1e6);
   } else {
     std::printf("  TIER (b): no analytic reference contains latent heat. The numbers above\n"
                 "  are an INCREMENT against the -la0 row and are reported, not asserted.\n");
