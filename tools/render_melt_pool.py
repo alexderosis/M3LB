@@ -60,6 +60,14 @@ t, w2, dd, LL, xb, meta = (ld("t.npy"), ld("w2.npy"), ld("d.npy"),
  w2_an, d_an, L_an, t_therm, la0, steps) = [float(q) for q in meta][:19]
 _EVAP = bool(meta[20]) if len(meta) > 20 else False
 _REC = os.path.exists(os.path.join(D, "recess.npy"))
+# MEASURED IN THIS RUN, not transcribed from another. The evaporative fraction
+# of the peak beam flux and the peak surface temperature both come from the
+# case's own tier (e) report via meta; the line that used to sit here was
+# hardcoded from a 115 W run and was wrong at every other operating point.
+# meta layout: ... 22 recede, 23 rho_l, 24 T_surf_max, 25 q_evap_frac, 26 beta_r
+_Tsurf = float(meta[24]) if len(meta) > 24 else None
+_qfrac = float(meta[25]) if len(meta) > 25 else None
+_betar = float(meta[26]) if len(meta) > 26 else None
 nx, ny, nz = int(nx), int(ny), int(nz)
 F = len(t)
 um = dx * 1e6
@@ -174,7 +182,10 @@ if not PLAIN:
 # label this figure exists to avoid. Marangoni convection carries heat out of
 # the spot, so the coupled run's peak surface temperature is far BELOW the
 # conduction run's and can cross the threshold.
-_pk = float(T_top.max())
+# THE CASE'S OWN NUMBER when it has one. Taking max(T_top) over the dumped
+# frames gave 5142 K beside the report's 5162 K -- two values for one quantity
+# on one figure, which is the inconsistency this file keeps having to fix.
+_pk = _Tsurf if (_Tsurf and _Tsurf > 0) else float(T_top.max())
 _TB = 3315.0
 if not PLAIN:
     fig.text(0.5, 0.9435,
@@ -189,10 +200,19 @@ fig.text(0.105, (0.952 if PLAIN else 0.8905), "Receding free surface, coloured b
          color="w", fontsize=9)
 if _extra and not PLAIN:
     fig.text(0.5, 0.9265,
-             (f"Arrows are the real flow, peak {umax_ms:.2f} m/s." if FLOW else
-              "beta_r = 0.18 is the one non-measured constant here.") +
-             ("  Evaporation is a THERMOSTAT: 2 % of the depth, 1400 K of surface T."
-              if _EVAP else ""),
+             (f"Arrows are the real flow, peak {umax_ms:.2f} m/s.  " if FLOW else "") +
+             ((  # q_evap > q_in is NOT a balance -- it is the case's own warning
+                 # condition, and it is why recession matters at this power.
+                 f"Evaporation EXCEEDS the beam ({100*_qfrac:.0f} % of peak flux) "
+                 f"at {_Tsurf:.0f} K: no quasi-steady surface without mass loss."
+                 if (_qfrac is not None and _qfrac > 1.0) else
+                 f"Evaporation carries {100*_qfrac:.1f} % of the peak beam flux and "
+                 f"holds the surface at {_Tsurf:.0f} K."
+                 if (_qfrac is not None and _Tsurf) else
+                 "Evaporative cooling is on.")
+              if _EVAP else "") +
+             (f"  beta_r = {_betar:.2f} is the one non-measured constant."
+              if (_EVAP and _betar is not None) else ""),
              color="#9be7ff", fontsize=7.5, ha="center")
     fig.text(0.5, 0.9105,
              ("d(gamma)/dT is UNVERIFIED for this alloy and its sign inverts the "
