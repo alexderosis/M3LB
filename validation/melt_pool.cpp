@@ -247,6 +247,43 @@
 //       is a LOWER BOUND on what a real keyhole loses. beta_r = 0.18 is the one
 //       non-measured constant; -betar sweeps it.
 //
+//  THE STATIONARY SPOT, AND WHAT IT FOUND. A-AMB2022-01's companion case is a
+//  STATIONARY 501 W pulse for 1.982 ms on the same 300 um Ti-6Al-4V foil, and
+//  its X-ray radiography gives penetration depth against TIME -- a trajectory,
+//  which is a far stronger test than an endpoint. This case's own keyhole port
+//  makes the point: it matched its reference endpoint to 0.29 % while the
+//  trajectory was rms 8.4 um out.
+//
+//  v = 0 NEEDED NO NEW TIMESTEP RULE. The K rounding exists so the beam moves
+//  1/K cells per step; substituting it back gives dt = 0.249817 dx^2 / alpha_l,
+//  which has no v in it. So the stationary path takes that directly, takes its
+//  step count from a DURATION (-pulse) rather than a distance, and parks the
+//  beam at the domain centre. Pe = 0, K = 0.
+//
+//  PREDICTED PENETRATION, dx = 4 um, 800x800x300 um (lateral size converged:
+//  402.39 um at 800 against 402.40 at 1000), full stack:
+//
+//      t (ms)    0.013   0.211   0.409   0.607   0.804   1.002   1.121
+//      depth     3.3     81.5   139.2   189.1   231.6   270.6   300 um
+//
+//  so a 501 W stationary pulse PENETRATES THE 300 um FOIL AT 1.12 ms, well
+//  inside the 1.982 ms pulse. Removal here is purely evaporative and therefore
+//  a lower bound, so a real foil breaks through EARLIER than this rather than
+//  later. At dx = 8 um breakthrough comes at 1.060 ms, 5.7 % earlier.
+//
+//  AND THE CASE HAD NO IDEA IT HAD DRILLED THROUGH. Recession is per-column and
+//  unbounded; the surface clamps to the domain floor while `rec` keeps
+//  counting, and the first run reported 961.8 um of recession in a 300 um foil
+//  -- 3.2x the thickness -- with pool dimensions to match. validation/keyhole.cpp
+//  has saturated its reported depth against a thickness from the start, for
+//  exactly this reason; this case had no guard. `-thick` adds one: it reports
+//  the breakthrough time, saturates the penetration, and prints the raw value
+//  beside it marked as not physical.
+//    The semi-infinite analytic reference is also void long before then. Its
+//  quasi-steady limit for this spot is d = 924 um, a pool three times the foil
+//  thickness, so the comparison is against the measured trajectory and not
+//  against Eagar & Tsai once the pool passes about 100 um.
+//
 //  STAGE 4 -- THE EXPERIMENTAL COMPARISON -- IS BLOCKED, AND THE TWO REASONS
 //  ARE WORTH MORE THAN A WEAK COMPARISON WOULD HAVE BEEN. Searched 2026-09-21.
 //
@@ -655,6 +692,8 @@ struct Opts {
   double dx = 4.0e-6;       // m
   double Lx = 480e-6, Ly = 320e-6, Lz = 240e-6;
   double track = -1.0;      // m of travel; < 0 = fill the domain
+  double pulse = -1.0;      // s; a STATIONARY spot runs for a duration rather
+                            // than a distance. Set by -pulse, in ms.
   bool   la0 = false;       // tier (a): latent heat and the property split OFF
   bool   bgk = false;       // EnthalpyBGK instead of the regularised default
   bool   conv = false;      // the grid ladder
@@ -684,6 +723,8 @@ struct Opts {
   bool   evap  = false;     // subtract m_dot * L_v from the surface flux
   double betar = 0.18;      // retro-diffusion coefficient
   bool   recede = false;    // TIER (f): let the evaporated mass actually leave
+  double thick = -1.0;      // m; foil thickness. > 0 makes the case detect
+                            // BREAKTHROUGH and stop trusting itself after it.
   double rho_l = 4130.0;    // kg/m^3 liquid density at Tm, for m_dot -> v_rec
 };
 
@@ -699,8 +740,16 @@ int run(const Opts& o, const Mat& m) {
   // is tau_max that is pinned), chosen so the beam advances exactly 1/K cells
   // per step with K an integer. K then doubles exactly under refinement, which
   // makes the sub-cell beam phase periodic with period K.
-  const int    K  = int(std::llround(dx / (o.v * (dx * dx / m.alpha_l() * 0.249817))));
-  const double dt = dx / (o.v * K);
+  // A STATIONARY SPOT IS v = 0, AND THE TIMESTEP DOES NOT ACTUALLY DEPEND ON v.
+  // The K rounding exists so the beam advances exactly 1/K cells per step,
+  // which makes the sub-cell beam phase periodic under refinement; substituting
+  // it back gives dt = 0.249817 dx^2 / alpha_l, a pure diffusive step. So the
+  // stationary case takes that directly and K is meaningless there rather than
+  // a division by zero.
+  const bool   still = (o.v <= 0.0);
+  const int    K  = still ? 0
+                  : int(std::llround(dx / (o.v * (dx * dx / m.alpha_l() * 0.249817))));
+  const double dt = still ? 0.249817 * dx * dx / m.alpha_l() : dx / (o.v * K);
   const double Dls = m.alpha_s() * dt / (dx * dx);
   const double Dll = m.alpha_l() * dt / (dx * dx);
 
@@ -827,7 +876,10 @@ int run(const Opts& o, const Mat& m) {
 
   const double x0 = 1.6 * a_beam;
   const double travel = o.track > 0 ? o.track : (o.Lx - 2.0 * x0);
-  const long steps = long(std::ceil(travel / (o.v * dt)));
+  // distance for a scanned track, DURATION for a stationary pulse
+  const long steps = still
+      ? long(std::ceil((o.pulse > 0 ? o.pulse : 2.0e-3) / dt))
+      : long(std::ceil(travel / (o.v * dt)));
   // THE BEAM AXIS GOES ON A CELL CENTRE, NOT ON 0.5*Ly. Every rung of this
   // ladder has ny even (Ly/dx = 80, 160, 320), so 0.5*Ly falls on the FACE
   // between cells ny/2-1 and ny/2, and the column j = ny/2 that the depth and
@@ -1070,6 +1122,13 @@ int run(const Opts& o, const Mat& m) {
   // enthalpy of the cells recession voids, taken at the moment of voiding.
   // Together with the field they must reconstruct A*P*t.
   double E_evap = 0.0, E_removed = 0.0;
+  // BREAKTHROUGH. Recession is per-column and unbounded; once a column has
+  // receded the whole thickness the hole is through and nothing after that is
+  // physical -- the surface sits on the domain floor and `rec` keeps counting.
+  // validation/keyhole.cpp already saturates its reported depth for this
+  // reason; this case had no guard, and a 501 W stationary pulse on a 300 um
+  // foil reached 3.2x the thickness before anyone noticed.
+  double t_break = -1.0;
   const double ev_Lv = ev.Lv, ev_Tb = ev.Tb, ev_Rs = ev.Rs, ev_P0 = ev.P0;
   const double ev_br = o.betar;
   const PhaseChange pcs = pcv;
@@ -1113,7 +1172,9 @@ int run(const Opts& o, const Mat& m) {
         }, eStep);
       E_evap += eStep;
     }
-    const double xb = x0 + o.v * (double(it) + 0.5) * dt;   // MIDPOINT of this step
+    // a stationary spot sits at the centre so the field can spread symmetrically
+    const double xb = still ? 0.5 * o.Lx
+                            : x0 + o.v * (double(it) + 0.5) * dt;  // MIDPOINT
     const double cut = 3.0 * a_beam;
     s.add_source(KOKKOS_LAMBDA(Index n) -> Real {
       Index px, py, pz; d.coords(n, px, py, pz);
@@ -1273,6 +1334,14 @@ int run(const Opts& o, const Mat& m) {
           }
         }, eGone);
       E_removed += eGone;
+
+      if (o.thick > 0.0 && t_break < 0.0) {
+        Real rmx = 0;
+        Kokkos::parallel_reduce("melt_pool_break", ncol,
+          KOKKOS_LAMBDA(Index c, Real& a) { a = Kokkos::max(a, rec(c)); },
+          Kokkos::Max<Real>(rmx));
+        if (double(rmx) * dx >= o.thick) t_break = double(it + 1) * dt;
+      }
     }
 
     if (o.probe && (it + 1) % o.probe == 0) {
@@ -1489,8 +1558,31 @@ int run(const Opts& o, const Mat& m) {
       if (r > 0.5) ++ncols;
     }
     std::printf("\n  TIER (f) recession report:\n");
-    std::printf("    deepest column receded %.3f um = %.2f cells\n",
-                rmax * dx * 1e6, rmax);
+    if (o.thick > 0.0) {
+      if (t_break > 0.0) {
+        std::printf("    BREAKTHROUGH at t = %.4f ms of a %.4f ms run: a column "
+                    "receded the full\n    %.1f um thickness. EVERYTHING AFTER "
+                    "THAT TIME IS VOID -- the surface is on the\n    domain floor "
+                    "and the recession keeps counting into nothing. Reported\n"
+                    "    penetration saturates at the thickness; the raw value is "
+                    "printed beside it.\n", t_break * 1e3, double(steps) * dt * 1e3,
+                    o.thick * 1e6);
+        std::printf("    Removal here is PURELY EVAPORATIVE and therefore a lower "
+                    "bound, so a real\n    foil breaks through EARLIER than this, "
+                    "not later.\n");
+      } else {
+        std::printf("    no breakthrough: deepest recession stayed inside the "
+                    "%.1f um thickness.\n", o.thick * 1e6);
+      }
+    }
+    const double pen = (o.thick > 0.0) ? std::min(rmax * dx, o.thick) : rmax * dx;
+    std::printf("    deepest column receded %.3f um = %.2f cells%s\n",
+                pen * 1e6, pen / dx,
+                (o.thick > 0.0 && rmax * dx > o.thick)
+                    ? "   (SATURATED at the foil thickness)" : "");
+    if (o.thick > 0.0 && rmax * dx > o.thick)
+      std::printf("    raw unsaturated recession %.1f um = %.1fx the thickness, "
+                  "which is not physical\n", rmax * dx * 1e6, rmax * dx / o.thick);
     std::printf("    material removed %.4e um^3 = %.3f ng   (%ld of %ld columns "
                 "lost >= half a cell)\n", vol * 1e18,
                 vol * o.rho_l * 1e12, ncols, long(ncol));
@@ -1677,6 +1769,8 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "-dgdt"))  nx(o.dgdT);
     else if (!std::strcmp(argv[i], "-mu"))    nx(o.mu_l);
     else if (!std::strcmp(argv[i], "-asink")) nx(o.A_lat);
+    else if (!std::strcmp(argv[i], "-pulse")) { double t; nx(t); o.pulse = t * 1e-3; }
+    else if (!std::strcmp(argv[i], "-thick"))  { double t; nx(t); o.thick = t * 1e-6; }
     else if (!std::strcmp(argv[i], "-frames")) { if (i + 1 < argc) o.frames = argv[++i]; }
     else if (!std::strcmp(argv[i], "-fevery")) { double t; nx(t); o.fevery = int(t); }
     else if (!std::strcmp(argv[i], "-la0"))   o.la0 = true;
