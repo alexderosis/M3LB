@@ -526,6 +526,11 @@ int run(const Opts& o) {
                 : (o.fevery > 0 ? o.fevery
                                 : int(std::max<long>(1, steps / 150)));
   std::vector<float> fr_Ttop, fr_fltop, fr_Txz, fr_flxz, fr_surf;
+  // THE EVAPORATION, MADE VISIBLE. drec is the per-column recession increment
+  // this step, i.e. the melt that recoil pressure has just ejected, so the rate
+  // in m/s is drec*dx/dt. It is the only field in the dump that IS the
+  // evaporation rather than a consequence of it.
+  std::vector<float> fr_evap;
   std::vector<float> fr_t, fr_depth;
   const Index yc_idx = ny / 2;
 
@@ -728,6 +733,8 @@ int run(const Opts& o) {
       auto fld = s.temperature();
       auto h_f  = Kokkos::create_mirror_view(fld);
       auto h_Hs = Kokkos::create_mirror_view(Hs);
+      auto h_dr = Kokkos::create_mirror_view(drec);
+      Kokkos::deep_copy(h_dr, drec);
       Kokkos::deep_copy(h_f, fld);
       Kokkos::deep_copy(h_Hs, Hs);
       const float nan = std::numeric_limits<float>::quiet_NaN();
@@ -748,6 +755,7 @@ int run(const Opts& o) {
           fr_Ttop.push_back(float(T));
           fr_fltop.push_back(float(fl));
           fr_surf.push_back(float(hz));
+          fr_evap.push_back(float(double(h_dr(x * ny + y)) * dx / dt));
         }
       for (Index x = 0; x < nx; ++x) {
         const Index hz = h_Hs(x * ny + yc_idx);
@@ -801,6 +809,7 @@ int run(const Opts& o) {
     write_npy(D + "T_top.npy",  fr_Ttop,  {F, std::size_t(nx), std::size_t(ny)});
     write_npy(D + "fl_top.npy", fr_fltop, {F, std::size_t(nx), std::size_t(ny)});
     write_npy(D + "surf.npy",   fr_surf,  {F, std::size_t(nx), std::size_t(ny)});
+    write_npy(D + "evap.npy",   fr_evap,  {F, std::size_t(nx), std::size_t(ny)});
     write_npy(D + "T_xz.npy",   fr_Txz,   {F, std::size_t(nx), std::size_t(nz)});
     write_npy(D + "fl_xz.npy",  fr_flxz,  {F, std::size_t(nx), std::size_t(nz)});
     write_npy(D + "t.npy",      fr_t,     {F});
@@ -810,13 +819,13 @@ int run(const Opts& o) {
     const std::vector<float> meta{
         float(dx), float(dt), float(nx), float(ny), float(nz), float(yc_idx),
         float(m.Ts()), float(m.Tl()), float(m.T0), float(o.P), float(o.spot),
-        float(m.thickness), float(steps)};
+        float(m.thickness), float(steps), float(m.Tb), float(m.Lv)};
     write_npy(D + "meta.npy", meta, {meta.size()});
     std::printf("  frames -> %s (%zu frames, %dx%d top, %dx%d centreline, "
                 "every %d steps)\n", o.frames.c_str(), F, int(nx), int(ny),
                 int(nx), int(nz), fev);
     std::printf("    meta.npy = [dx, dt, nx, ny, nz, y_centre, T_s, T_l, T_0, "
-                "P, spot_um, thickness, steps]\n");
+                "P, spot_um, thickness, steps, T_boil, L_vap]\n");
   }
 
   if (!o.out.empty()) {

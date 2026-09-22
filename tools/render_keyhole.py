@@ -47,7 +47,14 @@ ld = lambda n: np.load(os.path.join(D, n))
 T_top, fl_top, surf = ld("T_top.npy"), ld("fl_top.npy"), ld("surf.npy")
 T_xz, fl_xz = ld("T_xz.npy"), ld("fl_xz.npy")
 t, depth, meta = ld("t.npy"), ld("depth.npy"), ld("meta.npy")
-dx, dt, nx, ny, nz, yc, T_s, T_l, T_0, P, spot, thick, steps = [float(v) for v in meta]
+_m = [float(v) for v in meta]
+dx, dt, nx, ny, nz, yc, T_s, T_l, T_0, P, spot, thick, steps = _m[:13]
+# T_boil and L_vap were added to meta when the evaporation field was; older
+# dumps do not have them, so the evaporation panel is optional.
+T_b = _m[13] if len(_m) > 13 else None
+L_v = _m[14] if len(_m) > 14 else None
+evap = np.load(os.path.join(D, "evap.npy")) if os.path.exists(
+    os.path.join(D, "evap.npy")) else None
 nx, ny, nz = int(nx), int(ny), int(nz)
 F = len(t)
 um = dx * 1e6                      # micrometres per cell
@@ -64,6 +71,14 @@ T_xz, fl_xz = T_xz[:, :, z_lo:], fl_xz[:, :, z_lo:]
 nzc = T_xz.shape[2]
 
 Tmax = float(np.nanmax(T_top))
+# ---- HOW MUCH MATERIAL HAS GONE. surf is the per-column surface index, so
+# ---- (nz-1 - surf) cells have been removed from that column and the sum times
+# ---- dx^3 is the cavity volume. Plotted as a mass so it is comparable with
+# ---- anything weighed: rho_liquid 4130 kg/m^3 for Ti-6Al-4V.
+rec_cells = (nz - 1) - surf                      # (frames, nx, ny)
+vol_um3 = rec_cells.reshape(len(t), -1).sum(axis=1) * (um ** 3)
+mass_ng = vol_um3 * 4130.0 * 1e-18 * 1e12        # um^3 -> m^3 -> kg -> ng
+
 norm = mcolors.Normalize(vmin=T_0, vmax=Tmax)
 cmap = cm.inferno
 
@@ -85,8 +100,9 @@ ax3d.set_facecolor(BG)
 
 im_top = ax_top.imshow(T_top[0].T, origin="lower", extent=[0, nx * um, 0, ny * um],
                        cmap=cmap, norm=norm, aspect="auto", interpolation="bilinear")
-ax_top.set_title("Top surface (follows the receding free surface): temperature, "
-                 "melt boundary", color="w", fontsize=9)
+ax_top.set_title("Top surface (follows the receding free surface): T, melt boundary"
+                 + (f", boiling ({T_b:.0f} K)" if T_b else ""),
+                 color="w", fontsize=9)
 ax_top.set_xlabel("x  [$\\mu$m]", color="w", fontsize=8)
 ax_top.set_ylabel("y  [$\\mu$m]", color="w", fontsize=8)
 cax = fig.add_axes([0.905, 0.175, 0.017, 0.315])
@@ -103,25 +119,63 @@ ax_xz.set_title("Centreline section (y = y$_c$): melt depth.  "
 ax_xz.set_xlabel("x  [$\\mu$m]", color="w", fontsize=8)
 ax_xz.set_ylabel("z below original surface  [$\\mu$m]", color="w", fontsize=8)
 
-ax_d.plot(t * 1e3, depth * 1e6, color="#ffb703", lw=1.6)
+ax_d.plot(t * 1e3, depth * 1e6, color="#ffb703", lw=1.6, label="depth")
 mark, = ax_d.plot([t[0] * 1e3], [depth[0] * 1e6], "o", color="w", ms=5)
 ax_d.set_title("Vapour-depression depth vs time", color="w", fontsize=9)
 ax_d.set_xlabel("t  [ms]", color="w", fontsize=8)
 ax_d.set_ylabel("depth  [$\\mu$m]", color="w", fontsize=8)
 ax_d.grid(alpha=0.18, color="w")
+_sc = float(depth.max() * 1e6) / max(float(mass_ng.max()), 1e-30)
+ax_d.plot(t * 1e3, mass_ng * _sc, color="#c8ff8f", lw=1.4, ls="--")
+ax_d.text(t[int(0.62 * len(t))] * 1e3, mass_ng[int(0.62 * len(t))] * _sc,
+          f"  material removed, {mass_ng[-1]:.1f} ng by {t[-1]*1e3:.2f} ms",
+          color="#c8ff8f", fontsize=6.5, va="bottom")
+
+# ---- THE EVAPORATION, ON ITS OWN AXIS. `evap` is the per-column recession
+# ---- rate, i.e. the melt that recoil pressure has just ejected -- the only
+# ---- field here that IS the evaporation rather than a consequence of it. It is
+# ---- plotted against the CAP, because the census says the cap binds on 48.5 %
+# ---- of receding column-steps and a rate sitting on its limiter is a property
+# ---- of the integrator rather than of the alloy.
+if evap is not None:
+    ax_e = ax_d.twinx()
+    ax_e.set_facecolor("none")
+    peak_e = evap.reshape(len(t), -1).max(axis=1)
+    cap = float(peak_e.max())
+    ax_e.plot(t * 1e3, peak_e, color="#ff6b9d", lw=1.3, label="peak evaporation rate")
+    ax_e.axhline(cap, color="#ff6b9d", ls=":", lw=1.0, alpha=0.8)
+    ax_e.text(t[-1] * 1e3, cap, f"  cap {cap:.2f} m/s", color="#ff6b9d",
+              fontsize=6.5, va="center")
+    ax_e.set_ylabel("evaporation rate  [m/s]", color="#ff6b9d", fontsize=8)
+    ax_e.tick_params(colors="#ff6b9d", labelsize=7)
+    ax_e.set_ylim(0, cap * 1.45)
+    for sp in ax_e.spines.values():
+        sp.set_color("#39405a")
+    frac = 100.0 * (evap > 0).mean()
+    ax_d.set_title(f"Depth, the evaporation driving it, and the material removed "
+                   f"(evaporating in {frac:.2f} % of surface cells)",
+                   color="w", fontsize=9)
 
 # mplot3d pads its gridspec cell heavily -- the reference script positions this
 # axis by hand for the same reason -- so claim the space back explicitly.
-fig.subplots_adjust(top=0.935, bottom=0.045, left=0.095, right=0.875)
-ax3d.set_position([0.02, 0.555, 0.95, 0.375])
+fig.subplots_adjust(top=0.905, bottom=0.045, left=0.095, right=0.875)
+ax3d.set_position([0.02, 0.535, 0.95, 0.368])
 
-fig.suptitle(f"M3LB  keyhole (thermal-only, D3Q7)   P = {P:.0f} W, spot = {spot:.0f} $\\mu$m, "
-             f"dx = {um:.1f} $\\mu$m", color="w", fontsize=11, y=0.985)
-fig.text(0.115, 0.925, "Free surface, coloured by temperature", color="w", fontsize=9)
-fig.text(0.5, 0.952,
+fig.suptitle(f"M3LB keyhole: Clausius-Clapeyron evaporation + recoil recession"
+             f"   {P:.0f} W, {spot:.0f} $\mu$m spot, dx = {um:.1f} $\mu$m",
+             color="w", fontsize=10.5, y=0.991)
+fig.text(0.105, 0.9135, "Free surface, coloured by temperature", color="w", fontsize=9)
+fig.text(0.5, 0.9635,
          "CALIBRATED REDUCED-ORDER MODEL, NOT GRID CONVERGED "
          "(depth falls 12-16 % over a 2x refinement) -- not a prediction",
          color="#ff8fa3", fontsize=8, ha="center")
+if evap is not None:
+    fig.text(0.5, 0.9405,
+             "The evaporation rate CHATTERS between zero and its cap -- the surface energy "
+             "balance is forward Euler on a stiff feedback,\nso the clamp is part of the "
+             "integrator rather than a safety valve, and it binds on 48.5 % of receding "
+             "column-steps.",
+             color="#ff6b9d", fontsize=7, ha="center")
 
 holder = {}
 
@@ -154,7 +208,7 @@ def draw3d(i):
         pane.pane.set_edgecolor("#39405a")
 
 
-cont = {"top": None, "xz": None}
+cont = {"top": None, "xz": None, "cb": None}
 
 
 def update(i):
@@ -171,6 +225,15 @@ def update(i):
             gx = (np.arange(nx) + 0.5) * um
             gy = (np.arange(nzc) + z_lo - (nz - 1) + 0.5) * um
         cont[k] = ax.contour(gx, gy, f.T, levels=[0.5], colors="#00e5ff", linewidths=1.1)
+    # the EVAPORATING region: where the surface is above the boiling point.
+    if T_b:
+        if "cb" in cont and cont["cb"] is not None:
+            cont["cb"].remove()
+        gx = (np.arange(nx) + 0.5) * um
+        gy = (np.arange(ny) + 0.5) * um
+        cont["cb"] = (ax_top.contour(gx, gy, T_top[i].T, levels=[T_b],
+                                     colors="#ff6b9d", linewidths=1.4)
+                      if float(T_top[i].max()) > T_b else None)
     mark.set_data([t[i] * 1e3], [depth[i] * 1e6])
     draw3d(i)
     return ()
