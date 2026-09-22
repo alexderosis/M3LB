@@ -917,8 +917,29 @@ Do not spend time on these without saying so first; several are deliberate.
   it lands in every plume figure. Suspect the same class as the two entries
   above about prescribed nodes and outflow donors; **do not assume it is the
   same bug without measuring**.
-- **The free surface has no surface tension** (uniform gas pressure, no curvature
-  term) and **no gas dynamics** — an enclosed bubble does not compress.
+- **The free surface has no surface tension** and **no gas dynamics** — an
+  enclosed bubble does not compress. **THE REASON FOR THE FIRST HAS NARROWED,
+  SO DO NOT READ IT AS "THE GAS PRESSURE IS UNIFORM" ANY MORE.** `rho_G_of`
+  (added 2026-09-22) is an optional per-node gas density beside the scalar
+  `rho_G`, following `ScalarBGK`'s `omega_of` idiom — empty means uniform and
+  nothing behaves differently. The free-surface condition ALREADY imposes
+  "normal stress = gas pressure"; it was only the uniformity of `rho_G` that
+  made that one atmosphere. So `p_G = p_atm − σκ` is now *expressible*.
+  **What is still missing is κ**: nothing computes a curvature from the fill
+  level, and that is the hard half, so surface tension is still absent and a
+  caller wanting it must supply the curvature itself. What the field does
+  deliver alone is a prescribed NON-UNIFORM normal stress, which is a laser's
+  recoil pressure — `validation/recoil.cpp` measures it against the exact
+  hydrostatic depression `dz = −[p_G(x) − ⟨p_G⟩]/(ρg)`, converging at order
+  1.84 to 1.4 % at Lx = 256.
+  **THE ERROR IS SET BY THE DEPRESSION MEASURED IN CELLS, NOT BY THE GRID.**
+  36 % at one cell, 13 % at two, 5.0 % at four, 1.4 % at eight — and the control
+  is that a two-cell depression reads 13.06 % at Lx = 128 and 13.16 % at
+  Lx = 64, the same error on grids a factor of two apart. The free-surface
+  condition imposes the gas pressure at the CELL, not at the sub-cell position
+  of the surface within it, so the error is a fixed fraction of a cell rather
+  than of the answer. Size a free-surface deformation in cells before believing
+  it.
 - **The free surface's moving obstacle is not reliable.** The cause is in
   `transfer_covered_mass()` and `settle()`, is written up in the module banner
   with measurements, and is not a caller error. Do not present a run with a
@@ -1116,6 +1137,19 @@ the same few mistakes, so they are worth naming.
   when it is the setup.
 - **Check convergence before quoting.** Report a number only after the time
   series is flat, and say so if it is still creeping.
+- **RAISING THE VISCOSITY TO REACH A STEADY STATE FASTER IS BACKWARDS ONCE THE
+  SYSTEM IS OVERDAMPED, AND THE RESULT LOOKS LIKE A BROKEN SCHEME RATHER THAN A
+  SHORT RUN.** A relaxing free surface is a damped oscillator: rate `γ = 2νk²`
+  while underdamped, but `ω₀²/γ` once `γ > ω₀`, which FALLS as ν rises. Writing
+  `validation/recoil.cpp` I raised ν from 1/6 to 0.5 to "damp the transient
+  faster"; it went overdamped, every grid stalled at 69 % of the exact answer,
+  and the convergence order fell from 1.84 to **0.03** — an unconverged run
+  reading exactly like a scheme with no spatial convergence. The safe rate is
+  `min(γ, ω₀²/γ)`, always. And the fastest approach is not the most accurate
+  one: critical damping (`2νk² = ω₀`) settles quickest and was measurably WORSE
+  (order 1.59, and 7.1 % against 2.7 % on a localised bump) with more relaxation
+  times elapsed, because ω = 1 is where an LBM boundary sits where it claims to.
+  Spend a free parameter on accuracy, not on wall clock.
 - **Agreement between a port and its host reference proves the port, not the
   physics.** Both run the same arithmetic. When a port sits several times worse
   than the code it came from, that gap is a defect until shown otherwise — do not

@@ -106,12 +106,19 @@
 //==============================================================================
 //  WHAT THIS DOES NOT MODEL.
 //
-//   * NO SURFACE TENSION. rho_G is uniform, so the gas pressure carries no
-//     curvature term. Adding it means p_G = p_atm - sigma kappa with kappa from
-//     the fill-level field, and the machinery for a curvature is not here.
-//     Everything at a Bond number where surface tension competes with gravity is
-//     therefore out of scope, which includes most droplet problems and none of
-//     the dam-break family.
+//   * NO SURFACE TENSION -- STILL, BUT THE REASON HAS NARROWED. It used to be
+//     that rho_G was uniform, so the gas pressure could carry no curvature term
+//     at all. rho_G_of (below) makes the gas pressure a FIELD, so the normal
+//     stress can now vary from node to node, and p_G = p_atm - sigma kappa is
+//     expressible. WHAT IS STILL MISSING IS kappa: nothing here computes a
+//     curvature from the fill level, and that is the hard half. So surface
+//     tension is not present, a caller that wants it must supply the curvature
+//     itself, and everything at a Bond number where surface tension competes
+//     with gravity remains out of scope -- most droplet problems, and none of
+//     the dam-break family. What rho_G_of DOES deliver on its own is a
+//     prescribed non-uniform normal stress, which is a laser's recoil pressure:
+//     validation/recoil.cpp measures that against the exact hydrostatic
+//     depression.
 //   * NO GAS DYNAMICS, and this is the method, not an omission. An enclosed
 //     bubble does not compress, because its pressure is prescribed rather than
 //     solved. Modelling that needs a volume-of-gas tracker with a separate
@@ -262,6 +269,31 @@ class FreeSurfaceSolver {
   //---- parameters -------------------------------------------------------------
   Collision coll{};              // omega, omega_bulk and the force live here
   Real rho_G  = Real(1);         // gas density: p_G = rho_G cs^2
+  // OPTIONAL PER-NODE GAS DENSITY, and the door through which a NON-UNIFORM
+  // normal stress reaches the free surface. Empty (the default) means the
+  // uniform rho_G above, and then nothing here behaves differently.
+  //
+  // The free-surface condition already imposes "normal stress = gas pressure";
+  // it was only ever the UNIFORMITY of rho_G that made that a single
+  // atmosphere. So a laser's recoil pressure is not new machinery, it is
+  // p_G(x) = p_atm + P_r(T(x)) written into this field -- and the banner's
+  // own recipe for surface tension, p_G = p_atm - sigma kappa, is the same
+  // field with a different right-hand side. Both want a per-node gas pressure
+  // and neither wants anything else, which is why this is one View and not a
+  // model.
+  //
+  // WHAT IT DOES NOT BUY: it does not add surface tension. A curvature still
+  // has to be computed from the fill level by the caller, and nothing here
+  // does that. It also does not make the gas dynamic -- the pressure is still
+  // PRESCRIBED, so an enclosed bubble still does not compress.
+  //
+  // The rigid-body surface force below subtracts the LOCAL value as its
+  // gauge. With a uniform rho_G that is the old constant and the closed-surface
+  // cancellation the banner argues is exact; with a varying one the pressure
+  // difference across a body is a real force and the local gauge is what keeps
+  // it. That combination is untested -- no case in this tree pairs a rigid body
+  // with a non-uniform gas pressure.
+  View1D<Real> rho_G_of;         // optional per-node rho_G; empty means uniform
   // Conversion hysteresis. A cell is promoted only past 1 + fill_offset and
   // demoted only below -fill_offset, so a cell sitting exactly at a threshold
   // cannot convert back and forth every step. The literature's value; without
@@ -618,6 +650,7 @@ class FreeSurfaceSolver {
     auto wux = wux_, wuy = wuy_, wuz = wuz_;
     auto obst = obst_;
     const Real rg = rho_G;
+    const auto rgf = rho_G_of;          // empty unless the caller set it
     const Index hx = dom_.hx, hy = dom_.hy;
     const Real bcx = bcx_, bcy = bcy_;
     constexpr Real ics = inv_cs2<L, Real>();
@@ -627,6 +660,9 @@ class FreeSurfaceSolver {
       KOKKOS_LAMBDA(Index n, Real& afx, Real& afy, Real& atz) {
         const std::uint8_t fl = flags(n);
         if (fl != FsFluid && fl != FsInterface) return;
+        // Same test as ScalarBGK's omega_of: the field, once set, is
+        // authoritative and the scalar is not consulted.
+        const Real rgn = rgf.data() ? rgf(n) : rg;
 
         Neighbours<L> nb;
         d.template fill_neighbours<L, NF, NS>(n, nb);
@@ -645,8 +681,8 @@ class FreeSurfaceSolver {
             // outgoing population in the opposite direction. The equilibrium is
             // the COLLISION's own, so the boundary condition and the operator
             // agree about what equilibrium means.
-            f[i] = Collision::seed_value(i, rg, u0[0], u0[1], u0[2])
-                 + Collision::seed_value(opp(i), rg, u0[0], u0[1], u0[2])
+            f[i] = Collision::seed_value(i, rgn, u0[0], u0[1], u0[2])
+                 + Collision::seed_value(opp(i), rgn, u0[0], u0[1], u0[2])
                  - acc.src(n, opp(i));
           } else if (ff == FsSolid || ff == FsExcluded) {
             // HALFWAY BOUNCE-BACK OFF A MOVING WALL, and the momentum it
@@ -698,7 +734,7 @@ class FreeSurfaceSolver {
               // gauge pressure, which is what a surface force is.
               const Real wgt = (fl == FsInterface) ? eps(n) : Real(1);
               const Real p = wgt * (fout + f[i]
-                                  - Real(2) * weight<L, Real>(i) * rg);
+                                  - Real(2) * weight<L, Real>(i) * rgn);
               const Real dx = -Real(cvel<L>(i, 0)) * p;
               const Real dy = -Real(cvel<L>(i, 1)) * p;
               afx += dx;  afy += dy;
