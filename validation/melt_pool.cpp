@@ -124,6 +124,34 @@
 //           making them wrong. There is also no fixed N that is right at every
 //           operating point: Ma depends on P, dx and the material, so the run
 //           PRINTS the N it would take. Pass it; do not assume it.
+//           **dx = 2 um AT -fsub 4 SEPARATES THE QUANTITIES THAT ARE GRID
+//           CONVERGED FROM THE ONES THAT ARE NOT, AND IT CONFIRMS A PREDICTION
+//           validation/marangoni.cpp ALREADY MADE.** That banner says the
+//           surface velocity is FIRST order and the interior SECOND, so "a pool
+//           dimension read off an isotherm away from the surface is unharmed".
+//           Measured 2026-09-22, Ti-6Al-4V, -flow -fsub 4, 3 h 03 m on four
+//           threads at 4.61 M cells:
+//
+//               quantity   read at           dx = 4      dx = 2      change
+//               depth      interior isotherm  20.600 um   20.662 um   +0.30 %
+//               length     z = dx/2          148.709     152.930     +2.84 %
+//               width      z = dx/2          104.028     107.939     +3.76 %
+//               peak |u|   THE SURFACE         1.0226 m/s  1.4978     +46.5 %
+//
+//           So the DEPTH is grid converged and quotable at dx = 4; the peak
+//           surface velocity is NOT, and carries an error of order 50-90 %
+//           there. That is the first-order surface stencil showing up exactly
+//           where it was predicted to and nowhere else, which is a stronger
+//           result than either banner had alone. Width and length sit between,
+//           because z = dx/2 is the top sampling plane rather than the surface
+//           itself. **Quote the depth. Do not quote a tier (d) surface velocity
+//           without saying which dx produced it.**
+//           THE DARCY RATIO IS NOT dx-INVARIANT, AND SHOULD NOT BE.
+//           A_lat/nu_lat = C dx^2/(rho eps nu_phys) reads 32.2 at dx = 4 and
+//           8.04 at dx = 2, a factor of four for a factor of two in dx. That is
+//           a CELL Darcy number, the mushy analogue of a cell Reynolds number:
+//           it is invariant under -fsub, where dt_f cancels, and refining dx
+//           genuinely resolves the mushy layer better. Do not "fix" it.
 //           **-steel AT dx = 8 um DIVERGES AT nsub = 1, AND THE SCALING SAYS SO
 //           IN ADVANCE.** Ma = 1.45e5 and rho runs to +-5.8e14, i.e. it is gone
 //           within the first steps rather than drifting. Nothing is wrong with
