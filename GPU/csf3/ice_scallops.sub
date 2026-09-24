@@ -1,0 +1,66 @@
+#!/bin/bash --login
+#==============================================================================
+#  Melting ice at Weady et al.'s Rayleigh number -- the three regimes, 2-D, as
+#  a job array: T_inf = 4, 5.6 and 8 C (rising, counterflow, sinking).
+#
+#  WHY THIS IS A BATCH JOB AND NOT A COLAB CELL. The first run of this case at
+#  5.6 C (Colab T4, 2026-09-24, 1024 x 768, sponge far field) was killed at
+#  ~1.4M steps when free Colab recycled a runtime whose notebook had no cell
+#  running -- a nohup'd job does not count as activity -- and took every
+#  snapshot in /content with it. What it showed before it died is the reason
+#  for this script: a coherent WAVE growing on the ice face, trough ~y 215,
+#  crest ~345, trough ~435 of 512 (lambda ~ 0.43 H), amplitude 0.012 -> 0.372
+#  cells rms over 0.2M -> 1.4M steps (x1.8 per 0.2M early), in the counterflow
+#  regime where the paper finds scallops. It had not yet cusped. This array
+#  runs the three regimes long enough (-melt 0.6) to see whether it does, and
+#  what sets its wavelength.
+#
+#  One A100 does 1024 x 768 at roughly 1.5-2 GLUPS FP32 for this operator set
+#  (the T4 measured 0.53), so each task is ~1 h to 60 % melted.
+#
+#  BUILD FIRST, ONCE, from the repo root -- only the operator and force kind
+#  these runs use, which takes ~3 min where the full set takes over 20:
+#
+#     cd GPU && cmake -S . -B build-ice -DCMAKE_BUILD_TYPE=Release \
+#          -DLBM_GPU_ARCH=80 -DLBM_ONLY_OP=cm -DLBM_ONLY_FORCE=darcy \
+#          && cmake --build build-ice -j4 --target ice_melting && cd ..
+#
+#  then submit from the repo root:   sbatch GPU/csf3/ice_scallops.sub
+#  and analyse each run with:        python3 GPU/csf3/scallops.py \
+#                                        runs/ice_T5.6/ice_T5.6_thickness_0*.txt series.png
+#==============================================================================
+#SBATCH -p gpuA                # A100 80GB, open to all users
+#SBATCH -G 1                   # one GPU: no MPI, no multi-GPU
+#SBATCH -c 4
+#SBATCH -t 6:00:00             # ~1 h expected; generous for a first submission
+#SBATCH -a 0-2                 # T_inf = 4, 5.6, 8 C
+#SBATCH -J icescallop
+#SBATCH -o icescallop-%A_%a.log
+#SBATCH --mail-type=END,FAIL
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1   # check `module avail cuda` if this has moved
+
+T_LIST=(4 5.6 8)
+T=${T_LIST[$SLURM_ARRAY_TASK_ID]}
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+BIN="$ROOT/GPU/build-ice/ice_melting"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN -- build it first (see the banner), and" >&2
+  echo "  submit from the M3LB repo root or set M3LB_ROOT." >&2
+  exit 1
+fi
+
+RUNDIR="$ROOT/runs/ice_T${T}"
+mkdir -p "$RUNDIR"
+cd "$RUNDIR"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+
+# Weady et al.'s model and Ra (the driver's defaults: Ra/T^2 = 2.5e6, Pr 12,
+# St 0.05 T); ice 128 x 512 standing clear of the lids; sponge far field over
+# the outer quarter; h(y) every 10 probes = 200k steps.
+echo "=== T_inf = $T C -> $RUNDIR ==="
+"$BIN" -T "$T" -H 512 -probe 20000 -dump 10 -melt 0.6 -drift 0.4 -out "ice_T${T}"
