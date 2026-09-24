@@ -1153,6 +1153,34 @@ Richardson extrapolation of the last pair lands $0.019\%$ and $0.010\%$ from the
 references. Nothing nonlinear is validated with this law yet: no Nusselt number
 and no sidewall flow has been compared with a published result.
 
+\subsection{Implicit Darcy drag: the mushy-zone sink}
+\label{sec:darcy}
+
+An enthalpy-porosity model holds the solid still with a Carman--Kozeny drag
+$\bm{F} = -A\,\bm{u}$, $A = A_{\rm lat}\,\epsilon\,(1-f_l)^2/(f_l^3+\epsilon)$.
+Built by a driver from the velocity the solver last \emph{reported}, the force
+lags a step; with Guo's half shift that is the two-step recurrence
+$u^{n+1} = (1-\tfrac32 A)\,u^n + \tfrac12 A\,u^{n-1}$, whose spectral radius
+reaches one at $A = 1$, and the solid keeps a leakage floor of about $2\%$ of
+the peak velocity. \code{DarcyGuo} instead closes the half shift with the drag,
+which a linear local force allows in one line,
+\begin{equation}
+  \rho\bm{u} = \bm{m} + \tfrac12\big(\bm{F}_{\rm ext} - A\bm{u}\big)
+  \quad\Longrightarrow\quad
+  \bm{u} = \frac{\bm{m} + \bm{F}_{\rm ext}/2}{\rho + A/2},
+\end{equation}
+and evaluates the force at that $\bm{u}$ in the source. A uniform state then
+decays by $g = (2-A)/(2+A)$ per step, $|g|<1$ for every $A>0$. Operators that
+cannot be handed the velocity refuse the policy at compile time. On the reduced
+channel of \code{validation/mushy\_sink} the implicit and lagged profiles agree
+to $2.5\e{-14}$ wherever the lagged one converges (a steady state cannot see a
+lag), every $A$ up to $10^6$ is stable on BGK and on central moments, and the
+leakage falls as $1/A$: $2.79\e{-6}$ of the peak at $A = 10^4$. The stiff
+sink's no-slip plane is \emph{not} on the first solid node: it lies
+$0.570$/$0.736$/$0.904$ cells past the last liquid node on BGK and
+$0.672$/$0.809$/$0.904$ on central moments at $\tau = 0.6/0.8/1.0$, so the
+relaxation time also places the solid surface, to within $0.43$ of a cell.
+
 %==============================================================================
 \section{Boundary conditions}
 

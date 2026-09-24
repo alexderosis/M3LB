@@ -91,6 +91,11 @@ struct MhdCentralMoments;
 //------------------------------------------------------------------------------
 template <bool HighOrder, class Forcing>
 struct MhdCentralMoments<D2Q9, HighOrder, Forcing> {
+  // It reads the force with at(), which is not handed a velocity, so a
+  // velocity-dependent policy's drag would be dropped without a word.
+  static_assert(!velocity_dependent_force_v<Forcing>,
+                "MhdCentralMoments<D2Q9> cannot apply a velocity-dependent force "
+                "(DarcyGuo); use MhdBGK, whose source() is handed u.");
   using Lattice     = D2Q9;
   using ForcingPolicy = Forcing;
   using Equilibrium = std::conditional_t<HighOrder, ProductFormEquilibrium<D2Q9>,

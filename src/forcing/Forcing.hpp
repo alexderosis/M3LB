@@ -280,6 +280,114 @@ struct FieldGuo {
 };
 
 //------------------------------------------------------------------------------
+// A LINEAR DRAG -A u, APPLIED IMPLICITLY -- the enthalpy-porosity (Carman-
+// Kozeny) mushy sink without the lag -- plus FieldGuo's external force.
+//
+//   F(n) = F_ext(n) - A(n) u(n)
+//
+// Guo defines the physical velocity with a half shift, rho u = m + F/2, and here
+// F depends on u. Because the drag is LINEAR and LOCAL the pair closes in one
+// line, with no iteration and no stored velocity:
+//
+//   u = (m + F_ext/2) / (rho + A/2),      then F = F_ext - A u.
+//
+// WHY. The driver-side sink every case used until now builds -A u from the
+// velocity compute_macroscopic() REPORTED, which is a step old, and that makes
+// it a two-step recurrence whose spectral radius reaches 1 at A = 1.000
+// (validation/mushy_sink.cpp, model iii): A <= 1, and a leakage floor of ~2 % of
+// u_max in the solid that no choice of A can go under. SS316L at dx = 8 already
+// asked for A = 3.855. Closing the half shift instead gives the trapezoidal rule,
+// a per-step factor g(A) = (2 - A)/(2 + A) on a uniform state: |g| < 1 for EVERY
+// A > 0, so the bound is gone and the solid's velocity falls as 1/A.
+//
+// THE PRICE, stated because it looks like a bug when met: for A > 2, g < 0, and
+// as A -> infinity g -> -1. The RAW momentum sum c_i f_i inside the solid then
+// flips sign every step and barely decays. Nothing reads it. The physical
+// velocity is m/(rho + A/2) ~ 2m/A, so the equilibrium, the advected scalar and
+// the reported field all see a velocity that is small because A is large -- the
+// alternation lives in a quantity that is not a velocity. mushy_sink.cpp's
+// ringing detector watches the PHYSICAL u, which is the claim worth testing.
+//
+// WHERE IT ENTERS, and the two places it must not be skipped:
+//   * shift_velocity() is the closed form above, so every operator's
+//     macroscopic() -- and so collide(), compute_macroscopic() and the reported
+//     field -- sees the implicit velocity;
+//   * source()/source_raw() evaluate the drag at the u they are handed, which
+//     BGK, TRT and the multiphase/MHD BGK operators pass after that shift;
+//   * an operator that reads "the force" directly must call force_of(), which
+//     hands the policy the velocity. MomentCollision and FluidSolver's
+//     regularised wall do. at() alone returns the EXTERNAL part only.
+// Operators that cannot be handed a velocity refuse the policy at compile
+// time: accel_of() is DELETED for it (so MhdCentralMomentsShifted does not
+// compile with it) and MhdCentralMoments static_asserts. A drag that is silently
+// dropped would be a porous medium that is not there.
+//
+// A is in lattice units: force per unit volume per unit velocity. The
+// Carman-Kozeny form A = A_lat eps (1 - f_l)^2 / (f_l^3 + eps) belongs to the
+// case, together with the conversion A_lat = C dt / rho; melt_pool.cpp's banner
+// records what a hidden dt in that constant cost.
+//
+// MEASURED in validation/mushy_sink.cpp (reduced channel, D3Q27, tau = 0.8):
+// where the lagged sink converges the two profiles agree to 2.5e-14, because a
+// steady state cannot see a lag; every A to 1e6 is stable on BGK and CM; the
+// leak falls as 1/A (2.79e-6 of u_max at A = 1e4). The stiff sink's no-slip
+// plane is NOT on the first solid node: it sits at +0.736 cells past the last
+// liquid node on BGK and +0.809 on CM at tau = 0.8, and moves with tau (0.57 to
+// 0.90 over tau = 0.6..1.0). Where the solid surface is depends on tau.
+//------------------------------------------------------------------------------
+struct DarcyGuo {
+  static constexpr const char* name = "Darcy";
+  static constexpr bool active = true;
+  static constexpr bool velocity_dependent = true;
+
+  View1D<Real> Ex, Ey, Ez;                          // external per-node force
+  View1D<Real> A;                                   // drag coefficient, >= 0
+  Real fx = Real(0), fy = Real(0), fz = Real(0);    // uniform part
+
+  KOKKOS_INLINE_FUNCTION
+  void at(Index n, Real F[3]) const {               // EXTERNAL part only
+    F[0] = fx + (Ex.data() ? Ex(n) : Real(0));
+    F[1] = fy + (Ey.data() ? Ey(n) : Real(0));
+    F[2] = fz + (Ez.data() ? Ez(n) : Real(0));
+  }
+  KOKKOS_INLINE_FUNCTION
+  Real drag(Index n) const { return A.data() ? A(n) : Real(0); }
+
+  // The whole force at a known physical velocity.
+  KOKKOS_INLINE_FUNCTION
+  void at_u(Index n, const Real u[3], Real F[3]) const {
+    at(n, F);
+    const Real a = drag(n);
+    F[0] -= a * u[0];  F[1] -= a * u[1];  F[2] -= a * u[2];
+  }
+  // (ux, uy, uz) arrive as m / rho and leave as the implicit physical velocity.
+  KOKKOS_INLINE_FUNCTION
+  void shift_velocity(Index n, Real rho, Real& ux, Real& uy, Real& uz) const {
+    Real F[3]; at(n, F);
+    const Real h = Real(0.5) / rho;
+    const Real s = rho / (rho + Real(0.5) * drag(n));
+    ux = (ux + h * F[0]) * s;  uy = (uy + h * F[1]) * s;  uz = (uz + h * F[2]) * s;
+  }
+  template <class L>
+  KOKKOS_INLINE_FUNCTION
+  Real source_raw(Index n, int i, Real ux, Real uy, Real uz) const {
+    const Real u[3] = {ux, uy, uz};
+    Real F[3]; at_u(n, u, F);
+    return guo_source_raw<L>(i, F, ux, uy, uz);
+  }
+  template <class L>
+  KOKKOS_INLINE_FUNCTION
+  Real source(Index n, int i, Real omega, Real ux, Real uy, Real uz) const {
+    return (Real(1) - Real(0.5) * omega) * source_raw<L>(n, i, ux, uy, uz);
+  }
+};
+
+// True for a policy whose force depends on the velocity it is evaluated at.
+template <class P>
+inline constexpr bool velocity_dependent_force_v =
+    requires { requires P::velocity_dependent; };
+
+//------------------------------------------------------------------------------
 // FOURTH-ORDER HERMITE FORCE, DIVIDED BY THE DENSITY.
 //
 // The companion of MATLAB/d2q9_shifted_force4.py, which derives what this is and
@@ -369,6 +477,22 @@ KOKKOS_INLINE_FUNCTION void accel_of(const P& p, Index n, Real, Real a[3]) {
 KOKKOS_INLINE_FUNCTION
 void accel_of(const HermiteForce4& p, Index n, Real rho, Real a[3]) {
   p.accel(n, rho, a);
+}
+// DarcyGuo's force depends on u, which accel_of() is not given: refuse it
+// rather than return the external part and drop the drag.
+void accel_of(const DarcyGuo&, Index, Real, Real*) = delete;
+
+// force_of() is how an operator that HOLDS the node's physical velocity asks
+// for the force. Default: the policy's at(), which ignores u -- true of every
+// policy except DarcyGuo, whose drag -A u needs it. Same overload pattern as
+// accel_of(): the non-template exact match wins.
+template <class P>
+KOKKOS_INLINE_FUNCTION void force_of(const P& p, Index n, const Real*, Real F[3]) {
+  p.at(n, F);
+}
+KOKKOS_INLINE_FUNCTION
+void force_of(const DarcyGuo& p, Index n, const Real* u, Real F[3]) {
+  p.at_u(n, u, F);
 }
 
 }  // namespace lbm

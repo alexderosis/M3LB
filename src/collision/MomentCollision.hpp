@@ -246,7 +246,7 @@ struct MomentCollision {
     Real k[NM];
     Basis::template to_moments<Central>(f, ub, k);
 
-    Real F[3]; forcing.at(n, F);
+    Real F[3]; force_of(forcing, n, u, F);   // u-aware for DarcyGuo
     const Real w2 = Real(1) - Real(0.5) * omega;
     const Real wb = bulk();
 

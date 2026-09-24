@@ -790,7 +790,10 @@ class FluidSolver {
         // outside the branch, which is all nvcc wants.
         [[maybe_unused]] const auto& coll_captured_outside_constexpr_if = coll;
         Real Fv[3] = {Real(0), Real(0), Real(0)};
-        if constexpr (has_forcing<Collision>) coll.forcing.at(n, Fv);
+        // At the wall's own velocity, so a velocity-dependent force (DarcyGuo's
+        // drag) is evaluated where the node is held; identical to at() for
+        // every other policy.
+        if constexpr (has_forcing<Collision>) force_of(coll.forcing, n, uw, Fv);
         Real ur[3] = {uw[0], uw[1], uw[2]};
         Real rw;
         if (code == NrmOutFree) {

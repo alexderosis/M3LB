@@ -77,7 +77,7 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 | free-slip / symmetry wall | `set_specular_walls` | exact mirror; **halfway** (ghost cell) |
 | free-slip where the other walls are on-node | `set_specular_nodes` | exact mirror; **on-node**, collides, takes edges and corners |
 | zero-flux scalar wall | `ScalarSpecular` + `ScalarSolver::set_specular_walls` | **on-node**; the only one usable where the field is differentiated or integrated — see below |
-| + melting / solidification, latent heat | `ScalarSolver` + `EnthalpyBGK` | transports the total enthalpy H, **not** T — `temperature()` returns an ENTHALPY, and `PhaseChange::invert` gives T and f_l. `EnthalpyRegularised` above ω ≈ 1.9 |
+| + melting / solidification, latent heat | `ScalarSolver` + `EnthalpyBGK` | transports the total enthalpy H, **not** T — `temperature()` returns an ENTHALPY, and `PhaseChange::invert` gives T and f_l. `EnthalpyRegularised` above ω ≈ 1.9. The mushy-zone drag is `DarcyGuo` — implicit, stable at any A, leak ∝ 1/A — and its no-slip plane is NOT on the node: 0.57–0.90 cells past the last liquid node, set by τ (`validation/mushy_sink.cpp`) |
 | + charge carriers in an electric field | `ScalarSolver` + `ChargeCentralMoments` | D3Q27, advects at the **drift** velocity `u + KE`, not at `u` |
 | + electric potential (Poisson) | `ScalarSolver` + `ScalarBGK` + `add_source` | no new solver — see `validation/ehd_hydrostatic.cpp` |
 | + magnetic field | `MagneticSolver` | Dellar vector distribution |
@@ -766,7 +766,10 @@ These produce plausible, converged, wrong answers rather than crashes.
   `-fsub 1` run was diverging from the SINK as well as from Ma — two
   `dt_f`-limited terms behind one symptom. A driver that derives its lattice
   constants can check them against their own bounds before starting; one that
-  stores them cannot.
+  stores them cannot. **That bound is gone since 2026-09-24**: `DarcyGuo`
+  closes the drag inside the collision and is stable at any A, so 3.855 is
+  now legal — but `melt_pool` still builds its sink driver-side with the lag,
+  and none of its numbers have been re-measured with the implicit one.
 - **A DEFAULT THAT IS APPLIED AFTER THE ARGUMENT LOOP IS NOT A DEFAULT, IT IS AN
   OVERRIDE.** `melt_pool -steel` selects SS316L and, with it, a viscosity, a
   `d(gamma)/dT` and an evaporation set. Applied after parsing, it silently
