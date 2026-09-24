@@ -238,6 +238,15 @@ struct MeltParams {
   Real w = Real(0), q = Real(2), Tm = Real(4), T0 = Real(0);
   Real A_solid = Real(100), eps = Real(1e-3);
   long N = 0;
+  // THE FAR-FIELD SPONGE, optional (S == nullptr: off). A closed cavity has no
+  // far field -- melting a cell of ice cools ~3.6 cells of water to 0 C -- so
+  // in the columns x_sponge..x_end the enthalpy is relaxed toward H_inf,
+  // S = -sigma r^2 (H - H_inf) with r ramping 0 -> 1 across the zone, and the
+  // scalar adds w_i S (ScalarSolver::add_source). The ramp keeps the zone's
+  // edge from reflecting the flow's temperature structure back at the ice.
+  Real* S = nullptr;
+  Real H_inf = Real(0), sigma = Real(0);
+  int nx = 0, x_sponge = 0, x_end = -1;
 };
 
 LBM_HD LBM_INLINE Real melt_pow(Real x, Real q) {
@@ -256,6 +265,15 @@ LBM_HD LBM_INLINE void melt_node(const MeltParams& p, long n) {
   const Real tb = (p.q == Real(2)) ? b * b : melt_pow(b < Real(0) ? -b : b, p.q);
   p.Fy[n] = f * p.w * (ta - tb);
   p.A[n]  = p.A_solid * p.eps * (Real(1) - f) * (Real(1) - f) / (f * f * f + p.eps);
+  if (p.S) {
+    const int x = int(n % long(p.nx));
+    Real src = Real(0);
+    if (x >= p.x_sponge && x <= p.x_end) {
+      const Real r = Real(x - p.x_sponge + 1) / Real(p.x_end - p.x_sponge + 1);
+      src = -p.sigma * r * r * (p.H[n] - p.H_inf);
+    }
+    p.S[n] = src;
+  }
 }
 
 #if defined(__CUDACC__)
