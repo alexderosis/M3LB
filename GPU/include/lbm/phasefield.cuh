@@ -1146,7 +1146,7 @@ class PhaseFieldSolver {
     LBM_CUDA_CHECK(cudaMalloc(&d, sizeof(double) * G));
     pf_reduce_phase<<<G, B, sizeof(double) * B>>>(h_, long(PL::Q) * N_, d);
     LBM_CUDA_CHECK(cudaGetLastError());
-    std::vector<double> hv(std::size_t(G));
+    std::vector<double> hv(static_cast<std::size_t>(G));   // NOT std::size_t(G): that declares a function
     LBM_CUDA_CHECK(cudaMemcpy(hv.data(), d, sizeof(double) * G,
                               cudaMemcpyDeviceToHost));
     cudaFree(d);
