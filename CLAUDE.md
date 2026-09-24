@@ -1069,6 +1069,14 @@ Do not spend time on these without saying so first; several are deliberate.
   What it still lacks: an open boundary for the FLUID (the parent's `NrmOutXp` /
   `NrmOutFree`), raw MRT, and a moving obstacle in the free surface — the
   last deliberately, see that module's banner and the entry above.
+  **As of 2026-09-24 it also has the melting stack**: the enthalpy scalar
+  (`include/lbm/enthalpy.cuh`, `ScalarOp::EnthalpyBGK/EnthalpyRegularised`),
+  the implicit drag (`ForceDarcy`) and the melting coupling pass, cross-checked
+  against the parent on `ice_equilibrium` (<= 5e-7) and the melting
+  demonstrator (every printed digit). **A scalar op must seed its OWN
+  equilibrium**: the plain `w_i dH` seed put latent heat in moving populations
+  and a skipped adiabatic ghost fed it into the domain once -- found only
+  because the port printed T_max, which the parent never had.
   As of 2026-09-04 the D3Q7 scalar also has a **regularised collision**
   (`collide_scalar_regularised`, `ScalarOp::Regularised`) beside BGK: it relaxes
   the flux moments at ω and annihilates the three ghost moments rather than

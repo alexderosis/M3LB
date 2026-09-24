@@ -160,6 +160,8 @@ class Fluid {
         macro_node<P, ForceBoussinesq>(p, N_, n, rho.data(), ux.data(), uy.data(), uz.data());
       else if (fkind_ == ForceField)
         macro_node<P, ForceField>(p, N_, n, rho.data(), ux.data(), uy.data(), uz.data());
+      else if (fkind_ == ForceDarcy)
+        macro_node<P, ForceDarcy>(p, N_, n, rho.data(), ux.data(), uy.data(), uz.data());
       else
         macro_node<P, ForceNone>(p, N_, n, rho.data(), ux.data(), uy.data(), uz.data());
     }
@@ -258,6 +260,7 @@ class Fluid {
       if      (fkind_ == ForceUniform)    run<P, O, ForceUniform,    true>();
       else if (fkind_ == ForceField)      run<P, O, ForceField,      true>();
       else if (fkind_ == ForceBoussinesq) run<P, O, ForceBoussinesq, true>();
+      else if (fkind_ == ForceDarcy)      run<P, O, ForceDarcy,      true>();
       else                                run<P, O, ForceNone,       true>();
     } else if (fkind_ == ForceUniform) {
       run<P, O, ForceUniform, false>();
@@ -265,6 +268,8 @@ class Fluid {
       run<P, O, ForceBoussinesq, false>();
     } else if (fkind_ == ForceField) {
       run<P, O, ForceField, false>();
+    } else if (fkind_ == ForceDarcy) {
+      run<P, O, ForceDarcy, false>();
     } else {
       run<P, O, ForceNone, false>();
     }
@@ -353,6 +358,7 @@ class ScalarT {
 
   template <class Init>
   void initialise_with(Init init) {
+    require_material(op_, pc_);
     for (long n = 0; n < N_; ++n) {
       int x, y, z;
       coords(n, nx_, ny_, x, y, z);
@@ -360,8 +366,7 @@ class ScalarT {
       const Real T = (fl0 == ScalarDirichlet || fl0 == ScalarMoment)
                      ? wall_[std::size_t(n)] : init(x, y, z);
       Real g[L::Q];
-      for (int i = 0; i < L::Q; ++i)
-        g[i] = scalar_eq<L>(i, T - T_ref_, T_ref_, Real(0), Real(0), Real(0));
+      scalar_seed<L>(g, T, T_ref_, is_enthalpy(op_) && fl0 != ScalarDirichlet, pc_);
       init_scatter<0, L>(h_.data(), N_, x, y, z, nx_, ny_, nz_, g);
     }
     t_ = 0;
@@ -369,6 +374,7 @@ class ScalarT {
   }
 
   void step() {
+    require_material(op_, pc_);
     // The serial loop supplies for free the fence the device gets from the
     // kernel boundary: the outflow pass simply runs after the main one.
     if (t_ % 2 == 0) { run_step<0>(); if (has_outflow_) run_outflow<0>(); }
@@ -436,9 +442,17 @@ class ScalarT {
     p.nx = nx_; p.ny = ny_; p.nz = nz_;
     p.omega = omega_; p.T_ref = T_ref_;
     p.op = op_;
+    p.pc = pc_;
     return p;
   }
 
+ public:
+  // As on the device: the enthalpy ops' material, normalised on this copy.
+  void set_material(const PhaseChange& m) { pc_ = m; pc_.normalise(); }
+  const PhaseChange& material() const { return pc_; }
+
+ private:
+  PhaseChange pc_{};
   int nx_, ny_, nz_;
   std::vector<std::uint32_t> unk_;
   std::vector<std::uint8_t> spec_;

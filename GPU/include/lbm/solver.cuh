@@ -129,6 +129,10 @@ LBM_HD LBM_INLINE void fluid_node_update(const FluidParams& p, long N, long n) {
 
       Real F[3] = {Real(0), Real(0), Real(0)};
       if (FKind != ForceNone) force_at<FKind>(p.force, n, F);
+      if (FKind == ForceDarcy) {             // the drag at the wall's own velocity
+        const Real a = p.force.A[n];
+        F[0] -= a * ur[0];  F[1] -= a * ur[1];  F[2] -= a * ur[2];
+      }
       const Real* Fv = (FKind != ForceNone) ? F : nullptr;
       constexpr bool product = (OpKind == 1);   // the CM operator's own equilibrium
 
@@ -151,8 +155,7 @@ LBM_HD LBM_INLINE void fluid_node_update(const FluidParams& p, long N, long n) {
   Macro m = macroscopic(f, p.shifted);
 
   Coupling cp;
-  force_at<FKind>(p.force, n, cp.F);
-  if (FKind != ForceNone) shift_velocity(m, cp.F);
+  force_and_velocity<FKind>(p.force, n, m, cp.F);   // ForceDarcy: implicit drag
   if (Mhd) { cp.B[0] = p.Bx[n]; cp.B[1] = p.By[n]; cp.B[2] = p.Bz[n]; }
 
   // The velocity the coupled fields advect with is the one Guo's half-shift has
@@ -239,8 +242,7 @@ LBM_HD LBM_INLINE void macro_node(const FluidParams& p, long N, long n,
   Macro m = macroscopic(fl, p.shifted);
   if (FKind != ForceNone) {
     Real F[3];
-    force_at<FKind>(p.force, n, F);
-    shift_velocity(m, F);
+    force_and_velocity<FKind>(p.force, n, m, F);
   }
   rho[n] = m.rho; ux[n] = m.ux; uy[n] = m.uy; uz[n] = m.uz;
 }
@@ -750,6 +752,8 @@ class Solver {
       compute_macro<P, ForceBoussinesq><<<G, B>>>(params(), dr, dx, dy, dz);
     else if (fkind_ == ForceField)
       compute_macro<P, ForceField><<<G, B>>>(params(), dr, dx, dy, dz);
+    else if (fkind_ == ForceDarcy)
+      compute_macro<P, ForceDarcy><<<G, B>>>(params(), dr, dx, dy, dz);
     else
       compute_macro<P, ForceNone><<<G, B>>>(params(), dr, dx, dy, dz);
   }
@@ -834,6 +838,7 @@ class Solver {
       if      (fkind_ == ForceUniform)    run<P, O, ForceUniform,    true>();
       else if (fkind_ == ForceField)      run<P, O, ForceField,      true>();
       else if (fkind_ == ForceBoussinesq) run<P, O, ForceBoussinesq, true>();
+      else if (fkind_ == ForceDarcy)      run<P, O, ForceDarcy,      true>();
       else                                run<P, O, ForceNone,       true>();
     } else if (fkind_ == ForceUniform) {
       run<P, O, ForceUniform, false>();
@@ -841,6 +846,8 @@ class Solver {
       run<P, O, ForceBoussinesq, false>();
     } else if (fkind_ == ForceField) {
       run<P, O, ForceField, false>();
+    } else if (fkind_ == ForceDarcy) {
+      run<P, O, ForceDarcy, false>();
     } else {
       run<P, O, ForceNone, false>();
     }

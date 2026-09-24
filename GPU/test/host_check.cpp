@@ -16,6 +16,7 @@
 //==============================================================================
 #include "lbm/core.cuh"
 #include "lbm/solver.cuh"
+#include "lbm/enthalpy.cuh"
 
 #include <cmath>
 #include <cstdio>
@@ -904,6 +905,97 @@ int main() {
     };
     for (auto& e : tt)
       check(std::fabs(e.got - e.want) < tol, e.n, std::fabs(e.got - e.want));
+  }
+
+  //--------------------------------------------------------------------------
+  // THE ENTHALPY SCALAR AND THE IMPLICIT DRAG (enthalpy.cuh, core.cuh).
+  //
+  // A piecewise map is certified only at its band EDGES -- a point inside one
+  // branch certifies that branch and nothing else, which is how the parent
+  // tree's seed self-checks passed with a wrong liquidus in place. And at
+  // La = 0 with one material the enthalpy collisions must BE the plain scalar
+  // ones, population for population: the parent pins the same identity.
+  //--------------------------------------------------------------------------
+  {
+    const double tol = (sizeof(Real) == 4) ? 2e-6 : 1e-13;
+    PhaseChange band;                       // cp_s != cp_l: the quadratic branch
+    band.T_s = Real(-0.3); band.T_l = Real(0.4);
+    band.cp_s = Real(0.5); band.cp_l = Real(1.2);
+    band.k_s = Real(0.7); band.k_l = Real(0.2);
+    band.La = Real(3); band.E_datum = Real(0);
+    band.normalise();
+    PhaseChange iso = band; iso.T_s = iso.T_l = Real(0); iso.normalise();
+    double e = 0;
+    for (const PhaseChange* m : {&band, &iso}) {
+      Real f, T, E, c;
+      m->invert(m->enthalpy_of(m->T_s, Real(0)), f, T, E, c);
+      e = worst(e, double(T) - double(m->T_s)); e = worst(e, double(f));
+      m->invert(m->enthalpy_of(m->T_l, Real(1)), f, T, E, c);
+      e = worst(e, double(T) - double(m->T_l)); e = worst(e, double(f) - 1.0);
+      for (double t : {-2.0, 1.7}) {                       // one per outer branch
+        const double fl = t > 0 ? 1.0 : 0.0;
+        m->invert(m->enthalpy_of(Real(t), Real(fl)), f, T, E, c);
+        e = worst(e, double(T) - t); e = worst(e, double(f) - fl);
+      }
+    }
+    {                                                      // inside the band
+      Real f, T, E, c;
+      const double t = 0.1, fl = (t + 0.3) / 0.7;
+      band.invert(band.enthalpy_of(Real(t), Real(fl)), f, T, E, c);
+      e = worst(e, double(T) - t); e = worst(e, double(f) - fl);
+    }
+    check(std::fabs(e) < tol, "enthalpy: invert(enthalpy_of) at both band edges and inside", e);
+
+    // La = 0, one material: H == E, and the collisions reduce to the scalar ones.
+    PhaseChange plain;
+    plain.T_s = Real(0); plain.T_l = Real(1);
+    plain.cp_s = plain.cp_l = Real(1); plain.k_s = plain.k_l = Real(0.1);
+    plain.La = Real(0); plain.normalise();
+    const Real Tr = Real(0.37), vx = Real(0.03), vy = Real(-0.02), vz = Real(0.011);
+    const Real w = Real(1.37);
+    double eb = 0, er = 0;
+    for (int trial = 0; trial < 20; ++trial) {
+      Real a[7], b[7];
+      for (int i = 0; i < 7; ++i)
+        a[i] = b[i] = Real(0.01 * ((trial * 7 + i) % 11) - 0.03 + 0.002 * i);
+      Real dH = 0; for (int i = 0; i < 7; ++i) dH += a[i];
+      collide_enthalpy_bgk<D3Q7>(a, dH, Tr, plain, vx, vy, vz, w);
+      collide_scalar<D3Q7>(b, dH, Tr, vx, vy, vz, w);
+      for (int i = 0; i < 7; ++i) eb = worst(eb, double(a[i]) - double(b[i]));
+      for (int i = 0; i < 7; ++i)
+        a[i] = b[i] = Real(0.01 * ((trial * 5 + i) % 13) - 0.04 + 0.003 * i);
+      dH = 0; for (int i = 0; i < 7; ++i) dH += a[i];
+      collide_enthalpy_regularised(a, dH, Tr, plain, vx, vy, vz, w);
+      collide_scalar_regularised(b, dH, Tr, vx, vy, vz, w);
+      for (int i = 0; i < 7; ++i) er = worst(er, double(a[i]) - double(b[i]));
+    }
+    check(std::fabs(eb) < tol, "enthalpy BGK == scalar BGK at La = 0, one material", eb);
+    check(std::fabs(er) < tol, "enthalpy regularised == scalar regularised at La = 0", er);
+
+    // The implicit drag: A = 0 is Guo's shift exactly; A > 0 satisfies the
+    // closure rho u = m + F/2 with F = F_ext - A u, which is the definition.
+    Macro m0{Real(1.02), Real(0.013), Real(-0.004), Real(0.007)};
+    const Real Fe[3] = {Real(2e-4), Real(-1e-4), Real(3e-5)};
+    Macro ma = m0, mb = m0;
+    Real Fa[3] = {Fe[0], Fe[1], Fe[2]};
+    darcy_close(ma, Fa, Real(0));
+    shift_velocity(mb, Fe);
+    double ed = worst(worst(double(ma.ux - mb.ux), double(ma.uy - mb.uy)), double(ma.uz - mb.uz));
+    ed = worst(ed, double(Fa[0] - Fe[0]));
+    check(std::fabs(ed) < tol, "darcy_close at A = 0 is shift_velocity", ed);
+    double ec = 0;
+    for (double A : {0.5, 3.0, 1e3, 1e6}) {
+      Macro mc = m0;
+      Real F[3] = {Fe[0], Fe[1], Fe[2]};
+      darcy_close(mc, F, Real(A));
+      const double mom[3] = {double(m0.rho * m0.ux), double(m0.rho * m0.uy), double(m0.rho * m0.uz)};
+      const double u[3] = {double(mc.ux), double(mc.uy), double(mc.uz)};
+      for (int a = 0; a < 3; ++a) {
+        ec = worst(ec, (double(m0.rho) * u[a] - mom[a] - 0.5 * double(F[a])) / 1e-2);
+        ec = worst(ec, (double(F[a]) - (double(Fe[a]) - A * u[a])) / 1e-2);
+      }
+    }
+    check(std::fabs(ec) < tol, "darcy_close satisfies rho u = m + F/2, F = F_ext - A u", ec);
   }
 
   std::printf("\n%s  (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED",

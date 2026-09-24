@@ -29,6 +29,7 @@
 //  under Esoteric Pull, because the two slots a node reads are the two it
 //  writes. That is a self-contained piece of work and it is not here.
 //==============================================================================
+#include "enthalpy.cuh"
 #include "specular.cuh"
 #include "streaming.cuh"
 
@@ -59,6 +60,7 @@ struct ScalarParams {
   // for; this gates a branch that every thread in the grid takes the same way,
   // which costs nothing. Another template axis would double eight kernels.
   ScalarOp op = ScalarOp::BGK;
+  PhaseChange pc;                            // the enthalpy ops only
 };
 
 //------------------------------------------------------------------------------
@@ -157,6 +159,10 @@ LBM_HD LBM_INLINE void scalar_node_update(const ScalarParams& p, long N, long n)
     collide_charge_cm<L>(h, vx, vy, vz, p.omega);
   else if (p.op == ScalarOp::Regularised)
     collide_scalar_regularised(h, dT, p.T_ref, vx, vy, vz, p.omega);
+  else if (p.op == ScalarOp::EnthalpyBGK)
+    collide_enthalpy_bgk<L>(h, dT, p.T_ref, p.pc, vx, vy, vz, p.omega);
+  else if (p.op == ScalarOp::EnthalpyRegularised)
+    collide_enthalpy_regularised(h, dT, p.T_ref, p.pc, vx, vy, vz, p.omega);
   else
     collide_scalar<L>(h, dT, p.T_ref, vx, vy, vz, p.omega);
   scatter<Parity, L>(p.h, N, x, y, z, p.nx, p.ny, p.nz, h);
@@ -461,7 +467,8 @@ template <class Init>
 __global__ void scalar_initialise(Real* __restrict__ h,
                                   const std::uint8_t* __restrict__ flags,
                                   const Real* __restrict__ wall,
-                                  int nx, int ny, int nz, Real T_ref, Init init) {
+                                  int nx, int ny, int nz, Real T_ref, Init init,
+                                  ScalarOp op, PhaseChange pc) {
   const long N = long(nx) * ny * nz;
   const long n = blockIdx.x * blockDim.x + threadIdx.x;
   if (n >= N) return;
@@ -470,8 +477,7 @@ __global__ void scalar_initialise(Real* __restrict__ h,
   const Real T = (flags[n] == ScalarDirichlet || flags[n] == ScalarMoment)
                  ? wall[n] : init(x, y, z);
   Real g[ScalarLattice::Q];
-  for (int i = 0; i < ScalarLattice::Q; ++i)
-    g[i] = scalar_eq<ScalarLattice>(i, T - T_ref, T_ref, Real(0), Real(0), Real(0));
+  scalar_seed<ScalarLattice>(g, T, T_ref, is_enthalpy(op) && flags[n] != ScalarDirichlet, pc);
   init_scatter<0, ScalarLattice>(h, N, x, y, z, nx, ny, nz, g);
 }
 
@@ -568,9 +574,10 @@ class ScalarSolverT {
 
   template <class Init>
   void initialise_with(Init init) {
+    require_material(op_, pc_);
     const int B = 128;
     scalar_initialise<<<int((N_ + B - 1) / B), B>>>(h_, flags_, wall_,
-                                                    nx_, ny_, nz_, T_ref_, init);
+                                                    nx_, ny_, nz_, T_ref_, init, op_, pc_);
     LBM_CUDA_CHECK(cudaGetLastError());
     LBM_CUDA_CHECK(cudaDeviceSynchronize());
     t_ = 0;
@@ -578,6 +585,7 @@ class ScalarSolverT {
   }
 
   void step() {
+    require_material(op_, pc_);
     const int B = 128, G = int((N_ + B - 1) / B);
     // The outflow pass must see the main pass's field writes. A kernel boundary
     // on the same stream IS that fence, so no explicit synchronise is needed --
@@ -649,9 +657,18 @@ class ScalarSolverT {
     p.nx = nx_; p.ny = ny_; p.nz = nz_;
     p.omega = omega_; p.T_ref = T_ref_;
     p.op = op_;
+    p.pc = pc_;
     return p;
   }
 
+ public:
+  // THE MATERIAL of the enthalpy ops, normalised on the solver's OWN copy, and
+  // step() refuses an enthalpy op without one (require_material).
+  void set_material(const PhaseChange& m) { pc_ = m; pc_.normalise(); }
+  const PhaseChange& material() const { return pc_; }
+
+ private:
+  PhaseChange pc_{};
   int nx_, ny_, nz_;
   long N_;
   Real T_ref_, omega_;

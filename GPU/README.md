@@ -83,6 +83,23 @@ here. The scalar side needed four things:
 The solvers are templated on their lattice now, so the charge is
 `ScalarSolverT<D3Q27>` rather than a second implementation.
 
+### Melting ice: enthalpy scalar, implicit drag, anomalous buoyancy (2026-09-24)
+
+`include/lbm/enthalpy.cuh` is the twin of the parent's `EnthalpyBGK` /
+`EnthalpyRegularised` — the material law, its inversion, both collisions and
+the melting coupling pass written again, sharing no header — as
+`ScalarOp::EnthalpyBGK` / `EnthalpyRegularised` with `set_material()`. The
+fluid gains `ForceDarcy`: `ForceField`'s external force plus a per-node linear
+drag `-A u` closed implicitly with Guo's half shift, `u = (m + F/2)/(rho + A/2)`,
+stable at any A. `src/ice_equilibrium.cu` reproduces the parent's exact-limit
+case to its printed precision on all four rows (differences <= 5e-7 in FP64,
+<= 7e-5 in FP32); `src/ice_melting.cu` reproduces the parent demonstrator's
+2-D run to every printed digit, and adds a periodic span for the 3-D study.
+The port found one bug of its own: the scalar SEED was the plain form
+`w_i dH`, which puts latent heat in the moving populations; the adiabatic ghost
+rows then fed it into the domain once (+0.07 C over the bulk, a 9.5 C spot
+beside an 8 C wall). The enthalpy ops now seed their own equilibrium.
+
 ### On a device: the grid the reference actually used
 
 Tesla T4, FP32, cc 7.5.

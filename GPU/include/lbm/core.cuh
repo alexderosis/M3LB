@@ -564,7 +564,9 @@ LBM_HD LBM_INLINE void collide_scalar_regularised(Real h[7], Real dT, Real T_ref
 
 // Which of the two the scalar runs. BGK is the default so that every existing
 // driver keeps the operator it was validated with.
-enum class ScalarOp { BGK, Regularised, ChargeCM };
+// EnthalpyBGK / EnthalpyRegularised transport a TOTAL ENTHALPY and need a
+// material -- see enthalpy.cuh.
+enum class ScalarOp { BGK, Regularised, ChargeCM, EnthalpyBGK, EnthalpyRegularised };
 
 //------------------------------------------------------------------------------
 //  CENTRAL-MOMENT COLLISION FOR A CHARGE CARRIER, on a PRODUCT lattice.
@@ -843,7 +845,11 @@ LBM_HD LBM_INLINE Real guo_source_raw(int i, const Real F[3], Real ux, Real uy, 
 // be the same vector the collision operator is given, or the buoyancy term does
 // not match the weight.
 //------------------------------------------------------------------------------
-enum ForceKind { ForceNone = 0, ForceUniform = 1, ForceBoussinesq = 2, ForceField = 3 };
+//   ForceDarcy       ForceField's external force PLUS a per-node linear drag
+//                    -A u, closed IMPLICITLY with Guo's half shift -- see
+//                    darcy_close below. The mushy-zone sink of a melting model.
+enum ForceKind { ForceNone = 0, ForceUniform = 1, ForceBoussinesq = 2, ForceField = 3,
+                 ForceDarcy = 4 };
 
 struct BodyForce {
   Real fx = Real(0), fy = Real(0), fz = Real(0);      // uniform part
@@ -853,13 +859,14 @@ struct BodyForce {
   const Real* Fx = nullptr;                           // per-node field
   const Real* Fy = nullptr;
   const Real* Fz = nullptr;
+  const Real* A = nullptr;                            // ForceDarcy: drag, >= 0
 };
 
 template <int Kind>
 LBM_HD LBM_INLINE void force_at(const BodyForce& b, long n, Real F[3]) {
   if (Kind == ForceNone) { F[0] = F[1] = F[2] = Real(0); return; }
   if (Kind == ForceUniform) { F[0] = b.fx; F[1] = b.fy; F[2] = b.fz; return; }
-  if (Kind == ForceField) {
+  if (Kind == ForceField || Kind == ForceDarcy) {    // Darcy: the EXTERNAL part
     F[0] = b.fx + b.Fx[n];  F[1] = b.fy + b.Fy[n];  F[2] = b.fz + b.Fz[n];
     return;
   }
@@ -882,6 +889,34 @@ enum class Op { BGK, CentralMoments, TRT };
 LBM_HD LBM_INLINE void shift_velocity(Macro& m, const Real F[3]) {
   const Real h = Real(0.5) / m.rho;
   m.ux += h * F[0];  m.uy += h * F[1];  m.uz += h * F[2];
+}
+
+//------------------------------------------------------------------------------
+// THE IMPLICIT DRAG. With F = F_ext - A u the half shift rho u = m + F/2 is
+// linear in u and closes in one line, u = (m + F_ext/2) / (rho + A/2), after
+// which F is the WHOLE force the collision applies. The twin of
+// src/forcing/Forcing.hpp's DarcyGuo, written again rather than shared. A
+// driver-side sink built from the REPORTED velocity lags a step and is bounded
+// at A = 1 (the parent's validation/mushy_sink.cpp); this is not bounded.
+// On entry m.u is sum c f / rho and F the external force.
+//------------------------------------------------------------------------------
+LBM_HD LBM_INLINE void darcy_close(Macro& m, Real F[3], Real a) {
+  const Real h = Real(0.5) / m.rho;
+  const Real s = m.rho / (m.rho + Real(0.5) * a);
+  m.ux = (m.ux + h * F[0]) * s;
+  m.uy = (m.uy + h * F[1]) * s;
+  m.uz = (m.uz + h * F[2]) * s;
+  F[0] -= a * m.ux;  F[1] -= a * m.uy;  F[2] -= a * m.uz;
+}
+
+// The force at a node AND the velocity it goes with, in one place, because the
+// step kernel and the diagnostic pass must agree (solver.cuh's macro_node
+// banner records what it cost when they did not).
+template <int Kind>
+LBM_HD LBM_INLINE void force_and_velocity(const BodyForce& b, long n, Macro& m, Real F[3]) {
+  force_at<Kind>(b, n, F);
+  if (Kind == ForceDarcy)     darcy_close(m, F, b.A[n]);
+  else if (Kind != ForceNone) shift_velocity(m, F);
 }
 
 //------------------------------------------------------------------------------
