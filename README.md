@@ -132,7 +132,7 @@ enstrophy decay. Roughly 25-40 minutes, nearly all of it compiling.
 | `src/memory/`      | streaming schemes (`TwoLattice`, `EsotericPull`) and the raw/shifted storage tags |
 | `src/equilibrium/` | second-order and product-form equilibria |
 | `src/collision/`   | `BGK`, `TRT`, `MomentCollision` (raw MRT / central moments), `ScalarBGK`, `MagneticBGK`, `MhdBGK`, `MhdCentralMoments` |
-| `src/forcing/`     | `NoForcing`, `Guo`, `BoussinesqGuo` |
+| `src/forcing/`     | `NoForcing`, `Guo`, `BoussinesqGuo`, `DensityAnomalyGuo` (water near 4 °C) |
 | `src/boundary/`    | cell flags; bounce-back lives in the fused kernel |
 | `src/solver/`      | `FluidSolver`, `ScalarSolver`, `MagneticSolver` |
 | `src/io/`          | `.vti` writer |

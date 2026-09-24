@@ -73,6 +73,7 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 |---|---|---|
 | single-phase, single-component | `FluidSolver` | **the default — see the rule below** |
 | + temperature / passive scalar | `ScalarSolver` alongside | own lattice, velocity is an input; `ScalarBGK` by default, `ScalarRegularised` above ω ≈ 1.9 |
+| + water near its density maximum (~4 °C) | `ScalarSolver` + `DensityAnomalyGuo` | Gebhart–Mollendorf buoyancy `w(\|T−Tm\|^q − \|T0−Tm\|^q)` in place of `BoussinesqGuo`: same members, `beta` → `w`, plus `Tm` and `q`. Onset of penetrative convection validated against an exact reference (`validation/density_anomaly.cpp`, second order, +0.25 % at H = 64); nothing nonlinear validated yet |
 | free-slip / symmetry wall | `set_specular_walls` | exact mirror; **halfway** (ghost cell) |
 | free-slip where the other walls are on-node | `set_specular_nodes` | exact mirror; **on-node**, collides, takes edges and corners |
 | zero-flux scalar wall | `ScalarSpecular` + `ScalarSolver::set_specular_walls` | **on-node**; the only one usable where the field is differentiated or integrated — see below |

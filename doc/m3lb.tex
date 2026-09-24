@@ -1103,6 +1103,56 @@ delivered through the same Guo machinery. Because this force varies in space, th
 collision interface carries a node index; that hook is also what the Lorentz force
 uses.
 
+\subsection{Density-anomaly buoyancy: water near \texorpdfstring{4\,$^\circ$C}{4 C}}
+\label{sec:density-anomaly}
+
+Water is densest at $T_m \approx 4\,^\circ$C, and Gebhart \& Mollendorf (1977)
+fit pure water at one atmosphere by
+$\rho(T) = \rho_m\big(1 - w_{GM}\,|T - T_m|^{q}\big)$ with
+$\rho_m = 999.972$\,kg\,m$^{-3}$, $w_{GM} = 9.297173\e{-6}\,(^\circ\mathrm{C})^{-q}$,
+$q = 1.894816$ and $T_m = 4.029325\,^\circ$C. \code{DensityAnomalyGuo} delivers
+the corresponding buoyancy through the Guo machinery,
+\begin{equation}
+  \bm{F}(n) = \rho_0\, \hat{\bm{e}}_{\uparrow}\, w\,
+  \big(|T(n)-T_m|^{q} - |T_0-T_m|^{q}\big),
+\end{equation}
+with $w = g\,w_{GM}\,\Delta T^{q}$ in lattice units when the scalar carries
+$\theta = (T - T_{\rm ref})/\Delta T$. Over 0--8\,$^\circ$C the density moves by
+$1.2\e{-4}$ of itself, so the approximation is Boussinesq exactly as in
+Sec.~\ref{sec:boussinesq}; only the shape of the buoyancy changes, and it is not
+monotone: water between $0$ and $4\,^\circ$C heated from below is unstable, and
+above $4\,^\circ$C stable. For $q=1$ with every temperature above $T_m$ the
+policy is \code{BoussinesqGuo} with $\beta = w$, and the two agree on a growing
+Rayleigh--B\'enard mode to $1.7\e{-15}$ in $T$ and $7.5\e{-14}$ in $v$ (not bit
+for bit, because $|T-T_m|-|T_0-T_m|$ and $T-T_0$ round differently).
+
+\textbf{Validation.} \code{validation/density\_anomaly} brackets the onset of
+penetrative convection in a rigid--rigid layer with $b(\theta) =
+|\theta-\lambda|^{q}$ against an exact reference: \code{tools/penetrative\_onset.py}
+solves the marginal equations by shooting, on a mesh split and graded at the
+kink $z = 1-\lambda$, and reproduces the classical $\mathrm{Ra}_c = 1707.762$,
+$k_c H = 3.117$ before it reports anything. At the Gebhart--Mollendorf $q$ the
+references are $\mathrm{Ra} = 16764.642$ at $kH = 4.0212$ for $\lambda = 0.5$
+(maximum mid-layer, upper half stably stratified; the minimum is
+$\mathrm{Ra}_c = 16763.68$ at $k_cH = 3.995$, a factor 9.8 above the classical
+layer) and $\mathrm{Ra} = 1674.292$ at $kH = \pi$ for $\lambda = 0$. On D3Q27
+central moments with a D3Q7 scalar at $n_z = 1$, halfway walls:
+
+\begin{center}\small
+\begin{tabular}{lrrrr}
+\toprule
+ & $H=16$ & $H=32$ & $H=64$ & order \\
+\midrule
+$\lambda = 0.5$ & $+4.665\%$ & $+1.059\%$ & $+0.250\%$ & 2.14, 2.08 \\
+$\lambda = 0$   & $+2.133\%$ & $+0.481\%$ & $+0.113\%$ & 2.15, 2.09 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Richardson extrapolation of the last pair lands $0.019\%$ and $0.010\%$ from the
+references. Nothing nonlinear is validated with this law yet: no Nusselt number
+and no sidewall flow has been compared with a published result.
+
 %==============================================================================
 \section{Boundary conditions}
 
