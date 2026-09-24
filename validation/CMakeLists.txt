@@ -1,4 +1,4 @@
-foreach(v claudemd_skeleton_check density_anomaly mhd_cm_shifted specular specular_node scalar_specular ehd_hydrostatic phase_wall poiseuille decaying_flows galilean thermal mhd regularized hartmann scalar_walls scalar_mass gaussian_plume height_field laplace layered_poiseuille floating_body gravity_wave stefan melt_pool marangoni mushy_sink recoil surface_tension)
+foreach(v claudemd_skeleton_check density_anomaly ice_equilibrium mhd_cm_shifted specular specular_node scalar_specular ehd_hydrostatic phase_wall poiseuille decaying_flows galilean thermal mhd regularized hartmann scalar_walls scalar_mass gaussian_plume height_field laplace layered_poiseuille floating_body gravity_wave stefan melt_pool marangoni mushy_sink recoil surface_tension)
   add_executable(${v} ${v}.cpp)
   target_link_libraries(${v} PRIVATE lbm)
   if(LBM_BUILD_TESTS)

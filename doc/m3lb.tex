@@ -1181,6 +1181,37 @@ $0.570$/$0.736$/$0.904$ cells past the last liquid node on BGK and
 $0.672$/$0.809$/$0.904$ on central moments at $\tau = 0.6/0.8/1.0$, so the
 relaxation time also places the solid surface, to within $0.43$ of a cell.
 
+\subsection{Ice on water at equilibrium}
+\label{sec:ice-equilibrium}
+
+\code{validation/ice\_equilibrium} couples the three pieces above ---
+\code{EnthalpyBGK}, \code{DarcyGuo} and the density-anomaly buoyancy --- in the
+configuration of Wang \emph{et al.}\ (PRFluids 6, L091501, 2021): ice grown
+down from a plate at $T_t<0$ over water heated from below at $T_b$. Their
+$T_b = 10\,^\circ$C comparison convects at $\mathrm{Ra}\sim10^8$ and needs days
+of physical time; this case takes the limit in which the answer is exact.
+With $T_b\le4\,^\circ$C every water temperature lies below the density maximum,
+the layer is stably stratified, and the equilibrium is two-slab conduction,
+$h/H = k_i|T_t|/(k_i|T_t|+k_wT_b)$, with water's $k_i/k_w = 3.944$ and
+$(\rho c_p)_i/(\rho c_p)_w = 0.4824$. The buoyancy is sized so that the water
+would sit at $\mathrm{Ra}\approx5\times10^3$ if its stratification were
+unstable, and it is seeded. At every resolution the flow contributes nothing
+(a frozen-fluid twin agrees to $1.2\e{-8}$ of the temperature span), the residual
+velocity is below $2.5\e{-9}$ of the would-be free-fall velocity, and the seed
+decays by at least $10^9$.
+
+The isothermal front ($T_s=T_l$) has no unique discrete equilibrium: any link
+whose two-slab interface temperature lies in $[-\tfrac12 s_w, \tfrac12 s_i]$,
+with $s$ the per-cell temperature drop on each side, is steady, and growing ice
+stops within one cell of the window's thin edge. The predicted edges are $0.906$
+and $1.222$ cells; the fronts land at $0.903$ and $1.241$ at $H = 64$. The error
+in cells does not refine away. A mushy band $[-d,d]$ makes $f_l$ a function of
+$T$ and converges onto its own exact equilibrium, obtained in closed form from
+$K(T)=\int k\,dT$: within $0.09$ cells at $H=64$, with the pointwise temperature
+error falling from $1.8\%$ to $0.18\%$ and $0.094\%$ over $H = 16$--$64$. The
+band is a model change, though: $d = 0.2\,^\circ$C moves the equilibrium by
+$0.87$ cells here, so it must be sized against the gradient at the front.
+
 %==============================================================================
 \section{Boundary conditions}
 
@@ -9850,6 +9881,18 @@ reference, as above.
 Stated plainly, because each has been measured.
 
 \begin{enumerate}[leftmargin=1.4em,itemsep=4pt]
+\item \textbf{An on-node regularised fluid wall under a non-uniform body force
+  diverged over $\sim10^5$ steps, and the mechanism is not diagnosed}
+  (\S\ref{sec:ice-equilibrium}). With the density-anomaly force the first
+  version of \code{ice\_equilibrium} went non-finite at $1.7\times10^5$ and
+  $4.2\times10^5$ steps, the growth beside the water wall where no drag acts;
+  the halfway pair ran $2.7\times10^6$ steps clean. The on-node Rayleigh--B\'enard
+  numbers are growth rates over $0.75$ diffusive times and cannot see it.
+\item \textbf{An isothermal enthalpy front is first order at equilibrium.}
+  Its steady position is any link in a window about a cell wide, and which one it
+  reaches depends on the direction it came from (\S\ref{sec:ice-equilibrium}).
+  A mushy band removes the ambiguity at the cost of a model error set by its
+  width.
 \item \textbf{The closed cavity's electric Nusselt number is $9$--$16\,\%$ below
   the reference in the mid-range, and that is measured rather than explained}
   (\S\ref{sec:ehdcavity}). The \emph{shape} of Fig.~8 is reproduced --- $N_e=1$

@@ -512,6 +512,35 @@ These produce plausible, converged, wrong answers rather than crashes.
   self-check on a piecewise map must exercise the **band edges**: round-trip
   `enthalpy_of(T_l, 1) -> T_l` and `enthalpy_of(T_s, 0) -> T_s`. A point in the
   interior of one branch certifies that branch and nothing else.
+- **ANTI-BOUNCE-BACK WITH `EnthalpyBGK` TAKES THE SENSIBLE ENTHALPY E(T_w),
+  NOT H.** `ScalarDirichlet` imposes its value through the NON-REST
+  equilibrium, `w_i (E - T_ref)`, which carries only E. Handed the total H, a
+  liquid wall sits La too warm and nothing fails. `validation/ice_equilibrium.cpp`
+  passes `H - La` at the water wall and `H` at the ice wall (f_l = 0 there);
+  `stefan.cpp` never met this because it uses the on-node `ScalarMoment`.
+- **AN ON-NODE REGULARISED FLUID WALL UNDER A NON-UNIFORM BODY FORCE DIVERGED
+  OVER ~1e5 STEPS, AND THE MECHANISM IS NOT DIAGNOSED.** Measured 2026-09-24 in
+  the first version of `ice_equilibrium` (ScalarMoment + regularised walls on
+  nodes 0 and H, density-anomaly buoyancy): non-finite at 170k steps with the ice
+  drag A = 1e3 and at 424k with A = 10, the fastest-growing velocity always at
+  y = 1 beside the WATER wall, where A = 0 -- so not the drag. `-frozen` (no
+  fluid step) converged cleanly, and the halfway pair ran 2.7M steps at A = 1e3
+  without it. Every on-node Rayleigh-Benard number in the tree is a growth rate
+  over 0.75 diffusive times, too short to have seen this. **For a long forced
+  run use the halfway pair**; do not assume the on-node one is safe because its
+  onset numbers are right.
+- **AN ISOTHERMAL ENTHALPY FRONT HAS NO UNIQUE DISCRETE EQUILIBRIUM.** With
+  T_s = T_l a steady state needs only the node below the front at T >= 0 and the
+  node above at T <= 0, so a WINDOW of link positions is an equilibrium, about a
+  cell wide and H-independent in cells. Ice growing toward equilibrium stops
+  within one cell short of the window's thin edge: predicted 0.906 and 1.222
+  cells, measured 0.903 and 1.241 at H = 64 (`ice_equilibrium`). So the
+  isothermal front is first order in H at best and its steady position depends
+  on the direction it came from. A mushy band [-d, d] makes f_l a function of T
+  and converges onto its own exact state (0.02-0.09 cells at H = 64), but it is
+  a MODEL change: d = 0.2 C moved the equilibrium 0.87 cells there, because its
+  reduced conductivity spans 4.6 cells of shallow-gradient ice. Size d against
+  the gradient at the front, and say which one a run used.
 - **`temperature()` is ZERO at an adiabatic scalar node**, because bounce-back
   puts the insulated plane at 0.5 and the node is a ghost outside the fluid
   (`ScalarSolver.hpp`'s `field_kernel`). Harmless when that node is `Solid` for
