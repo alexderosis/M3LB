@@ -43,6 +43,24 @@
 //  analytic half-channel; do not assume it, the EHD hydrostatic case is a
 //  standing reminder that half a cell matters when you differentiate the field.
 //
+//  ================= EXACT FOR A STEADY FLOW, FIRST ORDER FOR AN UNSTEADY ONE =
+//  Measured 2026-09-25, and it limits what "exact" above means. The 5.5e-14 of
+//  validation/specular.cpp is a STEADY, wall-invariant Poiseuille state. Against
+//  the periodic box of twice the width whose symmetry planes sit HALFWAY between
+//  nodes -- the planes this wall claims -- an UNSTEADY decaying shear wave u_y(x)
+//  differs by 2.4e-2 / 1.2e-2 / 6.1e-3 of the field at M = 16 / 32 / 64 (same
+//  physical time, diffusive scaling): first order, not an identity. A mode that
+//  also varies ALONG the wall differs by 13 % at M = 16. The mechanism, traced in
+//  memory/EsotericPull.hpp's table: this ghost permutes at its own update, so a
+//  population sent into it returns TWO steps later, and a diagonal one lands one
+//  cell further along the wall than a halfway reflection would put it. Neither
+//  matters once the flow is steady and wall-invariant, which is why the channel
+//  test could not see it. The on-node mirror (SpecNode, below) acts on the
+//  populations that arrived this step at the node itself and IS an unsteady
+//  identity -- validation/specular_node.cpp, 1.9e-15 -- which is why
+//  demonstrator/tg_mhd's free-slip control is built on it and not on this.
+//  The measurement is validation/specwall_unsteady.cpp (printed, not scored).
+//
 //  ================= THE TANGENTIAL DIRECTIONS ===============================
 //  For c_i with a zero normal component m(i) == i, so those populations pass
 //  through the wall cell unchanged. That looks alarming and is not: a fluid node
@@ -257,6 +275,70 @@ KOKKOS_INLINE_FUNCTION void mirror_unknowns_faces(R* f, std::uint8_t faces) {
       }
     }
     if (unknown) f[i] = h[j];
+  }
+}
+
+//------------------------------------------------------------------------------
+//  THE ON-NODE PARITY WALL FOR A VECTOR FIELD: the same mirror, with a sign.
+//
+//  mirror_unknowns_faces reflects a SCALAR-like distribution. Dellar's magnetic
+//  distribution is one distribution per component of B, and a component does
+//  not simply reflect -- it reflects with the PARITY the wall imposes on it:
+//
+//    conducting     B_n odd,  B_t even     B.n = 0 and d_n B_t = 0 on the node
+//    pseudo-vacuum  B_n even, B_t odd      B x n = 0 and d_n B_n = 0 on the node
+//
+//  The conducting pair is what n x E = 0 gives at a wall with u = 0: E = eta J
+//  there, so J_t = 0, and with B_n = 0 on the plane that is d_n B_t = 0. The
+//  pseudo-vacuum pair is the usual local stand-in for an insulator; the real
+//  insulator matches B to a potential field OUTSIDE the domain and is nonlocal,
+//  and it is not claimed here. These are also exactly the two magnetic
+//  symmetries of the Taylor-Green MHD flows ("conducting" and "insulating" in
+//  Lee et al. 2008 and Pouquet et al. 2010), whose fundamental box [0,pi]^3 is
+//  bounded by these planes -- which is what makes the identity test in
+//  validation/mhd_parity_wall.cpp possible.
+//
+//  THE SIGN IS PER AXIS AND IT COMPOSES. Reflecting component `a` in the plane
+//  normal to axis k multiplies it by -1 when (a == k) == conducting, i.e. the
+//  normal component flips at a conductor and the tangential ones flip at a
+//  pseudo-vacuum wall. At an edge or corner the image is reached through several
+//  planes and the sign is the product, just as the direction is the composition.
+//  On D3Q7 no link is diagonal, so every unknown there is reached through ONE
+//  plane and the composition never actually multiplies two signs; it is written
+//  generally so that a 27-velocity magnetic lattice would not silently get it
+//  wrong.
+//
+//  WHAT IT IMPOSES, in moments, for the pair along a masked axis k:
+//    component flipped   g_{+k} + g_{-k} = 0   the pair adds nothing to B_a
+//    component kept      g_{+k} - g_{-k} = 0   the pair carries no flux of B_a
+//  So a flipped component is pinned by the REST of the node's populations, and
+//  those are zero whenever the node itself carries B_a = 0 with no flux along
+//  the wall -- which the induction flux u_b B_a - B_b u_a guarantees once
+//  u_n = 0 on the plane, for either velocity wall. validation/mhd_parity_wall
+//  checks the identities directly and B_n = 0 on the wall nodes of a running
+//  case, rather than trusting this paragraph.
+//
+//  Raw storage only: a sign flip commutes with no shift but zero, and
+//  MagneticBGK is unshifted for exactly the reason given in its banner.
+//------------------------------------------------------------------------------
+template <class L, class R>
+KOKKOS_INLINE_FUNCTION void mirror_unknowns_parity(R* g, std::uint8_t faces,
+                                                   int a, bool conducting) {
+  R h[L::Q];
+  for (int i = 0; i < L::Q; ++i) h[i] = g[i];
+  for (int i = 0; i < L::Q; ++i) {
+    int j = i;
+    bool unknown = false;
+    R s = R(1);
+    for (int k = 0; k < 3; ++k) {
+      const int fs = face_sign(faces, k);
+      if (fs != 0 && cvel<L>(i, k) * fs < 0) {   // points INTO the domain
+        j = mirror_table<L>.m[k][j];
+        if ((a == k) == conducting) s = -s;      // this plane flips component a
+        unknown = true;
+      }
+    }
+    if (unknown) g[i] = s * h[j];
   }
 }
 

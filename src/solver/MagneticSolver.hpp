@@ -12,14 +12,24 @@
 //  new. The fluid runs on D2Q9/D3Q19/D3Q27 while this runs on D2Q5/D3Q7 at the
 //  same time, on the same Domain.
 //
-//  BOUNDARY CONDITIONS. Two kinds, both moment based:
+//  BOUNDARY CONDITIONS. Moment based, plus one mirror:
 //    * Dirichlet -- the node takes an imposed external field (Dellar, 13a-13b);
-//    * outflow   -- the node takes B from its upstream neighbour, zero gradient.
-//  Conducting and insulating magnetic walls are a separate piece of work and are
-//  not faked here.
+//    * outflow   -- the node takes B from its upstream neighbour, zero gradient;
+//    * Neumann   -- dB/dn = 0 on every component (MagNeumann, below): right for
+//                   Hunt's duct, whose induced field is tangential everywhere,
+//                   and NOT a general conducting wall, because it leaves B.n
+//                   free as well;
+//    * parity    -- the ON-NODE mirror with a sign per component
+//                   (set_parity_walls): conducting (B_n odd, B_t even) or
+//                   pseudo-vacuum (the reverse), on axis-aligned faces, edges
+//                   and corners. This is the general conducting wall for a box.
+//                   See mirror_unknowns_parity in boundary/Specular.hpp.
+//  The true insulator -- B matched to a potential field outside -- is nonlocal
+//  and is not faked here.
 //==============================================================================
 #include "collision/MagneticBGK.hpp"
 #include "boundary/MomentDirichlet.hpp"
+#include "boundary/Specular.hpp"
 #include "core/Types.hpp"
 #include "grid/Domain.hpp"
 #include "lattice/Lattices.hpp"
@@ -84,6 +94,10 @@ enum MagFace : std::uint8_t {
   MFaceNone = 255
 };
 
+// Which parity an on-node mirror imposes on B. See mirror_unknowns_parity in
+// boundary/Specular.hpp for what each one means and why it is a sign per axis.
+enum class MagParity : std::uint8_t { Conducting = 0, PseudoVacuum = 1 };
+
 template <class L, class Streaming, class Collision>
 class MagneticSolver {
  public:
@@ -111,7 +125,72 @@ class MagneticSolver {
     // fluid solver's wall tag.
     tag_  = View1D<std::uint16_t>("mtag", dom.n_padded);
     wallB_ = View2D<Real>("mwallB", 1, 3);
+    pmask_ = View1D<std::uint8_t>("mparity", dom.n_padded);
   }
+
+  //----------------------------------------------------------------------------
+  // ON-NODE PARITY WALLS. fn(x, y, z) -> SpecFace mask; 0 leaves the node alone.
+  //
+  // The marked node is a REAL node of the field: it collides and reports B.
+  // Only its unknown populations -- the ones that would have streamed in from
+  // outside -- are replaced, by their mirror images carrying the parity's sign
+  // (mirror_unknowns_parity). Faces, edges and corners of an axis-aligned box
+  // all work, by composition, which is why this takes a MASK and not a normal.
+  //
+  // One parity per solver. A box has one kind of magnetic wall; a mixed box
+  // would need a per-node flag that nothing in the tree asks for yet.
+  //
+  // PAIR IT WITH AN ON-NODE FLUID WALL -- SpecNode for free slip, RegWall for no
+  // slip. The mirror plane IS the node, so a halfway fluid wall beside it would
+  // be the mixed-family trap CLAUDE.md names: two walls half a cell apart that
+  // are each exact about a different plane.
+  //
+  // Why on-node and not a halfway ghost: on Esoteric Pull a skipped cell returns
+  // a population TWO steps after it was sent, which is the halfway plane for a
+  // steady flow and a one-step lag for an unsteady one. The on-node mirror acts
+  // on the populations that arrived THIS step, at the node itself, so the box is
+  // an exact restriction of the periodic box it mirrors, transient included.
+  // validation/mhd_parity_wall.cpp holds it to that as an identity.
+  //----------------------------------------------------------------------------
+  template <class Fn>
+  void set_parity_walls(Fn fn, MagParity p) {
+    auto h = Kokkos::create_mirror_view(pmask_);
+    for (Index n = 0; n < dom_.n_padded; ++n) h(n) = 0;
+    auto hw = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, wall_);
+    bool any = false;
+    for (Index z = 0; z < dom_.nz; ++z)
+      for (Index y = 0; y < dom_.ny; ++y)
+        for (Index x = 0; x < dom_.nx; ++x) {
+          const std::uint8_t m = static_cast<std::uint8_t>(fn(x, y, z));
+          if (m == 0) continue;
+          const std::string at = " at (" + std::to_string(x) + "," +
+                                 std::to_string(y) + "," + std::to_string(z) + ")";
+          if (m & ~std::uint8_t(0x3F))
+            throw std::runtime_error("set_parity_walls: mask " + std::to_string(m) +
+                                     " has bits outside the six faces" + at);
+          for (int a = 0; a < 3; ++a)
+            if (((m >> (2 * a)) & 1u) && ((m >> (2 * a + 1)) & 1u))
+              throw std::runtime_error(
+                  "set_parity_walls: mask carries BOTH faces of axis " +
+                  std::to_string(a) + at + " -- a node cannot be mirrored in "
+                  "two parallel planes at once");
+          const Index n = dom_.id(x, y, z);
+          if (solid_host_[std::size_t(n)])
+            throw std::runtime_error("set_parity_walls: a SOLID node cannot be a "
+                                     "parity wall" + at + "; the wall node is a "
+                                     "real node of the field");
+          if (hw(n) != MagNone)
+            throw std::runtime_error("set_parity_walls: node is already a moment "
+                                     "wall" + at);
+          h(n) = m;
+          any = true;
+        }
+    Kokkos::deep_copy(pmask_, h);
+    has_parity_  = any;
+    parity_cond_ = (p == MagParity::Conducting);
+  }
+
+  bool has_parity_walls() const { return has_parity_; }
 
   //----------------------------------------------------------------------------
   // Moment-based Dirichlet walls on B (Dellar, Eqs. 13a-13b).
@@ -342,6 +421,33 @@ class MagneticSolver {
     Kokkos::fence();
   }
 
+  // The same, seeded at the equilibrium WITH the initial velocity: fu(n) ->
+  // Kokkos::Array<Real,3>. The induction equilibrium carries the flux
+  // u B - B u, so seeding it at u = 0 (the overload above) starts every coupled
+  // run with that whole flux in the non-equilibrium part, to relax over the
+  // first steps. GPU/'s MagneticSolver has always seeded this way; its twin
+  // drivers need the parent to do the same to agree node for node.
+  template <class FnB, class FnU>
+  void initialize_field(FnB fb, FnU fu) {
+    t_ = 0;
+    const Domain d = dom_;
+    for (int a = 0; a < NC; ++a) {
+      const auto acc = pop_[a].template access<0>();
+      auto Ba = B_[a];
+      Kokkos::parallel_for("minit_u", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+        Neighbours<L> nb;
+        d.template fill_neighbours<L, NF, NS>(n, nb);
+        const auto b = fb(n);
+        const auto v = fu(n);
+        const Real Bv[3] = {b[0], b[1], b[2]};
+        const Real uv[3] = {v[0], v[1], v[2]};
+        Ba(n) = Bv[a];
+        for (int i = 0; i < Q; ++i) acc.scatter(nb, i, Collision::eq(i, a, Bv, uv));
+      });
+    }
+    Kokkos::fence();
+  }
+
   // `field_is_current` skips the internal field pass when the caller has already
   // refreshed B for this step -- which a coupled driver must do, so that the
   // fluid collides against B(t) rather than B(t-1). See the note in run_step.
@@ -399,6 +505,8 @@ class MagneticSolver {
     auto ux = u_[0], uy = u_[1], uz = u_[2];
     auto wall = wall_; auto unk = unk_; auto tag = tag_; auto wallB = wallB_;
     auto solid = solid_;
+    auto pmask = pmask_;
+    const bool have_parity = has_parity_, pcond = parity_cond_;
     auto s0 = src_[0]; auto s1 = src_[1]; auto s2 = src_[2];
     const bool have_src = s0.data() != nullptr;
     const bool have_u = ux.data() != nullptr;
@@ -436,6 +544,12 @@ class MagneticSolver {
           Real g[Q];
           g[0] = acc[a].load_rest(nb);
           for (int i = 1; i < Q; i += 2) acc[a].load_pair(nb, i, g[i], g[i + 1]);
+          // On-node parity wall: replace the unknowns, then collide as usual.
+          // Must match the field kernel, which sums the SAME mirrored set.
+          if (have_parity) {
+            const std::uint8_t pm = pmask(n);
+            if (pm) mirror_unknowns_parity<L>(g, pm, a, pcond);
+          }
           // Eqs. (13a)-(13b): choose the inward-pointing populations so the
           // zeroth moment is the target field, then collide as usual. For an
           // outflow node the target is B[a] -- field_kernel has already put the
@@ -461,6 +575,8 @@ class MagneticSolver {
     const Domain d = dom_;
     auto wall = wall_; auto unk = unk_; auto tag = tag_; auto wallB = wallB_;
     auto mface = mface_; auto solid = solid_;
+    auto pmask = pmask_;
+    const bool have_parity = has_parity_, pcond = parity_cond_;
     for (int a = 0; a < NC; ++a) {
       const auto acc = pop_[a].template access<P>();
       auto Ba = B_[a];
@@ -524,6 +640,12 @@ class MagneticSolver {
         Real g[Q];
         g[0] = acc.load_rest(nb);
         for (int i = 1; i < Q; i += 2) acc.load_pair(nb, i, g[i], g[i + 1]);
+        // A parity node's streamed set still holds stale unknowns; its field is
+        // the sum of the MIRRORED set, exactly what run_step collides.
+        if (have_parity) {
+          const std::uint8_t pm = pmask(n);
+          if (pm) mirror_unknowns_parity<L>(g, pm, a, pcond);
+        }
         Ba(n) = Collision::field(g);
       });
     }
@@ -547,6 +669,9 @@ class MagneticSolver {
   View2D<Real>          wallB_;
   bool                  has_walls_ = false;
   bool                  has_solid_ = false;
+  View1D<std::uint8_t>  pmask_;               // on-node parity wall faces, 0 = none
+  bool                  has_parity_ = false;
+  bool                  parity_cond_ = true;
   View1D<Real>          src_[3];              // per-node source on B, may be null
   std::size_t           n_wall_states_ = 0;
   View1D<Real> u_[3];

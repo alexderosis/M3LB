@@ -8,7 +8,7 @@
 # Mixing the two dilutes what "validation" means, so they do not share a
 # directory and no demonstrator is registered with add_test.
 
-foreach(d aorta urban rayleigh_taylor water_entry rt_colour dam_break water_entry_fs sphere_entry cube_entry stone_skip rb_high_ra mhd_cylinder mhd_decay mhd_sphere)
+foreach(d aorta urban rayleigh_taylor water_entry rt_colour dam_break water_entry_fs sphere_entry cube_entry stone_skip rb_high_ra mhd_cylinder mhd_decay mhd_sphere tg_mhd)
   add_executable(${d} ${d}.cpp)
   target_link_libraries(${d} PRIVATE lbm)
   # FieldDump.hpp is a diagnostic helper shared with the validation cases and

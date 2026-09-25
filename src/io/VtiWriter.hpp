@@ -108,8 +108,12 @@ struct VtiArray {
   std::vector<float> data;
 };
 
+// `spacing` is the physical size of one cell, the same on every axis. It
+// defaults to 1 -- grid-index units -- so every caller written before it existed
+// produces the same bytes; a case that wants ParaView to show its real box
+// (demonstrator/tg_mhd: [0, pi]^3) passes its h.
 inline void write_vti_bin(const std::string& path, Index nx, Index ny, Index nz,
-                          const std::vector<VtiArray>& arrays) {
+                          const std::vector<VtiArray>& arrays, double spacing = 1.0) {
   const std::size_t np = std::size_t(nx) * std::size_t(ny) * std::size_t(nz);
   for (const auto& a : arrays)
     if (a.data.size() != np * std::size_t(a.ncomp))
@@ -130,7 +134,8 @@ inline void write_vti_bin(const std::string& path, Index nx, Index ny, Index nz,
     << "<VTKFile type=\"ImageData\" version=\"1.0\" byte_order=\"LittleEndian\""
        " header_type=\"UInt32\">\n"
     << "  <ImageData WholeExtent=\"0 " << nx - 1 << " 0 " << ny - 1 << " 0 " << nz - 1
-    << "\" Origin=\"0 0 0\" Spacing=\"1 1 1\">\n"
+    << "\" Origin=\"0 0 0\" Spacing=\"" << spacing << " " << spacing << " "
+    << spacing << "\">\n"
     << "    <Piece Extent=\"0 " << nx - 1 << " 0 " << ny - 1 << " 0 " << nz - 1
     << "\">\n      <PointData";
   if (!scal.empty()) f << " Scalars=\"" << scal << "\"";

@@ -78,3 +78,12 @@ run_csf3_*/
 # Build trees from this session (build_th, build_th32). Same rule as above --
 # the pattern only matched build/ and build-*/.
 build_*/
+
+# demonstrator/tg_mhd writes one directory per run, one level deeper than the
+# rules above reach: results/P_tg_mhd/<run>/{anim_frames,vti,raw}/. Frames,
+# ParaView files and the full float32 volumes are all regenerable from the case;
+# the run's series.dat is the reference data and stays tracked.
+results/P_tg_mhd/*/anim_frames/
+results/P_tg_mhd/*/vti/
+results/P_tg_mhd/*/raw/
+results/P_tg_mhd/*/png/
