@@ -70,6 +70,7 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 | + charge carriers in an electric field | `ScalarSolver` + `ChargeCentralMoments` | D3Q27, advects at the **drift** velocity `u + KE`, not at `u` |
 | + electric potential (Poisson) | `ScalarSolver` + `ScalarBGK` + `add_source` | no new solver — see `validation/ehd_hydrostatic.cpp` |
 | + magnetic field | `MagneticSolver` | Dellar vector distribution |
+| conducting / pseudo-vacuum magnetic wall in a box | `MagneticSolver::set_parity_walls` | **on-node**, faces, edges and corners; pair with `SpecNode` or `RegWall`. `MagNeumann` is *not* a general conducting wall |
 | two-phase, diffuse interface | `PhaseFieldSolver` | conservative Allen–Cahn, prescribed interface width, density ratio ~100 |
 | two-phase, diffuse, high ratio | `ColourGradientSolver` | no interface equation; width is an *outcome*; 1000 in the source paper's own static tests |
 | liquid + void, sharp interface | `FreeSurfaceSolver` | gas not resolved; infinite ratio by construction |
@@ -445,6 +446,61 @@ These produce plausible, converged, wrong answers rather than crashes.
   rather than loop unrolling. Note that `static_assert` guards the `constexpr`
   half of this but cannot guard the loop half — only the script can.
 
+- **A CONDUCTING WALL FOR A BOX IS A PARITY MIRROR, AND `MagNeumann` IS NOT
+  ONE.** `MagNeumann` is dB/dn = 0 on *every* component, which is right for
+  Hunt's duct (the induced field is tangential everywhere) and leaves B.n free
+  in a closed box, where it goes non-finite in sixty steps. The conducting wall
+  is B.n = 0 **and** d_n B_t = 0 -- what n x E = 0 gives with u = 0 -- i.e. B_n
+  odd and B_t even about the wall; pseudo-vacuum is the reverse.
+  `set_parity_walls` (2026-09-25) is that mirror, on-node, on the magnetic
+  populations with a sign per component (`mirror_unknowns_parity`). Against the
+  periodic box it mirrors, with the Taylor-Green MHD fields of Pouquet et al.
+  (2010) whose symmetry planes those are, the box reproduces it to **1e-14**,
+  transient included (`validation/mhd_parity_wall.cpp`, both parities; the same
+  in `GPU/test/host_physics.cpp`), and B.n on the wall nodes stays at 1e-32.
+- **`SpecWall` IS EXACT FOR A STEADY FLOW AND FIRST ORDER FOR AN UNSTEADY ONE.**
+  The 5.5e-14 is a steady, wall-invariant channel. Against the periodic box with
+  the HALFWAY planes it claims, a decaying shear wave is off by 2.4e-2 / 1.2e-2 /
+  6.1e-3 at M = 16 / 32 / 64, and a mode varying along the wall by 13 % at M = 16
+  (`validation/specwall_unsteady.cpp`). The ghost permutes at its own update, so
+  a population returns two steps after it was sent and a diagonal one lands a
+  cell further along the wall. `SpecNode` is an unsteady identity; use it
+  wherever the transient is the measurement.
+- **TWO MHD CENTRAL-MOMENT OPERATORS, TWO ANSWERS AWAY FROM EQUILIBRIUM.**
+  `MhdCentralMoments` (monomial basis, the reference that reproduces De Rosis,
+  Leveque & Chahine literally) and `MhdCentralMomentsShifted` (phi_2 = C^2 - cs^2,
+  the default since 91c9404 and what `GPU/` implements) share the equilibrium and
+  relax the non-equilibrium moments differently. The `tg_mhd` twins agreed to
+  5.7e-14 after one step and were 7.7e-5 apart after two, the gap shaped like u
+  itself, until the parent used the shifted operator -- then every printed digit.
+  At N = 65 the choice moved Pouquet's min E_M/E_V from 0.389 to 0.329. A case
+  that will be compared with `GPU/` must use the shifted one.
+- **A COUPLED MHD SEED THAT IS NOT THE COUPLED EQUILIBRIUM, TWICE.** The fluid's
+  `seed_value` is static and never sees B, so every coupled case started with the
+  whole Maxwell stress in the non-equilibrium part; and the field's
+  `initialize_field(fb)` seeds at u = 0, leaving the induction flux out. Seed the
+  fluid through the operator's `equilibrium()` (`seed_populations`, or
+  `seed_populations_with` in `GPU/`) and the field with `initialize_field(fb, fu)`
+  -- which is how `GPU/` always seeded it. Neither is large; both break a twin
+  comparison node for node.
+- **`GPU/`'S ARRAY WRAPS, SO A `RegWall` ON ITS EDGE HAS NO UNKNOWNS.**
+  `build_reg_walls` marks a direction unknown when its source is Solid or
+  Excluded. A box flush against the array edge has neither -- the far face
+  arrives through the wrap -- so every face node got an EMPTY mask and built its
+  wall stress from the opposite wall, silently: the no-slip twin's wall
+  vorticity was half the parent's after forty steps. Every earlier `GPU/` wall
+  case had solid rows beyond its walls. It now WARNS, and `tg_mhd.cu` gives the
+  box a one-cell Solid shell. The mirrors (`SpecNode`, the parity wall) take
+  their unknowns from a face mask and never had the problem.
+- **AN APPARENT ORDER WELL ABOVE THE SCHEME'S IS A SYMPTOM, NOT A BONUS.**
+  `mhd_parity_wall`'s exact decay first read order 4.32 and 4.54 over two points
+  -- blamed, wrongly, on tau sitting near a "magic" value -- and the third point
+  went BACKWARDS (-2.33). A compressible pressure flow driven by the decaying
+  Lorentz force contributes an error that does not shrink with N, and at the
+  middle point it happened to cancel most of the O(1/N^2) one. At a small field
+  amplitude, where that coupling is b0^2 smaller, the order is 2.00 and 2.00. Take
+  three points before believing an order, and suspect one that is too good.
+
 ---
 
 ## Adding a case
@@ -545,6 +601,12 @@ Do not spend time on these without saying so first; several are deliberate.
   `transfer_covered_mass()` and `settle()`, is written up in the module banner
   with measurements, and is not a caller error. Do not present a run with a
   moving obstacle as a result.
+- **`GPU/` HAS THE PARITY WALL AND THE TAYLOR-GREEN MHD BOX** as of 2026-09-25
+  (`src/tg_mhd.cu`, `set_parity_walls`, `seed_populations_with`). Its HOST build
+  reproduces `demonstrator/tg_mhd` to every printed digit in FP64, free-slip and
+  no-slip, N = 65 over 815 steps (series tracked in
+  `results/P_tg_mhd/xcheck_n65_re200/`). The DEVICE build has not run yet;
+  `GPU/csf3/tg_mhd_verify.sub` is the job that checks it against those series.
 - **`GPU/` HAS THE EHD STACK as of 2026-09-06** (`src/ehd_cavity.cu`,
   `include/lbm/ehd.cuh`, `include/lbm/specular.cuh`). Porting it added four
   things to the scalar module that `GPU/` did not have: Dellar's on-node

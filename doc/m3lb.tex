@@ -9286,7 +9286,38 @@ Stated plainly, because each has been measured.
   on the domain, and the drift it leaves behind is visible even then: in that
   control the domain mean $|\langle\bm{b}\rangle|$ climbs two decades while
   $\max|\bm{b}|$ falls one. The mechanism of the fast growth is \emph{not}
-  diagnosed.
+  diagnosed. What has changed (2026-09-25) is that a closed domain no longer
+  needs it: the on-node parity wall, \code{MagneticSolver::set\_parity\_walls},
+  imposes the conducting condition as $B_n$ odd and $B_t$ even about the wall
+  --- $\bm{B}\!\cdot\!\bm{n}=0$ \emph{and} $\partial_n\bm{B}_t=0$, which is what
+  $\bm{n}\times\bm{E}=0$ gives at a wall with $\bm{u}=0$ --- where
+  \code{MagNeumann} sets $\partial_n$ of \emph{every} component to zero and so
+  leaves $B_n$ free. It closes a box on all six faces, reproduces the periodic
+  box it mirrors to $10^{-14}$ (\code{validation/mhd\_parity\_wall.cpp}), and
+  keeps $B_n$ at $10^{-32}$ on the wall nodes. That the unpinned normal
+  component is what made the all-Neumann box grow is consistent with this and
+  has not been isolated.
+
+\item \textbf{The ghost-cell free-slip wall \code{SpecWall} is exact only for a
+  steady flow.} Its $5.5\times10^{-14}$ is a steady, wall-invariant channel.
+  Against the periodic box whose symmetry planes lie halfway between nodes ---
+  the planes it claims --- a decaying shear wave differs by $2.4\times10^{-2}$,
+  $1.2\times10^{-2}$ and $6.1\times10^{-3}$ of the field at $M=16$, $32$, $64$
+  (first order), and a mode varying along the wall by $13\,\%$ at $M=16$
+  (\code{validation/specwall\_unsteady.cpp}). The ghost permutes at its own
+  update, so a population returns two steps after it was sent and a diagonal
+  one lands a cell further along the wall. The on-node \code{SpecNode} is an
+  unsteady identity and is the one to use where the transient is measured.
+
+\item \textbf{A regularised wall on the edge of a \code{GPU/} array has no
+  unknown directions.} That array wraps, and \code{build\_reg\_walls} marks a
+  direction unknown only when its source is Solid or Excluded, so a box flush
+  against the array edge built its wall stress from the opposite face, with no
+  message: the no-slip Taylor--Green twin's wall vorticity came out at half the
+  parent's after forty steps. Every earlier \code{GPU/} wall case had solid rows
+  beyond its walls. The builder now warns, and \code{src/tg\_mhd.cu} surrounds
+  its box with a one-cell Solid shell, after which the two codes agree to every
+  printed digit.
 
 \item \textbf{Volume penalisation cannot reach the permeability its source
   method uses, and the boundary condition is therefore imposed to a few per cent
