@@ -48,7 +48,7 @@ echo
 cmake -S . -B build64 -DCMAKE_BUILD_TYPE=Release -DLBM_GPU_ARCH=80 \
       -DLBM_ONLY_OP=cm -DLBM_DOUBLE=ON > /dev/null
 cmake --build build64 --target tg_mhd -j8
-OUT="$ROOT/tg_mhd_verify"
+OUT="$ROOT/runs/tg_mhd_verify"      # runs/, like rb_cold: output is not source
 mkdir -p "$OUT"
 for W in slip noslip; do
   ./build64/tg_mhd -n 65 -vwall $W -mwall cond -ic tgc -re 200 -tmax 2 -probe 0.1 \

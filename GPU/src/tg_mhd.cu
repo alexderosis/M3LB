@@ -48,11 +48,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <filesystem>
 #include <fstream>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <sys/stat.h>
 
 using namespace lbm;
 
@@ -199,6 +200,24 @@ struct HostFields {
   }
 };
 
+// mkdir -p on POSIX ::mkdir, not std::filesystem: every GPU/ driver that has
+// run on CSF3 creates its directories this way, and <filesystem> needs an extra
+// -lstdc++fs with a GCC older than 9 -- a link error that would surface only on
+// the cluster. EEXIST at any level is fine.
+bool mkdir_p(const std::string& path) {
+  std::string cur;
+  for (std::size_t i = 0; i <= path.size(); ++i) {
+    if (i == path.size() || path[i] == '/') {
+      if (!cur.empty() && ::mkdir(cur.c_str(), 0755) != 0) {
+        struct stat st;
+        if (::stat(cur.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) return false;
+      }
+    }
+    if (i < path.size()) cur += path[i];
+  }
+  return true;
+}
+
 struct Diag {
   double t = 0, ev = 0, em = 0, hc = 0, omv = 0, omm = 0, eps = 0;
   double jmax = 0, wmax = 0, skew = 0, divb = 0, divb_wall = 0, mass = 0;
@@ -309,9 +328,7 @@ int main(int argc, char** argv) {
     std::snprintf(tag, sizeof tag, "%s_%s_%s_n%d_re%g", icn, o.noslip ? "noslip" : "slip",
                   hydro ? "nofield" : (o.conducting ? "cond" : "pv"), N, o.re);
   if (o.out.empty()) o.out = std::string("tg_mhd_") + tag + (backend::on_device ? "_cuda" : "_host");
-  std::error_code ec;
-  std::filesystem::create_directories(o.out, ec);
-  if (ec) { std::fprintf(stderr, "tg_mhd: cannot create %s\n", o.out.c_str()); return 2; }
+  if (!mkdir_p(o.out)) { std::fprintf(stderr, "tg_mhd: cannot create %s\n", o.out.c_str()); return 2; }
 
   std::printf("Taylor-Green MHD, %s   %s   %s\n",
               o.periodic ? "PERIODIC 2pi box" : "CLOSED box [0,pi]^3, on-node walls",
@@ -477,12 +494,12 @@ int main(int argc, char** argv) {
   int dframe = 0, vframe = 0, rframe = 0;
   std::vector<std::pair<double, std::string>> pvd;
   if (kd) {
-    std::filesystem::create_directories(o.out + "/anim_frames", ec);
+    mkdir_p(o.out + "/anim_frames");
     meta = std::fopen((o.out + "/anim_frames/meta.txt").c_str(), "w");
     if (meta) std::fprintf(meta, "N %d\nR 0\nTe 1.0\ncase tg_mhd %s\n", L, tag);
   }
-  if (kv) std::filesystem::create_directories(o.out + "/vti", ec);
-  if (kr) std::filesystem::create_directories(o.out + "/raw", ec);
+  if (kv) mkdir_p(o.out + "/vti");
+  if (kr) mkdir_p(o.out + "/raw");
 
   double e0 = 0;
   const int zc = (N - 1) / 2;
