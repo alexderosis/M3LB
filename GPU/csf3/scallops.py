@@ -1,6 +1,10 @@
 """Scallop diagnostics on the INTERIOR of the ice face, for GPU/src/ice_melting.cu snapshots.
 
-usage: python3 scallops.py <thickness.txt> [out.png]   (or several files: a time series)
+usage: python3 scallops.py <thickness.txt> [out.png] [-trace]   (several files: a time series)
+
+-trace also prints the taper's coefficients and the smoothed residual every 4
+cells in hundredths of a cell, so a snapshot survives as text in a log or a
+notebook's output when the file itself does not (a recycled Colab runtime).
 
 With the ice standing clear of the lids its corners round off by ~100 cells, so
 a running-mean detrend reads the rounded ends as "waves" and also removes any
@@ -15,6 +19,7 @@ import numpy as np
 
 files = [a for a in sys.argv[1:] if a.endswith(".txt")]
 png = next((a for a in sys.argv[1:] if a.endswith(".png")), None)
+trace = "-trace" in sys.argv[1:]
 rows = []
 for path in files:
     h = np.loadtxt(path)
@@ -33,11 +38,14 @@ for path in files:
     spec = np.abs(np.fft.rfft(res * np.hanning(len(res)))) ** 2
     freq = np.fft.rfftfreq(len(res))
     order = np.argsort(spec[1:])[::-1][:3] + 1
-    lam = [round(1.0 / freq[j], 1) for j in order]
+    lam = [round(float(1.0 / freq[j]), 1) for j in order]
     tag = path.split("_")[-1].replace(".txt", "")
     print(f"{tag:>12}: mean h {prof.mean():7.2f}  ends {prof[:H//16].mean():6.2f}/{prof[-H//16:].mean():6.2f}"
           f"  interior residual rms {res.std():.3f} p-p {np.ptp(res):.2f}  crests {len(crest):2d}"
-          f"  spacing {list(np.diff([int(y[i]) for i in crest]))}  dominant lambda {lam}")
+          f"  spacing {[int(v) for v in np.diff([int(y[i]) for i in crest])]}  dominant lambda {lam}")
+    if trace:
+        print(f"{'':>12}  taper {c[0]:.6e} {c[1]:.6e} {c[2]:.6e} (y from {int(y[0])})  residual/4 cells x100:",
+              " ".join(str(int(round(100 * v))) for v in sm[::4]))
     rows.append((tag, y, res, sm, crest, prof))
 
 if png and rows:

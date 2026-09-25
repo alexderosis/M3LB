@@ -27,7 +27,25 @@
 #
 #  then submit from the repo root:   sbatch GPU/csf3/ice_scallops.sub
 #  and analyse each run with:        python3 GPU/csf3/scallops.py \
-#                                        runs/ice_T5.6/ice_T5.6_thickness_0*.txt series.png
+#                                        runs/ice_T5.6_H512/ice_T5.6_thickness_0*.txt series.png
+#
+#  THE RESOLUTION LADDER, measured 2026-09-24 on a Colab T4 at 5.6 C. H = 512
+#  puts only ~5 cells across the thermal boundary layer (H Ra^-1/4 = 5.4), yet
+#  H = 256 and H = 512 AGREE on everything large-scale at matched time (steps
+#  scale with H): melted 16.9 vs 16.5 %, end thicknesses 0.53/0.34 vs 0.53/0.33
+#  of the initial one. Both grow a standing wave of lambda ~ 0.4 H (100 vs 200
+#  cells) with the same x7.4-7.9 amplification over the same interval; only its
+#  starting amplitude differs, because the per-node seed projects differently
+#  on the two grids. So the primary wave is NOT a resolution artifact -- and it
+#  is 2x Weady et al.'s scallop spacing (~0.2 H) and far shallower (1-3 cells).
+#  Later a crest grows inside each long trough: at H = 512, 3.0-3.4M steps,
+#  crests at y = 125/221/317, spacing 96 cells = 0.19 H. That secondary
+#  pattern forms as the ice ends melt away, where the fixed-window detrend in
+#  scallops.py stops being reliable, and it is what the next run has to settle
+#  -- the SAME case one level finer, 4x the cells, 2x the steps, ~4-5 h on an
+#  A100 to 60 % melted:
+#
+#     sbatch -a 1 -t 12:00:00 --export=ALL,H=1024 GPU/csf3/ice_scallops.sub
 #==============================================================================
 #SBATCH -p gpuA                # A100 80GB, open to all users
 #SBATCH -G 1                   # one GPU: no MPI, no multi-GPU
@@ -54,13 +72,14 @@ if [ ! -x "$BIN" ]; then
   exit 1
 fi
 
-RUNDIR="$ROOT/runs/ice_T${T}"
+H=${H:-512}                    # ice height in cells: the resolution knob
+RUNDIR="$ROOT/runs/ice_T${T}_H${H}"
 mkdir -p "$RUNDIR"
 cd "$RUNDIR"
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 
 # Weady et al.'s model and Ra (the driver's defaults: Ra/T^2 = 2.5e6, Pr 12,
-# St 0.05 T); ice 128 x 512 standing clear of the lids; sponge far field over
-# the outer quarter; h(y) every 10 probes = 200k steps.
-echo "=== T_inf = $T C -> $RUNDIR ==="
-"$BIN" -T "$T" -H 512 -probe 20000 -dump 10 -melt 0.6 -drift 0.4 -out "ice_T${T}"
+# St 0.05 T); ice H/4 x H standing clear of the lids; sponge far field over
+# the outer quarter; h(y) every 10 probes.
+echo "=== T_inf = $T C, H = $H -> $RUNDIR ==="
+"$BIN" -T "$T" -H "$H" -probe 20000 -dump 10 -melt 0.6 -drift 0.4 -out "ice_T${T}"
