@@ -585,6 +585,14 @@ int main(int argc, char** argv) {
       meta = std::fopen((o.out + "/anim_frames/meta.txt").c_str(), "w");
       // R 0: no sphere to mask or draw -- render the whole slice (box mode).
       if (meta) std::fprintf(meta, "N %lld\nR 0\nTe 1.0\ncase tg_mhd %s\n", (long long)L, tag);
+      // The grid and the |J| volume's stride, so render_volume.py captions the
+      // real N rather than the reduced volume's -- it cannot infer a stride that
+      // does not divide N (129 against 65).
+      if (meta && o.dumpvol) {
+        const long long S = o.volstride, Mr = (L + S - 1) / S;
+        std::fprintf(meta, "nx %lld\nny %lld\nnz %lld\nvstride %lld\nvnx %lld\nvny %lld\nvnz %lld\n",
+                     (long long)L, (long long)L, (long long)L, S, Mr, Mr, Mr);
+      }
     }
     if (kv) std::filesystem::create_directories(o.out + "/vti", ec);
     if (kr) std::filesystem::create_directories(o.out + "/raw", ec);

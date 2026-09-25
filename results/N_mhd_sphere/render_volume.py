@@ -309,7 +309,7 @@ def read_meta(path):
     made before the driver learned to write it."""
     m = {'N': None, 'R': None, 'Te': None, 'frames': None, 'rows': {},
          'nx': None, 'ny': None, 'nz': None,
-         'vstride': None, 'vnx': None, 'vny': None, 'vnz': None}
+         'vstride': None, 'vnx': None, 'vny': None, 'vnz': None, 'case': None}
     if not os.path.exists(path):
         return m
     for line in open(path):
@@ -330,6 +330,10 @@ def read_meta(path):
                 m[p[0]] = int(float(p[1]))
             elif p[0] == 'frame' and len(p) >= 5:
                 m['rows'][int(p[1])] = (float(p[2]), float(p[3]), float(p[4]))
+            elif p[0] == 'case' and len(p) > 1:
+                # optional; demonstrator/tg_mhd writes it. R = 0 then still means
+                # "no sphere", but the box is CLOSED unless the tag says periodic
+                m['case'] = ' '.join(p[1:])
         except ValueError:
             continue
     return m
@@ -1071,8 +1075,11 @@ def main(argv):
     if not opt['quiet']:
         shape = ('%d^3' % nx) if nx == ny == nz else ('%dx%dx%d' % (nx, ny, nz))
         if box:
-            print('  %d frames, %s volume, PERIODIC BOX (no sphere mask, no ring), '
-                  '%d voxels' % (len(files), shape, nvox))
+            kind = ('CLOSED BOX (%s)' % meta['case']
+                    if meta.get('case') and 'periodic' not in meta['case']
+                    else 'PERIODIC BOX')
+            print('  %d frames, %s volume, %s (no sphere mask, no ring), '
+                  '%d voxels' % (len(files), shape, kind, nvox))
         else:
             print('  %d frames, %s volume, R = %.2f, %d voxels inside the sphere (%.1f%%)'
                   % (len(files), shape, R, nvox, 100.0 * nvox / (nx * ny * nz)))
@@ -1215,20 +1222,26 @@ def main(argv):
                       R * sc * mag, RING, 0.45)
 
         tstr = ('t/Te %6.2f' % ts[k]) if ts[k] is not None else 'frame index only'
+        # A CLOSED BOX shares R = 0 with the periodic one and must not be
+        # captioned as it: its faces ARE the walls the run is about.
+        case = meta.get('case')
+        closed = box and case is not None and 'periodic' not in case
         draw_text(buf, W, H, M, 6,
                   (opt['title'] or
-                   ('3D ORSZAG-TANG, PERIODIC BOX   |J| MAX-INTENSITY PROJECTION'
+                   (('%s   |J| MAX-INTENSITY PROJECTION' % case) if (box and case) else
+                    '3D ORSZAG-TANG, PERIODIC BOX   |J| MAX-INTENSITY PROJECTION'
                     if box else
                     'MHD DECAY IN A PENALISED SPHERE   |J| MAX-INTENSITY '
                     'PROJECTION')),
                   FG, 1)
         draw_text(buf, W, H, M, 18,
-                  ('%s   frame %03d/%03d   %s%s  periodic box   '
+                  ('%s   frame %03d/%03d   %s%s  %s   '
                    'yaw %03d deg  elev %02d deg'
                    % (tstr, k + 1, len(files),
                       ('N %d' % grid_N) if gnx == gny == gnz
                       else ('%dx%dx%d' % (gnx, gny, gnz)),
                       '' if vstride == 1 else ' (vol /%d)' % vstride,
+                      'closed box' if closed else 'periodic box',
                       int(yaw) % 360, int(opt['elev'])))
                   if box else
                   ('%s   frame %03d/%03d   N %d  R %.1f   yaw %03d deg  elev %02d deg'
@@ -1241,7 +1254,8 @@ def main(argv):
                   'frame |J| peak %.3e  P99.5 %.3e  = %.3f x vref'
                   % (peaks[k], p995[k], (p995[k] / vref) if vref else 0.0), FG, 1)
         draw_text(buf, W, H, M, y + 11,
-                  (('whole box shown; it is periodic, so the faces are not'
+                  (('whole box shown; its faces are the walls' if closed else
+                    'whole box shown; it is periodic, so the faces are not'
                     ' boundaries' if ny_eff == ny else
                     'periodic box, cropped to the middle %d of %d rows in y; '
                     'the faces are not boundaries' % (ny_eff, ny)) if box else

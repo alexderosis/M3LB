@@ -497,6 +497,12 @@ int main(int argc, char** argv) {
     mkdir_p(o.out + "/anim_frames");
     meta = std::fopen((o.out + "/anim_frames/meta.txt").c_str(), "w");
     if (meta) std::fprintf(meta, "N %d\nR 0\nTe 1.0\ncase tg_mhd %s\n", L, tag);
+    // Grid and |J| volume stride, as the parent writes them; see there.
+    if (meta && o.dumpvol) {
+      const int S = o.volstride, Mr = (L + S - 1) / S;
+      std::fprintf(meta, "nx %d\nny %d\nnz %d\nvstride %d\nvnx %d\nvny %d\nvnz %d\n",
+                   L, L, L, S, Mr, Mr, Mr);
+    }
   }
   if (kv) mkdir_p(o.out + "/vti");
   if (kr) mkdir_p(o.out + "/raw");
