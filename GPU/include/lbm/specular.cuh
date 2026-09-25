@@ -182,6 +182,55 @@ LBM_HD LBM_INLINE void mirror_unknowns_faces(Real* f, std::uint8_t faces) {
   }
 }
 
+//==============================================================================
+//  THE ON-NODE PARITY WALL FOR A VECTOR FIELD -- the same mirror, with a sign.
+//
+//  A port of mirror_unknowns_parity in ../src/boundary/Specular.hpp (2026-09-25);
+//  that banner carries the argument and this one only what differs. Dellar's
+//  magnetic distribution is one D3Q7 set per component of B, and a component
+//  reflects with the PARITY the wall imposes on it:
+//
+//    conducting     B_n odd,  B_t even     B.n = 0,  d_n B_t = 0 on the node
+//    pseudo-vacuum  B_n even, B_t odd      B x n = 0, d_n B_n = 0 on the node
+//
+//  Reflecting component `a` in the plane normal to axis k multiplies it by -1
+//  when (a == k) == conducting; at an edge or corner the sign is the product
+//  over the planes crossed, as the direction is the composition. On D3Q7 every
+//  unknown crosses ONE plane, so the product never multiplies two signs.
+//
+//  Raw storage only: magnetic populations are unshifted in this tree too.
+//  Checked in test/host_physics.cpp exactly as the parent checks it: the pair
+//  identities on a random vector, and the box against the periodic box it
+//  mirrors, node for node.
+//==============================================================================
+template <class L>
+LBM_HD LBM_INLINE void mirror_unknowns_parity(Real* g, std::uint8_t faces, int comp,
+                                              bool conducting) {
+  Real in[L::Q];
+  for (int i = 0; i < L::Q; ++i) in[i] = g[i];
+
+  for (int i = 0; i < L::Q; ++i) {
+    int want[3] = {L::cx(i), L::cy(i), L::cz(i)};
+    bool unknown = false;
+    Real s = Real(1);
+    for (int k = 0; k < 3; ++k) {
+      const int fs = face_sign(faces, k);
+      if (fs != 0 && cvel_at<L>(i, k) * fs < 0) {
+        want[k] = -want[k];
+        if ((comp == k) == conducting) s = -s;   // this plane flips component comp
+        unknown = true;
+      }
+    }
+    if (!unknown) continue;
+    for (int j = 0; j < L::Q; ++j) {
+      if (L::cx(j) == want[0] && L::cy(j) == want[1] && L::cz(j) == want[2]) {
+        g[i] = s * in[j];
+        break;
+      }
+    }
+  }
+}
+
 //------------------------------------------------------------------------------
 // Host-side validation of a mask array, shared by the device and host solvers so
 // the two cannot drift. Returns the number of marked nodes.

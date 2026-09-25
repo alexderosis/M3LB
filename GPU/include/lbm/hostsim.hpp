@@ -128,6 +128,21 @@ class Fluid {
     if (!ux_.empty()) refresh_velocity();
   }
 
+  // Per-node raw populations -- the host twin of Solver::seed_populations_with.
+  template <class PopInit>
+  void seed_populations_with(PopInit init) {
+    for (long n = 0; n < N_; ++n) {
+      int x, y, z;
+      coords(n, nx_, ny_, x, y, z);
+      Real fl[27];
+      init(x, y, z, fl);
+      if (shifted_) for (int i = 0; i < 27; ++i) fl[i] -= D3Q27::w(i);
+      init_scatter<0>(f_.data(), N_, x, y, z, nx_, ny_, nz_, fl);
+    }
+    t_ = 0;
+    if (!ux_.empty()) refresh_velocity();
+  }
+
   void step() {
     if (t_ % 2 == 0) dispatch_op<0>();
     else             dispatch_op<1>();
@@ -501,6 +516,16 @@ class Magnetic {
   void advect_with(const Real* ux, const Real* uy, const Real* uz) {
     ux_ = ux; uy_ = uy; uz_ = uz;
   }
+  // On-node parity walls; same contract as the device class.
+  void set_parity_walls(const std::vector<std::uint8_t>& faces, bool conducting) {
+    if (long(faces.size()) != N_) {
+      std::fprintf(stderr, "set_parity_walls: %zu masks for %ld nodes\n", faces.size(), N_);
+      std::exit(1);
+    }
+    if (check_spec_faces(faces, nx_, ny_) == 0) return;
+    pmask_ = faces;
+    pcond_ = conducting;
+  }
 
   template <class InitB, class InitU>
   void initialise_with(InitB initB, InitU initU) {
@@ -588,6 +613,7 @@ class Magnetic {
       p.mface = mface_.data();
       p.wBx = wBx_.data();  p.wBy = wBy_.data();  p.wBz = wBz_.data();
     }
+    if (!pmask_.empty()) { p.pmask = pmask_.data(); p.pcond = pcond_; }
     p.nx = nx_; p.ny = ny_; p.nz = nz_;
     p.omega = omega_;
     return p;
@@ -596,6 +622,8 @@ class Magnetic {
   int nx_, ny_, nz_;
   long N_;
   Real omega_;
+  std::vector<std::uint8_t> pmask_;
+  bool pcond_ = true;
   std::vector<Real> g_, Bx_, By_, Bz_;
   std::vector<Real> wBx_, wBy_, wBz_;
   std::vector<std::uint8_t> flags_, mwall_, unk_, mface_;

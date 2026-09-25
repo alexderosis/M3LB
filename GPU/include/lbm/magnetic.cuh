@@ -23,14 +23,21 @@
 //  error: the field still evolves, still looks like a field, and damps at the
 //  wrong rate.
 //
-//  BOUNDARIES. Periodic only, in practice. A non-fluid cell is skipped, which on
-//  Esoteric Pull's storage means bounce-back on g -- and bounce-back on the
-//  induction distribution is NOT a physical magnetic wall. It is neither the
-//  perfectly conducting nor the insulating condition; Dellar's moment-based
-//  wall is what those need, and it is not implemented here. The skip exists so a
-//  domain with geometry runs rather than reads uninitialised storage. Do not
-//  read a wall-bounded MHD result off this code.
+//  BOUNDARIES. A non-fluid cell is skipped, which on Esoteric Pull's storage
+//  means bounce-back on g -- and bounce-back on the induction distribution is
+//  NOT a physical magnetic wall. It is neither the perfectly conducting nor the
+//  insulating condition. The skip exists so a domain with geometry runs rather
+//  than reads uninitialised storage; do not read a wall-bounded result off it.
+//
+//  THE PHYSICAL WALL FOR A BOX IS set_parity_walls (2026-09-25): the ON-NODE
+//  mirror with a sign per component (mirror_unknowns_parity, specular.cuh),
+//  conducting (B.n = 0, d_n B_t = 0) or pseudo-vacuum, on the faces, edges and
+//  corners of an axis-aligned box. It pairs with the fluid's on-node walls --
+//  set_specular_nodes for free slip, set_regularized_walls for no slip -- and
+//  src/tg_mhd.cu is the case built on it. The moment walls below (Dirichlet,
+//  outflow, Neumann) remain for ducts.
 //==============================================================================
+#include "specular.cuh"      // SpecFace, face_sign, mirror_unknowns_parity
 #include "streaming.cuh"
 
 namespace lbm {
@@ -138,6 +145,10 @@ struct MagneticParams {
   const Real* wBx = nullptr;
   const Real* wBy = nullptr;
   const Real* wBz = nullptr;
+  // On-node parity walls: one SpecFace mask per node, null when there are none.
+  // Null-checked at run time like the source above, for the same reason.
+  const std::uint8_t* pmask = nullptr;
+  bool pcond = true;                         // conducting, else pseudo-vacuum
   int nx = 0, ny = 0, nz = 0;
   Real omega = Real(1);
 };
@@ -161,6 +172,17 @@ LBM_HD LBM_INLINE void magnetic_node_update(const MagneticParams& p, long N, lon
   for (int a = 0; a < 3; ++a)
     gather<Parity, MagneticLattice>(p.g + magnetic_offset(a, N), N,
                                     x, y, z, p.nx, p.ny, p.nz, g[a]);
+
+  // On-node parity wall: the unknowns -- which on this storage arrived through
+  // the periodic wrap from the opposite face -- are replaced by their signed
+  // mirror images BEFORE anything reads the set. The field pass does the same,
+  // so the raw sum below is the node's real B.
+  if (p.pmask) {
+    const std::uint8_t pm = p.pmask[n];
+    if (pm)
+      for (int a = 0; a < 3; ++a)
+        mirror_unknowns_parity<MagneticLattice>(g[a], pm, a, p.pcond);
+  }
 
   // THE FIELD COMES FROM THE FIELD ARRAY, NOT FROM THE RAW SUM, whenever walls
   // exist. At a moment wall the streamed populations are still missing their
@@ -256,9 +278,11 @@ LBM_HD LBM_INLINE void magnetic_field_node(const MagneticParams& p, long N, long
   }
 
   Real g[MagneticLattice::Q], B[3];
+  const std::uint8_t pm = p.pmask ? p.pmask[n] : std::uint8_t(0);
   for (int a = 0; a < 3; ++a) {
     gather<Parity, MagneticLattice>(p.g + magnetic_offset(a, N), N,
                                     x, y, z, p.nx, p.ny, p.nz, g);
+    if (pm) mirror_unknowns_parity<MagneticLattice>(g, pm, a, p.pcond);
     B[a] = Real(0);
     for (int i = 0; i < MagneticLattice::Q; ++i) B[a] += g[i];
   }
@@ -395,7 +419,7 @@ class MagneticSolver {
   ~MagneticSolver() {
     cudaFree(g_); cudaFree(flags_); cudaFree(Bx_); cudaFree(By_); cudaFree(Bz_);
     cudaFree(mwall_); cudaFree(unk_); cudaFree(wBx_); cudaFree(wBy_); cudaFree(wBz_);
-    cudaFree(mface_);
+    cudaFree(mface_); cudaFree(pmask_);
   }
 
   MagneticSolver(const MagneticSolver&) = delete;
@@ -477,6 +501,20 @@ class MagneticSolver {
   void advect_with(const Real* ux, const Real* uy, const Real* uz) {
     ux_ = ux; uy_ = uy; uz_ = uz;
   }
+  // On-node parity walls: one SpecFace mask per node (0 = not a wall). One
+  // parity per solver. Validated by the same routine the fluid's on-node
+  // mirror uses, so a mask with both faces of one axis is refused here too.
+  void set_parity_walls(const std::vector<std::uint8_t>& faces, bool conducting) {
+    if (long(faces.size()) != N_) {
+      std::fprintf(stderr, "set_parity_walls: %zu masks for %ld nodes\n", faces.size(), N_);
+      std::exit(1);
+    }
+    if (check_spec_faces(faces, nx_, ny_) == 0) return;
+    if (!pmask_) LBM_CUDA_CHECK(cudaMalloc(&pmask_, sizeof(std::uint8_t) * N_));
+    LBM_CUDA_CHECK(cudaMemcpy(pmask_, faces.data(), sizeof(std::uint8_t) * N_,
+                              cudaMemcpyHostToDevice));
+    pcond_ = conducting;
+  }
 
   template <class InitB, class InitU>
   void initialise_with(InitB initB, InitU initU) {
@@ -552,6 +590,7 @@ class MagneticSolver {
     p.Bx = Bx_; p.By = By_; p.Bz = Bz_;
     p.mwall = mwall_; p.unknown = unk_; p.mface = mface_;
     p.wBx = wBx_; p.wBy = wBy_; p.wBz = wBz_;
+    p.pmask = pmask_; p.pcond = pcond_;
     p.nx = nx_; p.ny = ny_; p.nz = nz_;
     p.omega = omega_;
     return p;
@@ -560,6 +599,8 @@ class MagneticSolver {
   int nx_, ny_, nz_;
   long N_;
   Real omega_;
+  std::uint8_t* pmask_ = nullptr;
+  bool pcond_ = true;
   Real* g_ = nullptr;
   std::uint8_t* flags_ = nullptr;
   Real *Bx_ = nullptr, *By_ = nullptr, *Bz_ = nullptr;

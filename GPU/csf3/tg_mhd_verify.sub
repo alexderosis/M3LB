@@ -1,0 +1,92 @@
+#!/bin/bash --login
+#==============================================================================
+#  Taylor-Green MHD in a closed box (src/tg_mhd.cu): the DEVICE half of the
+#  confined-MHD plan's Stage 2, and a throughput probe for Stage 3.
+#
+#  WHAT IS ALREADY ESTABLISHED WITHOUT A GPU (2026-09-25). The host build of
+#  this driver reproduces the Kokkos parent, ../demonstrator/tg_mhd.cpp, to every
+#  printed digit in FP64 -- runs A (free slip) and B (no slip), N = 65, Re = 200,
+#  t = 0..2, 815 steps -- with no shared headers. The only non-zero column
+#  differences are H_C and the skewness at t = 0, at 1e-17 of their scale, which
+#  is round-off on quantities that vanish there. Both reference series are
+#  tracked in results/P_tg_mhd/xcheck_n65_re200/.
+#
+#  WHAT THIS JOB ADDS. The device build has never run: nvcc can reject what the
+#  host compiler accepted (this tree has a list), and a device run can differ
+#  from the host one in ways the host cannot see. So:
+#
+#    1. FP64 BUILD, and runs A and B at exactly the parameters above. The device
+#       must match the tracked host series to the same printed digits -- or, if
+#       it does not, the first differing column and time are the bug report.
+#    2. FP32 BUILD and a short N = 257 pair (A and B, t = 1) for MLUPS and
+#       memory, to size Stage 3's Re ladder (N = 192 .. 512).
+#
+#  BUILD NOTE: -DLBM_ONLY_OP=cm compiles one operator instead of four, which the
+#  CSF3 notes measure at ~3 min against ~13. The driver uses Op::CentralMoments
+#  only.
+#
+#  Submit from the repo root:   sbatch GPU/csf3/tg_mhd_verify.sub
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-2:00              # builds ~6 min, FP64 pair ~5 min, FP32 pair ~10 min
+#SBATCH -J tg_mhd_verify
+#SBATCH -o tg_mhd_verify-%j.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+cd "$ROOT/GPU"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+# ---- 1. FP64: the twin check on the device ----------------------------------
+cmake -S . -B build64 -DCMAKE_BUILD_TYPE=Release -DLBM_GPU_ARCH=80 \
+      -DLBM_ONLY_OP=cm -DLBM_DOUBLE=ON > /dev/null
+cmake --build build64 --target tg_mhd -j8
+OUT="$ROOT/tg_mhd_verify"
+mkdir -p "$OUT"
+for W in slip noslip; do
+  ./build64/tg_mhd -n 65 -vwall $W -mwall cond -ic tgc -re 200 -tmax 2 -probe 0.1 \
+                   -out "$OUT/${W}_cuda_fp64" 2>&1 | tail -4
+done
+
+python3 - "$ROOT" "$OUT" <<'EOF'
+import sys
+root, out = sys.argv[1], sys.argv[2]
+names = ("t E_V E_M E_T H_C Omega_V Omega_M eps EM/EV OmM/OmV j_max w_max skew "
+         "divb/j divb_wall/j mass_drift umax_lat fw1 fw2 fw4 tau_wall").split()
+def load(p):
+    return [[float(x) for x in l.split()] for l in open(p) if not l.startswith('#')]
+bad = 0
+for w in ("slip", "noslip"):
+    ref = load(f"{root}/results/P_tg_mhd/xcheck_n65_re200/{w}_src_kokkos_fp64.dat")
+    dev = load(f"{out}/{w}_cuda_fp64/series.dat")
+    if len(ref) != len(dev):
+        print(f"{w}: {len(dev)} rows against {len(ref)} -- FAIL"); bad += 1; continue
+    worst = []
+    for i, n in enumerate(names):
+        sc = max(max(abs(r[i]) for r in ref), 1e-300)
+        d = max(abs(a[i] - b[i]) for a, b in zip(ref, dev))
+        worst.append((d / sc, n))
+    worst.sort(reverse=True)
+    top = [(v, n) for v, n in worst if n not in ("H_C", "skew")]
+    ok = top[0][0] < 1e-7
+    bad += 0 if ok else 1
+    print(f"{w}: device vs Kokkos parent, worst column {top[0][1]} {top[0][0]:.2e}"
+          f" of its scale  {'PASS' if ok else 'FAIL'}")
+sys.exit(1 if bad else 0)
+EOF
+
+# ---- 2. FP32: throughput at a Stage 3 size ----------------------------------
+cmake -S . -B build32 -DCMAKE_BUILD_TYPE=Release -DLBM_GPU_ARCH=80 \
+      -DLBM_ONLY_OP=cm > /dev/null
+cmake --build build32 --target tg_mhd -j8
+for W in slip noslip; do
+  ./build32/tg_mhd -n 257 -vwall $W -mwall cond -ic tgc -re 500 -tmax 1 -probe 0.25 \
+                   -out "$OUT/${W}_cuda_fp32_n257" 2>&1 | tail -5
+done

@@ -159,7 +159,7 @@ if(LBM_PTXAS_VERBOSE)
 endif()
 
 set(LBM_APPS ehd_cavity mhd_jet tgv3d tgv3d_bench bench box channel rayleigh_benard alfven orszag_tang droplet bubble newpaths hartmann rti3d impact skip rb_high_ra
-    mhd_decay mhd_sphere)
+    mhd_decay mhd_sphere tg_mhd)
 if(NOT LBM_HOST_ONLY)
   foreach(app ${LBM_APPS})
     add_executable(${app} src/${app}.cu)

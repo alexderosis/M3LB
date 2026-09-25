@@ -435,6 +435,29 @@ __global__ void initialise(Real* __restrict__ f, const std::uint8_t* __restrict_
 }
 
 //------------------------------------------------------------------------------
+// SEED THE POPULATIONS DIRECTLY: init(x, y, z, f) fills the 27 RAW populations
+// arriving at the node, and the storage shift is applied here, once. The
+// counterpart of the parent's FluidSolver::seed_populations, for a case whose
+// equilibrium is not the density-and-velocity one `initialise` builds -- the
+// coupled MHD run, whose operator relaxes toward the product-form equilibrium
+// PLUS the Maxwell stress (src/tg_mhd.cu). Every node is seeded, walls
+// included; the caller decides what a wall node carries.
+//------------------------------------------------------------------------------
+template <class PopInit>
+__global__ void initialise_pops(Real* __restrict__ f, int nx, int ny, int nz,
+                                bool shifted, PopInit init) {
+  const long N = long(nx) * ny * nz;
+  const long n = blockIdx.x * blockDim.x + threadIdx.x;
+  if (n >= N) return;
+  int x, y, z;
+  coords(n, nx, ny, x, y, z);
+  Real fl[27];
+  init(x, y, z, fl);
+  if (shifted) for (int i = 0; i < 27; ++i) fl[i] -= D3Q27::w(i);
+  init_scatter<0>(f, N, x, y, z, nx, ny, nz, fl);
+}
+
+//------------------------------------------------------------------------------
 // Total population, as a small array of partial sums.
 //
 // The sum runs over EVERY slot, wall slots included, because that -- not a sum
@@ -665,6 +688,18 @@ class Solver {
   void initialise_with(Init init) {
     const int B = 128;
     initialise<<<int((N_ + B - 1) / B), B>>>(f_, flags_, nx_, ny_, nz_, shifted_, init);
+    LBM_CUDA_CHECK(cudaGetLastError());
+    LBM_CUDA_CHECK(cudaDeviceSynchronize());
+    t_ = 0;
+    if (ux_) refresh_velocity();
+  }
+
+  // Per-node raw populations; see initialise_pops. Resets the step count like
+  // initialise_with, and refreshes the advecting velocity for the same reason.
+  template <class PopInit>
+  void seed_populations_with(PopInit init) {
+    const int B = 128;
+    initialise_pops<<<int((N_ + B - 1) / B), B>>>(f_, nx_, ny_, nz_, shifted_, init);
     LBM_CUDA_CHECK(cudaGetLastError());
     LBM_CUDA_CHECK(cudaDeviceSynchronize());
     t_ = 0;
