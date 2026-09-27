@@ -605,8 +605,17 @@ Do not spend time on these without saying so first; several are deliberate.
   (`src/tg_mhd.cu`, `set_parity_walls`, `seed_populations_with`). Its HOST build
   reproduces `demonstrator/tg_mhd` to every printed digit in FP64, free-slip and
   no-slip, N = 65 over 815 steps (series tracked in
-  `results/P_tg_mhd/xcheck_n65_re200/`). The DEVICE build has not run yet;
-  `GPU/csf3/tg_mhd_verify.sub` is the job that checks it against those series.
+  `results/P_tg_mhd/xcheck_n65_re200/`). The DEVICE build has run on a CSF3
+  A100 (2026-09-27): `GPU/csf3/tg_mhd_verify.sub`'s FP64 check against those
+  series must have passed -- the job runs under `set -e` and its FP32 stage,
+  which comes after, ran -- but its PASS lines have not been read here; FP32 at
+  N = 257 gave 577 / 723 MLUPS free-slip / no-slip, probes included. Stage 3's
+  Reynolds ladder is `GPU/csf3/tg_mhd_ladder.sub`, gated by
+  `tools/tg_mhd_ladder.py`. **"At the dissipation peak" means the TURBULENT
+  peak in a no-slip box:** its largest eps is the impulsive start, since the
+  Taylor-Green velocity does not vanish on the walls (fw1 = 0.91 at t = 0 against
+  0.15 at the t = 2 peak, N = 129, Re = 300), and both drivers' summary lines
+  called that the peak until 2026-09-27.
 - **`GPU/` HAS THE EHD STACK as of 2026-09-06** (`src/ehd_cavity.cu`,
   `include/lbm/ehd.cuh`, `include/lbm/specular.cuh`). Porting it added four
   things to the scalar module that `GPU/` did not have: Dellar's on-node

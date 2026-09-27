@@ -89,6 +89,10 @@ sbatch --array=1 GPU/csf3/rb_cold.sub                # H = 998,  ~45 min
 sbatch --array=2 --time=12:00:00 GPU/csf3/rb_cold.sub  # H = 1998, ~6 h
 sbatch GPU/csf3/ot3d_re3040.sub                      # OT 3-D, M=288, ~10 min
 sbatch GPU/csf3/mhd_jet.sub                          # MHD jet, nx=512 fp32, ~12 h
+sbatch GPU/csf3/tg_mhd_verify.sub                    # confined MHD: device twin check
+sbatch --array=0-5,12-17 --time=1:00:00 GPU/csf3/tg_mhd_ladder.sub   # then the ladder,
+sbatch --array=6-8,18-23 --time=3:00:00 GPU/csf3/tg_mhd_ladder.sub   # in three groups
+sbatch --array=9-11      --time=7:00:00 GPU/csf3/tg_mhd_ladder.sub   # (see below)
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -161,6 +165,37 @@ Rough cost on one A100 at ~1.5 GLUPS FP64, 100 free-fall times:
 | 1998 | 4012 × 2000 | 8.0e6 | 4.0e6 | ~6 h |
 
 For scale, H = 498 took **3 hours on four CPU threads** before it died.
+
+**`tg_mhd_verify.sub`, then `tg_mhd_ladder.sub`** are the confined-MHD box
+(`GPU/src/tg_mhd.cu`: Taylor–Green MHD in a closed cube, on branch `mhd`).
+The verify job builds `GPU/build64` itself, runs the free-slip and no-slip
+boxes at N = 65 in FP64, and checks them against the Kokkos twin's series in
+`results/P_tg_mhd/xcheck_n65_re200/` — one `PASS`/`FAIL` line per wall, to
+1e-7 of each column's scale. It then times an FP32 pair at N = 257 (577 and
+723 MLUPS with probes on the first device run). **Read the two PASS lines before
+submitting the ladder**: the ladder has no twin to check it against.
+
+The ladder is 24 array elements: setups A (free slip + conducting), B (no slip
++ conducting) and C (no slip, no field), at Re = 125 / 250 / 500 / 1000, each at
+a primary N = 192 / 256 / 384 / 512 and a coarser check grid, FP64, ~25 GPU-hours
+in all. It does **not** build — it refuses a `build64` binary older than the
+source and prints the rebuild command, so after every `git pull` rebuild on the
+login node (the job's header has the four lines). Submit in the three groups
+above so each asks for the wallclock it needs; the job's header maps elements to
+runs. Output goes to `runs/tg_mhd_ladder/<A|B|C>_re<Re>_n<N>/`: `series.dat`
+always, `anim_frames/` for the primary runs, and full `raw/` snapshots only with
+`RAW=1` (3.8 GB each at N = 512 — ask for them per run, for the figures).
+
+Then, on the login node — pure stdlib:
+
+```bash
+python3 tools/tg_mhd_ladder.py runs/tg_mhd_ladder
+```
+
+It prints one row per run (f_w at the dissipation peak, min E_M/E_V, mass drift,
+div b), the plan's 5 % resolution gate per rung, and B − A and B − C against the
+resolution band. Exit status 1 means some rung failed the gate. The series are
+small: pulling `runs/tg_mhd_ladder/*/series.dat` back is a few MB.
 
 ---
 

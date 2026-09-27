@@ -106,6 +106,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -138,6 +139,7 @@ struct Opts {
   double probe = 0.05, vti = 0.0, dump = 0.0, raw = 0.0;
   bool dumpvol = false;
   int volstride = 1;
+  int threads = 0;              // host diagnostics; 0 = SLURM allocation or machine
   std::string out;
 };
 
@@ -239,6 +241,47 @@ struct HostFields {
   }
 };
 
+// THE PROBE IS PARALLEL OVER z -- the same split as GPU/src/tg_mhd.cu, whose
+// banner at Acc says why. Each thread sums its own z-slab and the slabs merge in
+// thread order, so the per-node arithmetic is untouched and only the rounding of
+// the sums depends on the thread count. std::thread, not Kokkos: these are host
+// mirrors walked with lambdas that do their own index arithmetic.
+struct Acc {
+  double W = 0, ev = 0, em = 0, hc = 0, w2 = 0, j2 = 0, d2[3] = {0, 0, 0}, d3[3] = {0, 0, 0};
+  double div2 = 0, eps = 0, fw[3] = {0, 0, 0}, divw = 0, ndivw = 0, j2w = 0, tw = 0, ntw = 0;
+  double mass = 0, jmax = 0, wmax = 0, umax = 0;
+  bool finite = true;
+  void add(const Acc& a) {
+    W += a.W; ev += a.ev; em += a.em; hc += a.hc; w2 += a.w2; j2 += a.j2;
+    for (int k = 0; k < 3; ++k) { d2[k] += a.d2[k]; d3[k] += a.d3[k]; fw[k] += a.fw[k]; }
+    div2 += a.div2; eps += a.eps; divw += a.divw; ndivw += a.ndivw; j2w += a.j2w;
+    tw += a.tw; ntw += a.ntw; mass += a.mass;
+    jmax = std::max(jmax, a.jmax); wmax = std::max(wmax, a.wmax); umax = std::max(umax, a.umax);
+    finite = finite && a.finite;
+  }
+};
+
+int diag_threads(int requested) {
+  if (requested > 0) return requested;
+  if (const char* s = std::getenv("SLURM_CPUS_PER_TASK")) {
+    const int n = std::atoi(s);
+    if (n > 0) return n;
+  }
+  const unsigned hc = std::thread::hardware_concurrency();
+  return int(std::min(16u, std::max(1u, hc)));
+}
+
+template <class Fn>
+void parallel_z(Index L, int nt, Fn fn) {
+  nt = std::max(1, std::min<int>(nt, int(L)));
+  if (nt == 1) { fn(Index(0), L, 0); return; }
+  std::vector<std::thread> th;
+  th.reserve(std::size_t(nt));
+  for (int t = 0; t < nt; ++t)
+    th.emplace_back(fn, Index((L * t) / nt), Index((L * (t + 1)) / nt), t);
+  for (auto& x : th) x.join();
+}
+
 struct Diag {
   double t = 0, ev = 0, em = 0, hc = 0, omv = 0, omm = 0, eps = 0;
   double jmax = 0, wmax = 0, skew = 0, divb = 0, divb_wall = 0, mass = 0;
@@ -322,6 +365,7 @@ int main(int argc, char** argv) {
       else if (a == "-raw")      o.raw = std::atof(next());
       else if (a == "-out")      o.out = next();
       else if (a == "-force")    o.force = true;
+      else if (a == "-threads")  o.threads = std::atoi(next());
     }
 
     const bool hydro = (o.ic == ICKind::Hydro);
@@ -477,13 +521,9 @@ int main(int argc, char** argv) {
     // are not yet evaluated and read zero.
     const double mass0 = double(L) * double(L) * double(L);
 
-    auto measure = [&](double t) {
-      Diag g; g.t = t;
-      double W = 0, s_ev = 0, s_em = 0, s_hc = 0, s_w2 = 0, s_j2 = 0;
-      double s_d2[3] = {0, 0, 0}, s_d3[3] = {0, 0, 0}, s_div2 = 0, s_eps = 0;
-      double s_fw[3] = {0, 0, 0}, s_divw = 0, n_divw = 0, s_j2w = 0;
-      double tw = 0, ntw = 0, mass = 0;
-      for (Index z = 0; z < L; ++z)
+    const int nthreads = diag_threads(o.threads);
+    auto measure_slab = [&](Index z0, Index z1, Acc& a) {
+      for (Index z = z0; z < z1; ++z)
         for (Index y = 0; y < L; ++y)
           for (Index x = 0; x < L; ++x) {
             const Index p[3] = {x, y, z};
@@ -504,9 +544,9 @@ int main(int argc, char** argv) {
             const double b[3] = {H.v(3, x, y, z), H.v(4, x, y, z), H.v(5, x, y, z)};
             const double rho = H.v(6, x, y, z);
             for (int c = 0; c < 3; ++c)
-              if (!std::isfinite(u[c]) || !std::isfinite(b[c])) g.finite = false;
-            mass += rho;
-            g.umax_lat = std::max(g.umax_lat, o.u0 * std::sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]));
+              if (!std::isfinite(u[c]) || !std::isfinite(b[c])) a.finite = false;
+            a.mass += rho;
+            a.umax = std::max(a.umax, o.u0 * std::sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]));
             // gradients, paper units
             double du[3][3], db[3][3];
             for (int c = 0; c < 3; ++c)
@@ -520,46 +560,59 @@ int main(int argc, char** argv) {
             const double j2 = jv[0] * jv[0] + jv[1] * jv[1] + jv[2] * jv[2];
             const double dvb = db[0][0] + db[1][1] + db[2][2];
             const double eloc = nu_tg * w2 + eta_tg * j2;
-            W += w;
-            s_ev += w * 0.5 * (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
-            s_em += w * 0.5 * (b[0] * b[0] + b[1] * b[1] + b[2] * b[2]);
-            s_hc += w * (u[0] * b[0] + u[1] * b[1] + u[2] * b[2]);
-            s_w2 += w * w2;  s_j2 += w * j2;  s_div2 += w * dvb * dvb;  s_eps += w * eloc;
+            a.W += w;
+            a.ev += w * 0.5 * (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+            a.em += w * 0.5 * (b[0] * b[0] + b[1] * b[1] + b[2] * b[2]);
+            a.hc += w * (u[0] * b[0] + u[1] * b[1] + u[2] * b[2]);
+            a.w2 += w * w2;  a.j2 += w * j2;  a.div2 += w * dvb * dvb;  a.eps += w * eloc;
             for (int k = 0; k < 3; ++k) {
-              s_d2[k] += w * du[k][k] * du[k][k];
-              s_d3[k] += w * du[k][k] * du[k][k] * du[k][k];
+              a.d2[k] += w * du[k][k] * du[k][k];
+              a.d3[k] += w * du[k][k] * du[k][k] * du[k][k];
             }
             const double dist = double(dw) * h;
             for (int m = 0; m < 3; ++m)
-              if (dist < double(1 << m) * delta) s_fw[m] += w * eloc;
-            if (dw <= 1) { s_divw += w * dvb * dvb; s_j2w += w * j2; n_divw += w; }
-            g.jmax = std::max(g.jmax, std::sqrt(j2));
-            g.wmax = std::max(g.wmax, std::sqrt(w2));
+              if (dist < double(1 << m) * delta) a.fw[m] += w * eloc;
+            if (dw <= 1) { a.divw += w * dvb * dvb; a.j2w += w * j2; a.ndivw += w; }
+            a.jmax = std::max(a.jmax, std::sqrt(j2));
+            a.wmax = std::max(a.wmax, std::sqrt(w2));
             // wall shear stress: |d u_t / d n| on the wall nodes of a no-slip box
             if (!o.periodic && o.noslip)
               for (int k = 0; k < 3; ++k)
                 if (p[k] == 0 || p[k] == L - 1) {
                   double st = 0;
                   for (int c = 0; c < 3; ++c) if (c != k) st += du[c][k] * du[c][k];
-                  tw += nu_tg * std::sqrt(st);
-                  ntw += 1;
+                  a.tw += nu_tg * std::sqrt(st);
+                  a.ntw += 1;
                 }
           }
-      g.ev = s_ev / W; g.em = s_em / W; g.hc = s_hc / W;
-      g.omv = 0.5 * s_w2 / W; g.omm = 0.5 * s_j2 / W;
+    };
+
+    auto measure = [&](double t) {
+      std::vector<Acc> part(static_cast<std::size_t>(nthreads));
+      parallel_z(L, nthreads, [&](Index z0, Index z1, int tid) {
+        measure_slab(z0, z1, part[static_cast<std::size_t>(tid)]);
+      });
+      Acc a;
+      for (const Acc& q : part) a.add(q);
+      Diag g; g.t = t;
+      g.finite = a.finite;
+      g.umax_lat = a.umax; g.jmax = a.jmax; g.wmax = a.wmax;
+      const double W = a.W;
+      g.ev = a.ev / W; g.em = a.em / W; g.hc = a.hc / W;
+      g.omv = 0.5 * a.w2 / W; g.omm = 0.5 * a.j2 / W;
       g.eps = 2.0 * nu_tg * g.omv + 2.0 * eta_tg * g.omm;
       // Direction-averaged moments FIRST, then the ratio. Averaging three ratios
       // instead divides round-off by round-off wherever one component of u is
       // identically zero -- u_z at t = 0 -- and read 4.8 for a field whose third
       // moment vanishes by symmetry.
-      const double m2 = (s_d2[0] + s_d2[1] + s_d2[2]) / (3.0 * W);
-      const double m3 = (s_d3[0] + s_d3[1] + s_d3[2]) / (3.0 * W);
+      const double m2 = (a.d2[0] + a.d2[1] + a.d2[2]) / (3.0 * W);
+      const double m3 = (a.d3[0] + a.d3[1] + a.d3[2]) / (3.0 * W);
       g.skew = (m2 > 0) ? -m3 / std::pow(m2, 1.5) : 0.0;
-      g.divb = (s_j2 > 0) ? std::sqrt(s_div2 / s_j2) : 0.0;
-      g.divb_wall = (s_j2w > 0 && n_divw > 0) ? std::sqrt(s_divw / s_j2w) : 0.0;
-      for (int m = 0; m < 3; ++m) g.fw[m] = (s_eps > 0) ? s_fw[m] / s_eps : 0.0;
-      g.tauw = (ntw > 0) ? tw / ntw : 0.0;
-      g.mass = (t > 0) ? mass / mass0 - 1.0 : 0.0;   // exact by construction at t = 0
+      g.divb = (a.j2 > 0) ? std::sqrt(a.div2 / a.j2) : 0.0;
+      g.divb_wall = (a.j2w > 0 && a.ndivw > 0) ? std::sqrt(a.divw / a.j2w) : 0.0;
+      for (int m = 0; m < 3; ++m) g.fw[m] = (a.eps > 0) ? a.fw[m] / a.eps : 0.0;
+      g.tauw = (a.ntw > 0) ? a.tw / a.ntw : 0.0;
+      g.mass = (t > 0) ? a.mass / mass0 - 1.0 : 0.0;   // exact by construction at t = 0
       return g;
     };
 
@@ -608,10 +661,11 @@ int main(int argc, char** argv) {
       if ((kd && k % kd == 0) || need_vec) {
         jm.resize(np); wm.resize(np);
         if (need_vec) { jv3.resize(3 * np); wv3.resize(3 * np); }
-        std::size_t m = 0;
-        for (Index z = 0; z < L; ++z)
+        parallel_z(L, nthreads, [&](Index z0, Index z1, int) {
+        for (Index z = z0; z < z1; ++z)
           for (Index y = 0; y < L; ++y)
-            for (Index x = 0; x < L; ++x, ++m) {
+            for (Index x = 0; x < L; ++x) {
+              const std::size_t m = (std::size_t(z) * L + y) * L + x;
               double du[3][3], db[3][3];
               for (int c = 0; c < 3; ++c)
                 for (int kk = 0; kk < 3; ++kk) {
@@ -625,6 +679,7 @@ int main(int argc, char** argv) {
               if (need_vec)
                 for (int c = 0; c < 3; ++c) { jv3[3 * m + c] = float(jv[c]); wv3[3 * m + c] = float(wv[c]); }
             }
+        });
       }
       if (kd && k % kd == 0) {
         std::vector<float> su(std::size_t(L) * L), sb(su.size()), sj(su.size()), sw(su.size());
@@ -707,14 +762,25 @@ int main(int argc, char** argv) {
     // twice the velocity's -- and FALLS, so the quantity is the first peak after
     // that initial descent. Phase 0 descends to a minimum, phase 1 climbs to the
     // peak, phase 2 has it.
+    // The dissipation peak is the TURBULENT maximum, not the largest eps in the
+    // run: a no-slip box starts impulsively -- the Taylor-Green velocity does not
+    // vanish on the walls -- and its eps is largest at t = 0 (fw1 = 0.91 there,
+    // against 0.15 at the t = 2 peak, N = 129, Re = 300). So the maximum is taken
+    // only once eps has risen 5 % above its running minimum: at once for free
+    // slip, after the start has decayed for no slip. tools/tg_mhd_ladder.py reads
+    // the peak the same way.
     double first_ommv_max = 0, prev_ommv = 0, emev_min = 1e300, eps_max = 0, t_epsmax = 0,
-           skew_at_epsmax = 0, skew_max = -1e300;
-    int ommv_phase = 0;
+           skew_at_epsmax = 0, skew_max = -1e300, eps_runmin = 1e300, t_lastprobe = 0;
+    bool eps_armed = false;
+    int ommv_phase = 0, nprobe = 0;
+    double t_diag = 0.0;             // wall time in the host copies, probes and writers
     for (std::size_t k = 0; k <= T; ++k) {
       const bool probe = kp && (k % kp == 0 || k == T);
       const bool outp = (kv && k % kv == 0) || (kd && k % kd == 0) || (kr && k % kr == 0);
       if (probe || outp) {
+        const auto d0 = std::chrono::steady_clock::now();
         refresh();
+        ++nprobe;
         const double t = double(k) * dt;
         const Diag g = measure(t);
         if (k == 0) { e0 = g.ev + g.em; em0 = g.em; }
@@ -731,9 +797,14 @@ int main(int argc, char** argv) {
             emev_min = std::min(emev_min, emev);
             if (ommv_phase == 0 && ommv > prev_ommv) ommv_phase = 1;
             else if (ommv_phase == 1 && ommv < prev_ommv) { first_ommv_max = prev_ommv; ommv_phase = 2; }
-            if (g.eps > eps_max) { eps_max = g.eps; t_epsmax = t; skew_at_epsmax = g.skew; }
             skew_max = std::max(skew_max, g.skew);
           }
+          if (!eps_armed) {
+            if (g.eps < eps_runmin) eps_runmin = g.eps;
+            else if (g.eps > 1.05 * eps_runmin) eps_armed = true;
+          }
+          if (eps_armed && g.eps > eps_max) { eps_max = g.eps; t_epsmax = t; skew_at_epsmax = g.skew; }
+          t_lastprobe = t;
           prev_ommv = ommv;
           std::fprintf(ser, "%.6f %.8e %.8e %.8e %.8e %.8e %.8e %.8e %.6e %.6e %.6e %.6e"
                             " %.6e %.4e %.4e %+.4e %.5f %.5e %.5e %.5e %.5e\n",
@@ -747,6 +818,7 @@ int main(int argc, char** argv) {
           std::fflush(stdout);
         }
         if (outp) frames(k, t, g);
+        t_diag += std::chrono::duration<double>(std::chrono::steady_clock::now() - d0).count();
       }
       if (k < T) {
         if (!hydro) mag.compute_field();
@@ -761,8 +833,18 @@ int main(int argc, char** argv) {
 
     std::printf("\n  %.1f s   %.2f MLUPS (fluid nodes x steps; field and probes included)\n", secs,
                 double(L) * L * L * double(T) / secs * 1e-6);
-    std::printf("  peak dissipation eps = %.4e at t = %.3f; skewness there %.3f, max %.3f\n",
-                eps_max, t_epsmax, skew_at_epsmax, skew_max);
+    std::printf("  host diagnostics: %d probes, %.1f s = %.0f %% of the run on %d thread(s);"
+                " %.2f MLUPS without them\n",
+                nprobe, t_diag, 100.0 * t_diag / secs, nthreads,
+                double(L) * L * L * double(T) / std::max(secs - t_diag, 1e-9) * 1e-6);
+    if (!eps_armed)
+      std::printf("  no dissipation peak: eps fell throughout the run; skewness max %.3f\n", skew_max);
+    else if (t_epsmax >= t_lastprobe)
+      std::printf("  dissipation peak not reached: eps = %.4e still rising at t = %.3f; skewness max %.3f\n",
+                  eps_max, t_epsmax, skew_max);
+    else
+      std::printf("  peak dissipation eps = %.4e at t = %.3f (past any impulsive start);"
+                  " skewness there %.3f, max %.3f\n", eps_max, t_epsmax, skew_at_epsmax, skew_max);
     if (!hydro) {
       std::printf("  min E_M/E_V = %.3f   first max of Omega_M/Omega_V after its initial fall = %s\n",
                   emev_min, ommv_phase == 2 ? std::to_string(first_ommv_max).c_str()
