@@ -21,8 +21,9 @@
 //    * the diagnostics, formula for formula: trapezoidal weights in the box,
 //      derivatives at a wall node closed by the extension that wall implies,
 //      direction-averaged moments before the skewness ratio;
-//    * the output formats: series.dat with the same columns, anim_frames/ for
-//      the renderers, vti/ on the real [0, pi] coordinates, raw/ volumes.
+//    * the output formats: series.dat with the same columns, profile.dat (the
+//      dissipation against wall distance, which f_w is read from), anim_frames/
+//      for the renderers, vti/ on the real [0, pi] coordinates, raw/ volumes.
 //
 //  WHAT IS NOT: the operator is written out in closed form here and reached
 //  through a moment transform in the parent, so the two agree to round-off in
@@ -230,16 +231,22 @@ bool mkdir_p(const std::string& path) {
 // than OpenMP, so nothing about the nvcc or Apple host toolchain changes.
 struct Acc {
   double W = 0, ev = 0, em = 0, hc = 0, w2 = 0, j2 = 0, d2[3] = {0, 0, 0}, d3[3] = {0, 0, 0};
-  double div2 = 0, eps = 0, fw[3] = {0, 0, 0}, divw = 0, ndivw = 0, j2w = 0, tw = 0, ntw = 0;
+  double div2 = 0, eps = 0, divw = 0, ndivw = 0, j2w = 0, tw = 0, ntw = 0;
   double mass = 0, jmax = 0, wmax = 0, umax = 0;
   bool finite = true;
+  // Per wall-distance layer k -- the nodes k cells from the nearest wall -- the
+  // weighted dissipation and the weight itself; f_w and profile.dat come from
+  // these (within_cells says how).
+  std::vector<double> lay_e, lay_w;
+  explicit Acc(std::size_t nlay = 0) : lay_e(nlay, 0.0), lay_w(nlay, 0.0) {}
   void add(const Acc& a) {
     W += a.W; ev += a.ev; em += a.em; hc += a.hc; w2 += a.w2; j2 += a.j2;
-    for (int k = 0; k < 3; ++k) { d2[k] += a.d2[k]; d3[k] += a.d3[k]; fw[k] += a.fw[k]; }
+    for (int k = 0; k < 3; ++k) { d2[k] += a.d2[k]; d3[k] += a.d3[k]; }
     div2 += a.div2; eps += a.eps; divw += a.divw; ndivw += a.ndivw; j2w += a.j2w;
     tw += a.tw; ntw += a.ntw; mass += a.mass;
     jmax = std::max(jmax, a.jmax); wmax = std::max(wmax, a.wmax); umax = std::max(umax, a.umax);
     finite = finite && a.finite;
+    for (std::size_t k = 0; k < lay_e.size(); ++k) { lay_e[k] += a.lay_e[k]; lay_w[k] += a.lay_w[k]; }
   }
 };
 
@@ -268,10 +275,32 @@ void parallel_z(int L, int nt, Fn fn) {
   for (auto& x : th) x.join();
 }
 
+// THE WALL SHARE f_w IS READ OFF THE WALL-DISTANCE PROFILE, NOT COUNTED IN WHOLE
+// NODE LAYERS. With the trapezoidal weights, layer k is EXACTLY the slab
+// [(k - 1/2) h, (k + 1/2) h] of the box in volume -- the wall layer is [0, h/2] --
+// so the dissipation within a distance d of the walls is known at d = (k + 1/2) h
+// and is interpolated linearly in between: a band edge inside a layer takes the
+// fraction of that layer it covers. The count this replaced, every node with
+// k h < m delta, measured a band of (floor(m delta / h) + 1/2) h instead of
+// m delta -- 0.91 delta at N = 384 and 1.07 delta at N = 512 for Re = 1000 -- and
+// in the first CSF3 ladder (2026-09-28) fw1 differed by 8-25 % between the two
+// grids of a rung while the peak dissipation agreed to 1 %: the gate was
+// measuring where the band edge fell between nodes, not the flow. r is the
+// distance in cells; e[k] the layer sums.
+double within_cells(const std::vector<double>& e, double r) {
+  if (r <= 0.0 || e.empty()) return 0.0;
+  if (r < 0.5) return e[0] * (r / 0.5);
+  const std::size_t k = std::size_t(std::floor(r + 0.5));   // r in [k - 1/2, k + 1/2)
+  double c = 0.0;
+  for (std::size_t j = 0; j < std::min(k, e.size()); ++j) c += e[j];
+  return k < e.size() ? c + e[k] * (r - (double(k) - 0.5)) : c;
+}
+
 struct Diag {
   double t = 0, ev = 0, em = 0, hc = 0, omv = 0, omm = 0, eps = 0;
   double jmax = 0, wmax = 0, skew = 0, divb = 0, divb_wall = 0, mass = 0;
   double umax_lat = 0, fw[3] = {0, 0, 0}, tauw = 0;
+  std::vector<double> prof, vol;   // each layer's share of eps and of the volume
   bool finite = true;
 };
 
@@ -496,9 +525,9 @@ int main(int argc, char** argv) {
             a.d2[k] += w * du[k][k] * du[k][k];
             a.d3[k] += w * du[k][k] * du[k][k] * du[k][k];
           }
-          const double dist = double(dw) * h;
-          for (int m = 0; m < 3; ++m)
-            if (dist < double(1 << m) * delta) a.fw[m] += w * eloc;
+          const std::size_t lay = std::min(std::size_t(dw), a.lay_e.size() - 1);
+          a.lay_e[lay] += w * eloc;
+          a.lay_w[lay] += w;
           if (dw <= 1) { a.divw += w * dvb * dvb; a.j2w += w * j2; a.ndivw += w; }
           a.jmax = std::max(a.jmax, std::sqrt(j2));
           a.wmax = std::max(a.wmax, std::sqrt(w2));
@@ -513,12 +542,14 @@ int main(int argc, char** argv) {
         }
   };
 
+  // Wall-distance layers: 0 .. (N - 1)/2 cells, in the box and in the twin alike.
+  const std::size_t nlay = std::size_t((N - 1) / 2 + 1);
   auto measure = [&](double t) {
-    std::vector<Acc> part(static_cast<std::size_t>(nthreads));
+    std::vector<Acc> part(static_cast<std::size_t>(nthreads), Acc(nlay));
     parallel_z(L, nthreads, [&](int z0, int z1, int tid) {
       measure_slab(z0, z1, part[static_cast<std::size_t>(tid)]);
     });
-    Acc a;
+    Acc a(nlay);
     for (const Acc& q : part) a.add(q);
     Diag g; g.t = t;
     g.finite = a.finite;
@@ -532,7 +563,15 @@ int main(int argc, char** argv) {
     g.skew = (m2 > 0) ? -m3 / std::pow(m2, 1.5) : 0.0;
     g.divb = (a.j2 > 0) ? std::sqrt(a.div2 / a.j2) : 0.0;
     g.divb_wall = (a.j2w > 0 && a.ndivw > 0) ? std::sqrt(a.divw / a.j2w) : 0.0;
-    for (int m = 0; m < 3; ++m) g.fw[m] = (a.eps > 0) ? a.fw[m] / a.eps : 0.0;
+    double etot = 0.0;
+    for (double e : a.lay_e) etot += e;
+    for (int m = 0; m < 3; ++m)
+      g.fw[m] = (etot > 0) ? within_cells(a.lay_e, double(1 << m) * delta / h) / etot : 0.0;
+    g.prof.resize(nlay); g.vol.resize(nlay);
+    for (std::size_t k = 0; k < nlay; ++k) {
+      g.prof[k] = (etot > 0) ? a.lay_e[k] / etot : 0.0;
+      g.vol[k] = a.lay_w[k] / W;
+    }
     g.tauw = (a.ntw > 0) ? a.tw / a.ntw : 0.0;
     g.mass = (t > 0) ? a.mass / mass0 - 1.0 : 0.0;
     return g;
@@ -544,12 +583,27 @@ int main(int argc, char** argv) {
   const std::size_t kp = every(o.probe), kv = every(o.vti), kd = every(o.dump), kr = every(o.raw);
   std::FILE* ser = std::fopen((o.out + "/series.dat").c_str(), "w");
   if (!ser) { std::fprintf(stderr, "tg_mhd: cannot write series.dat\n"); return 2; }
+  // fw=profile marks f_w read off the wall-distance profile (within_cells);
+  // series without it counted whole node layers, and tools/tg_mhd_ladder.py
+  // corrects those.
   std::fprintf(ser, "# tg_mhd (%s %s)  %s  N=%d L=%d Re=%g Pm=%g u0=%g nu_lat=%.6e eta_lat=%.6e"
-                    " tau_f=%.6f tau_m=%.6f dt=%.6e\n",
+                    " tau_f=%.6f tau_m=%.6f dt=%.6e fw=profile\n",
                backend::on_device ? "CUDA" : "host", sizeof(Real) == 4 ? "FP32" : "FP64",
                tag, N, L, o.re, o.pm, o.u0, nu_lat, eta_lat, tauf, taum, dt);
   std::fprintf(ser, "# t E_V E_M E_T H_C Omega_V Omega_M eps EM/EV OmM/OmV j_max w_max"
                     " skew divb/j divb_wall/j mass_drift umax_lat fw1 fw2 fw4 tau_wall\n");
+  // profile.dat: the dissipation against wall distance, one row per probe --
+  // what f_w is read from, and a figure of its own.
+  std::FILE* pro = std::fopen((o.out + "/profile.dat").c_str(), "w");
+  if (!pro) { std::fprintf(stderr, "tg_mhd: cannot write profile.dat\n"); return 2; }
+  std::fprintf(pro, "# tg_mhd (%s %s)  %s  N=%d Re=%g h=%.8e delta=%.8e delta/h=%.6f layers=%zu\n",
+               backend::on_device ? "CUDA" : "host", sizeof(Real) == 4 ? "FP32" : "FP64",
+               tag, N, o.re, h, delta, delta / h, nlay);
+  std::fprintf(pro, "# layer k: the nodes k cells from the nearest wall, i.e. the slab"
+                    " [(k-1/2)h, (k+1/2)h] ([0, h/2] for k = 0)\n");
+  std::fprintf(pro, "# row 'vol': each layer's share of the volume; then per probe: t and"
+                    " each layer's share of eps\n");
+  bool pro_vol = false;
 
   std::FILE* meta = nullptr;
   int dframe = 0, vframe = 0, rframe = 0;
@@ -719,6 +773,16 @@ int main(int argc, char** argv) {
                      g.jmax, g.wmax, g.skew, g.divb, g.divb_wall, g.mass, g.umax_lat,
                      g.fw[0], g.fw[1], g.fw[2], g.tauw);
         std::fflush(ser);
+        if (!pro_vol) {
+          std::fprintf(pro, "# vol");
+          for (double v : g.vol) std::fprintf(pro, " %.6e", v);
+          std::fprintf(pro, "\n");
+          pro_vol = true;
+        }
+        std::fprintf(pro, "%.6f", t);
+        for (double s : g.prof) std::fprintf(pro, " %.5e", s);
+        std::fprintf(pro, "\n");
+        std::fflush(pro);
         if (k % (kp * 10) == 0 || k == T)
           std::printf("  %7.3f %11.5e %11.5e %9.4f %9.4f %9.3e %9.3f %9.2e %+9.1e %10.4f\n",
                       t, g.ev, g.em, emev, ommv, g.eps, g.jmax, g.divb, g.mass, g.fw[0]);
@@ -736,6 +800,7 @@ int main(int argc, char** argv) {
   backend::sync();
   const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - wall0).count();
   std::fclose(ser);
+  std::fclose(pro);
   if (meta) { std::fprintf(meta, "frames %d\n", dframe); std::fclose(meta); }
   if (!pvd.empty()) write_pvd(o.out + "/vti/tg.pvd", pvd);
 

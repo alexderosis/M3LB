@@ -500,6 +500,21 @@ These produce plausible, converged, wrong answers rather than crashes.
   middle point it happened to cancel most of the O(1/N^2) one. At a small field
   amplitude, where that coupling is b0^2 smaller, the order is 2.00 and 2.00. Take
   three points before believing an order, and suspect one that is too good.
+- **A SHARE COUNTED IN WHOLE NODE LAYERS MEASURES THE BAND THE GRID HAPPENS TO
+  HAVE.** `tg_mhd`'s f_w -- the dissipation within m x Re^-1/2 of the walls --
+  first counted every node with k h < m delta. With trapezoidal weights layers
+  0..k are EXACTLY the slab [0, (k + 1/2) h], so the band measured was
+  (ceil(m delta/h) - 1/2) h: 0.91 delta at N = 384 and 1.07 delta at N = 512 for
+  Re = 1000. The first CSF3 ladder (2026-09-28) failed its 5 % resolution gate on
+  every rung, fw1 8-25 % apart between the grids of a rung while the peak
+  dissipation agreed to 1 %, and the gap the band predicts had the measured sign
+  in all 24 comparisons; moved to the exact band, every rung passed (worst 3.0 %).
+  Swept at fixed physics (N = 33..49, Re = 100) the count is a SAWTOOTH -- fw4
+  jumps 0.52 -> 0.60 each time 4 delta/h crosses a cell -- and the fix is flat
+  (0.561-0.566). The drivers now accumulate the wall-distance profile and
+  interpolate its cumulative at m delta (`within_cells`, `profile.dat`). Any
+  band, shell or threshold observable on a lattice can do this; sweep N across
+  one cell at fixed physics before trusting its grid convergence.
 
 ---
 
@@ -611,7 +626,8 @@ Do not spend time on these without saying so first; several are deliberate.
   which comes after, ran -- but its PASS lines have not been read here; FP32 at
   N = 257 gave 577 / 723 MLUPS free-slip / no-slip, probes included. Stage 3's
   Reynolds ladder is `GPU/csf3/tg_mhd_ladder.sub`, gated by
-  `tools/tg_mhd_ladder.py`. **"At the dissipation peak" means the TURBULENT
+  `tools/tg_mhd_ladder.py`; its first run (2026-09-28, ~9 GPU-hours) failed the
+  gate on the node-layer count of f_w recorded above, not on the flow. **"At the dissipation peak" means the TURBULENT
   peak in a no-slip box:** its largest eps is the impulsive start, since the
   Taylor-Green velocity does not vanish on the walls (fw1 = 0.91 at t = 0 against
   0.15 at the t = 2 peak, N = 129, Re = 300), and both drivers' summary lines

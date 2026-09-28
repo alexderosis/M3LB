@@ -34,32 +34,29 @@
 #  largest dissipation in the run (fw1 = 0.91 at t = 0 against 0.15 at the t = 2
 #  peak, N = 129, Re = 300), and the tool's banner says how it skips it.
 #
-#  COST, FP64 on one gpuA A100, from the FP32 N = 257 verify run (577-723 MLUPS
-#  with probes) halved for FP64 and rounded against us -- a bracket, not a
-#  measurement; every run now prints its own MLUPS and its probe share:
+#  COST, MEASURED on gpuA A100s (2026-09-28, the first ladder), FP64, probes
+#  included; the primary runs also write the frames of the OUTPUT list below:
 #
-#      N      nodes    steps (t = 10)   est.       memory (device)
-#      128    2.2M     8.1k             ~2 min      1 GB
-#      192    7.3M     12k              ~5 min      3 GB
-#      256    17M      16k              ~15 min     8 GB
-#      384    58M      24k              ~1.2 h      26 GB
-#      512    136M     33k              ~3.5 h      61 GB  (fits 80 GB)
+#      N      nodes   steps (t = 10)   wall, A / B / C          host MaxRSS
+#      128    2.2M    8.1k             1.3 / 1.1 / 0.7 min       0.26 GB
+#      192    7.3M    12k              5.6 / 4.9 / 2.4 min       0.54 GB
+#      256    17M     16k              13 / 13 / 6.6 min         1.2 GB
+#      384    58M     24k              39 / 31 / 18 min          3.8 GB
+#      512    136M    33k              ~120 / ~100 / 53 min      8.8 GB
 #
-#  so all 24 elements are ~25 GPU-hours. Probes are host-side and parallel over
-#  the job's -c cores since 2026-09-27; at N = 512 a probe is roughly ten
-#  seconds, hence the coarser -probe on the big rungs below.
-#  HOST memory at N = 512: 7.6 GB for the seven FP64 copies the probe walks,
-#  ~1 GB more while a frame is written, and ~5 GB transient at setup (a 32-byte
-#  RegWallSpec per node). CSF3's per-core share on gpuA is not recorded in this
-#  tree: before the N = 512 group, read MaxRSS of a finished N = 384 element
-#  (sacct, see the README; expect ~4 GB) and add --mem if 2.3x that will not fit.
-#
+#  (primary-run times; N = 512's A and B extrapolated from their N = 384 runs by
+#  the 3.15x work ratio, C measured). That is 600-850 MLUPS for the MHD runs and
+#  1.38 GLUPS for the hydrodynamic ones, and ~9 GPU-hours for all 24 elements --
+#  a third of the ~25 the first bracket, FP32 timings halved, predicted. Device
+#  memory at N = 512 is ~61 GB of the 80. Host memory needs no --mem at -c 4.
+#  Probes are host-side and parallel over the job's -c cores.
+
 #  SUBMIT IN THREE GROUPS, so each asks for the wallclock it needs (the CSF3
 #  README says why that matters for backfill):
 #
-#      sbatch --array=0-5,12-17 --time=1:00:00 GPU/csf3/tg_mhd_ladder.sub
-#      sbatch --array=6-8,18-23 --time=3:00:00 GPU/csf3/tg_mhd_ladder.sub
-#      sbatch --array=9-11      --time=7:00:00 GPU/csf3/tg_mhd_ladder.sub
+#      sbatch --array=0-5,12-17 --time=0:30:00 GPU/csf3/tg_mhd_ladder.sub
+#      sbatch --array=6-8,18-23 --time=1:30:00 GPU/csf3/tg_mhd_ladder.sub
+#      sbatch --array=9-11      --time=3:00:00 GPU/csf3/tg_mhd_ladder.sub
 #
 #  the first is rungs Re = 125 and 250 at both resolutions, the second Re = 500
 #  at both plus the Re = 1000 check (N = 384), the third the three N = 512 runs.
@@ -77,13 +74,16 @@
 #
 #  OUTPUT, under runs/tg_mhd_ladder/<A|B|C>_re<Re>_n<N>/:
 #      series.dat     always -- the numbers; tools/tg_mhd_ladder.py tabulates them
+#      profile.dat    always -- the dissipation against wall distance, layer by
+#                     layer, one row per probe: what f_w is read from, and the
+#                     wall layers of A, B and C as a figure (~0.3 MB at N = 512)
 #      anim_frames/   primary runs: slices every 0.25 and the |J| volume, strided
 #                     to <= 128^3 by block maximum, for render_slices.py and
 #                     render_volume.py (a few hundred MB per run at N = 512)
 #      raw/           only with RAW=1: full float32 u, b, rho every 2 time units,
 #                     3.8 GB per snapshot at N = 512 -- for spectra and sheet
 #                     thickness, and worth it only for the runs a figure needs
-#  e.g.  RAW=1 sbatch --array=10 --time=7:00:00 GPU/csf3/tg_mhd_ladder.sub
+#  e.g.  RAW=1 sbatch --array=10 --time=3:00:00 GPU/csf3/tg_mhd_ladder.sub
 #
 #  THEN, on the login node (pure stdlib, no numpy):
 #      python3 tools/tg_mhd_ladder.py runs/tg_mhd_ladder
@@ -91,7 +91,7 @@
 #SBATCH -p gpuA
 #SBATCH -G 1
 #SBATCH -c 4
-#SBATCH -t 0-1:00               # per-group overrides above; this fits rungs 0-1
+#SBATCH -t 0-0:30               # per-group overrides above; this fits rungs 0-1
 #SBATCH -J tg_mhd_ladder
 #SBATCH -o tg_mhd_ladder-%A_%a.log
 

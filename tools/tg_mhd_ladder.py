@@ -22,24 +22,42 @@ rises 5 % above; a free-slip run rises at once, so for it this is simply the
 global maximum. The peak time is refined by a parabola through the three samples
 around the discrete maximum and f_w is interpolated to it, because near a no-slip
 peak fw1 moves ~0.2 per unit time and the probe spacing alone would otherwise
-decide a few per cent of the answer. A run whose eps is still rising at its last
-sample has not reached its peak, and prints "--" rather than its last value.
+decide a few per cent of the answer. Two runs have no f_w, and say which: one
+whose eps never rises 5 % above its post-start minimum has NO TURBULENT PEAK
+inside the run (B at Re = 125 and C at Re <= 500 in the first CSF3 ladder) --
+the author's decision, 2026-09-28, is that such a run has none, rather than
+being read at another run's time -- and one still rising at its last sample has
+not REACHED its peak.
 
-Beside it, fw1 averaged over +-half (default 1) around the same peak, as a check
+HOW f_w IS MEASURED, and the series that got it wrong. A series whose header
+carries fw=profile (both drivers since 2026-09-28) reads f_w off the
+wall-distance profile with the band edge interpolated, and is taken as it is.
+Older series COUNTED WHOLE NODE LAYERS -- every node with k h < m delta -- which
+with the trapezoidal weights is a band of (ceil(m delta/h) - 1/2) h, not
+m delta. At the first CSF3 ladder's grid pairs that is 0.91 against 1.07 delta
+at Re = 250 and 1000, and fw1 differed by 8-25 % between the two grids of a rung
+while the peak dissipation agreed to 1 %; the gap the band predicts and the gap
+measured had the same sign in all 24 comparisons (8 pairs x 3 bands). For such
+series this tool places each column at the band it really measured and
+interpolates the three, with the origin, piecewise-linearly to exactly 1, 2 and
+4 delta; their rows are marked. That is a reconstruction from three points --
+enough to show what the gate was measuring, not a number for a figure.
+
+Beside f_w: fw1/vol, fw1 over the delta shell's share of the box volume,
+1 - (1 - 2 delta/pi)^3 -- the shell's dissipation density against the mean,
+where a wall's effect shows as a trend instead of as a share that shrinks with
+the shell -- and fw1 averaged over +-half (default 1) around the peak, as a check
 that the instantaneous value is not an accident of one time.
 
 THE GATE: for every (setup, Re) run at two resolutions, fw1, fw2 and fw4 at the
 peak must each agree within --tol (5 %, the plan's number). A rung that fails is
 flagged and must not go into a figure; the exit status is 1 if any rung fails.
 The tolerance is RELATIVE for every setup -- the author's decision, 2026-09-27 --
-and that is strict on A, whose fw1 is ~0.01, so 5 % of it is 5e-4 absolute: the
-N = 65 / 97 pair at Re = 1000 fails it by 30 % while its fw4 agrees to 0.8 %.
-A's small absolute error is what the headline's band weighs.
-THE HEADLINE is, per Re, B - A (the wall) and B - C (the field) in fw1 on the
-finer grids, beside the resolution band -- the two setups' fw1 differences
-between grids, added -- and marked when it clears the band. The PRL claim needs
-B - A outside the band and monotonic over at least three rungs; that is checked
-too.
+which is strict on A, whose fw1 is a few 1e-2. THE HEADLINE is, per Re, B - A
+(the wall) and B - C (the field) in fw1 on the finer grids, beside the
+resolution band -- the two setups' fw1 differences between grids, added -- and
+marked when it clears the band. The PRL claim needs B - A outside the band and
+monotonic over at least three rungs; that is checked too.
 
 Pure stdlib -- it runs on a CSF3 login node with no numpy.
 """
@@ -90,6 +108,7 @@ def load(path):
     return {"path": path, "tag": tag, "setup": setup, "N": int(mN.group(1)),
             "Re": float(mRe.group(1)),
             "prec": "FP32" if "FP32" in h else ("FP64" if "FP64" in h else "?"),
+            "fwdef": "profile" if "fw=profile" in h.split() else "count",
             "rows": rows, "diverged": any("DIVERGED" in x for x in head)}
 
 
@@ -100,6 +119,39 @@ def col(run, name):
 def finite_max(xs):
     xs = [x for x in xs if math.isfinite(x)]
     return max(xs) if xs else None
+
+
+def band_corrected(N, Re, f):
+    """fw1/fw2/fw4 from a series that counted whole node layers, moved to exactly
+    1, 2, 4 delta: each sample sits at the band it really measured,
+    (ceil(m r) - 1/2) / r delta with r = delta/h, and the three with the origin
+    are interpolated piecewise-linearly (the last segment extended if needed)."""
+    r = (N - 1) / (math.pi * math.sqrt(Re))
+    pts = sorted([(0.0, 0.0)] + [((math.ceil(m * r) - 0.5) / r, v) for m, v in zip((1, 2, 4), f)])
+    out = []
+    for x in (1.0, 2.0, 4.0):
+        (x0, y0), (x1, y1) = next(((a, b) for a, b in zip(pts, pts[1:]) if a[0] <= x <= b[0]),
+                                  (pts[-2], pts[-1]))
+        out.append(y0 if x1 == x0 else y0 + (y1 - y0) * (x - x0) / (x1 - x0))
+    return out
+
+
+def fw_rows(run):
+    """[(t, [fw1, fw2, fw4])] at every probe, band-corrected for a counted series."""
+    out = []
+    for r in run["rows"]:
+        f = [r[IX[m]] for m in FW]
+        out.append((r[0], band_corrected(run["N"], run["Re"], f) if run["fwdef"] == "count" else f))
+    return out
+
+
+def fw_at(run, t):
+    rows = fw_rows(run)
+    for (ta, fa), (tb, fb) in zip(rows, rows[1:]):
+        if ta <= t <= tb:
+            w = 0.0 if tb == ta else (t - ta) / (tb - ta)
+            return [(1 - w) * a + w * b for a, b in zip(fa, fb)]
+    return None
 
 
 def interp(run, name, t):
@@ -113,14 +165,13 @@ def interp(run, name, t):
 
 
 def turbulent_peak(run, rise=1.05):
-    """(t_peak, eps_peak) of the maximum after the impulsive start, or None.
-
-    The start ends at the first running minimum of eps that eps later exceeds by
-    the factor `rise`; a wiggle smaller than that during the initial decay is not
-    taken for the end of it."""
+    """(t_peak, eps_peak) of the maximum after the impulsive start, or the reason
+    there is none. The start ends at the first running minimum of eps that eps
+    later exceeds by the factor `rise`; a wiggle smaller than that during the
+    initial decay is not taken for the end of it."""
     t, e = col(run, "t"), col(run, "eps")
     if len(e) < 3 or not all(math.isfinite(x) for x in e):
-        return None
+        return "too short"
     k = 0
     for i in range(1, len(e)):
         if e[i] < e[k]:
@@ -128,10 +179,10 @@ def turbulent_peak(run, rise=1.05):
         elif e[i] > rise * e[k]:
             break
     else:
-        return None                           # decays throughout: no turbulent peak
+        return "no turbulent peak by t = %.1f" % t[-1]
     j = max(range(k, len(e)), key=lambda i: e[i])
     if j == len(e) - 1:
-        return None                           # still rising at the last sample
+        return "peak not reached by t = %.1f" % t[-1]
     if j == 0:
         return t[0], e[0]
     # vertex of the parabola through (t, e) at j-1, j, j+1 -- general spacing
@@ -145,9 +196,9 @@ def turbulent_peak(run, rise=1.05):
     return tp, interp(run, "eps", tp)
 
 
-def window_mean(run, name, t0, t1):
-    """Trapezoidal mean of a column over [t0, t1]; None if the run does not cover it."""
-    pts = [(r[0], r[IX[name]]) for r in run["rows"] if t0 - 1e-9 <= r[0] <= t1 + 1e-9]
+def window_fw1(run, t0, t1):
+    """Trapezoidal mean of fw1 over [t0, t1]; None if the run does not cover it."""
+    pts = [(t, f[0]) for t, f in fw_rows(run) if t0 - 1e-9 <= t <= t1 + 1e-9]
     if len(pts) < 2 or pts[0][0] > t0 + 0.2 or pts[-1][0] < t1 - 0.2:
         return None
     area = sum(0.5 * (a[1] + b[1]) * (b[0] - a[0]) for a, b in zip(pts, pts[1:]))
@@ -170,27 +221,42 @@ def main(argv):
     if not runs:
         raise SystemExit("no tg_mhd series.dat under %s" % args.runs_dir)
 
-    print("%-6s %-2s %4s %4s | %6s %9s | %7s %7s %7s | %7s | %8s %8s %8s  %s"
-          % ("Re", "S ", "N", "prec", "t_peak", "eps_peak", "fw1", "fw2", "fw4",
+    print("%-6s %-2s %4s %4s | %6s %9s | %7s %7s %7s | %7s %7s | %8s %8s %8s  %s"
+          % ("Re", "S ", "N", "prec", "t_peak", "eps_peak", "fw1", "fw2", "fw4", "fw1/vol",
              "fw1+-%g" % args.half, "minEM/EV", "|mass|", "divb/j", "tag"))
-    res = {}
+    res, counted = {}, False
     for Re in sorted({r["Re"] for r in runs}):
+        vol1 = 1.0 - (1.0 - 2.0 / (math.pi * math.sqrt(Re))) ** 3
         for r in sorted((r for r in runs if r["Re"] == Re), key=lambda r: (r["setup"], r["N"])):
             pk = turbulent_peak(r)
-            fw = [interp(r, m, pk[0]) for m in FW] if pk else [None] * 3
-            fwin = window_mean(r, "fw1", pk[0] - args.half, pk[0] + args.half) if pk else None
+            ok = isinstance(pk, tuple)
+            fw = fw_at(r, pk[0]) if ok else None
+            fw = fw if fw is not None else [None] * 3
+            fwin = window_fw1(r, pk[0] - args.half, pk[0] + args.half) if ok else None
             em = [x for x in col(r, "EM/EV")[1:] if math.isfinite(x) and x > 0]
             mass = finite_max([abs(x) for x in col(r, "mass_drift")])
             divb = finite_max(col(r, "divb/j")[1:])
-            note = " DIVERGED" if r["diverged"] else ("" if pk else "  (no peak yet)")
-            print("%-6g %-2s %4d %4s | %s %s | %s %s %s | %s | %s %s %s  %s%s"
+            note = ""
+            if r["diverged"]:
+                note += "  DIVERGED"
+            if not ok:
+                note += "  (%s)" % pk
+            if r["fwdef"] == "count":
+                note += "  *"
+                counted = True
+            print("%-6g %-2s %4d %4s | %s %s | %s %s %s | %s %s | %s %s %s  %s%s"
                   % (Re, r["setup"], r["N"], r["prec"],
-                     fmt(pk[0] if pk else None, "%.2f", 6), fmt(pk[1] if pk else None, "%.3e", 9),
-                     fmt(fw[0]), fmt(fw[1]), fmt(fw[2]), fmt(fwin),
+                     fmt(pk[0] if ok else None, "%.2f", 6), fmt(pk[1] if ok else None, "%.3e", 9),
+                     fmt(fw[0]), fmt(fw[1]), fmt(fw[2]),
+                     fmt(fw[0] / vol1 if fw[0] is not None else None, "%.3f"), fmt(fwin),
                      fmt(min(em) if em else None, "%.3f", 8), fmt(mass, "%.1e", 8),
                      fmt(divb, "%.1e", 8), r["tag"], note))
-            res.setdefault((Re, r["setup"]), []).append((r["N"], fw, pk))
+            res.setdefault((Re, r["setup"]), []).append((r["N"], fw, pk if ok else None))
         print()
+    if counted:
+        print("* f_w in this series counted whole node layers (no fw=profile in its header);"
+              " shown band-corrected from its three columns -- a reconstruction, not a"
+              " measurement. Re-run with the current drivers for figures.\n")
 
     print("RESOLUTION GATE: f_w at the peak from the two finest grids of each (setup, Re),"
           " tolerance %.0f %%" % (100 * args.tol))
@@ -211,7 +277,8 @@ def main(argv):
             continue
         (n1, f1, p1), (n2, f2, p2) = lst[-2], lst[-1]
         if None in f1 or None in f2:
-            print("  Re %-6g %s  N = %d vs %d: a run has no peak yet -- not gated" % (Re, setup, n1, n2))
+            print("  Re %-6g %s  N = %d vs %d: no f_w at the peak on %s -- not gated"
+                  % (Re, setup, n1, n2, "either grid" if (None in f1 and None in f2) else "one grid"))
             failed.append((Re, setup))
             continue
         rel = [abs(a - b) / max(abs(a), abs(b)) if max(abs(a), abs(b)) > 0 else 0.0

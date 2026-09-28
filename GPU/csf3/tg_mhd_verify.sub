@@ -9,7 +9,10 @@
 #  t = 0..2, 815 steps -- with no shared headers. The only non-zero column
 #  differences are H_C and the skewness at t = 0, at 1e-17 of their scale, which
 #  is round-off on quantities that vanish there. Both reference series are
-#  tracked in results/P_tg_mhd/xcheck_n65_re200/.
+#  tracked in results/P_tg_mhd/xcheck_n65_re200/. Since 2026-09-28 f_w is read
+#  off the wall-distance profile (the series carry fw=profile) and each run also
+#  writes profile.dat; the references were regenerated then -- every other
+#  column unchanged to the printed digit -- and the device is checked on both.
 #
 #  WHAT THIS JOB ADDS. The device build has never run: nvcc can reject what the
 #  host compiler accepted (this tree has a list), and a device run can differ
@@ -79,6 +82,17 @@ for w in ("slip", "noslip"):
     bad += 0 if ok else 1
     print(f"{w}: device vs Kokkos parent, worst column {top[0][1]} {top[0][0]:.2e}"
           f" of its scale  {'PASS' if ok else 'FAIL'}")
+    # profile.dat: each wall-distance layer's share of eps, which f_w is read
+    # from. Shares are O(0.01-0.1) and printed to six figures, so 1e-6 absolute
+    # is print rounding; the band-edge error it replaced was 1e-2.
+    pref = load(f"{root}/results/P_tg_mhd/xcheck_n65_re200/{w}_src_kokkos_fp64_profile.dat")
+    pdev = load(f"{out}/{w}_cuda_fp64/profile.dat")
+    pw = (max(abs(x - y) for a, b in zip(pref, pdev) for x, y in zip(a[1:], b[1:]))
+          if len(pref) == len(pdev) and pref else float("inf"))
+    pok = pw < 1e-6
+    bad += 0 if pok else 1
+    print(f"{w}: device vs Kokkos parent, wall-distance profile worst |share| {pw:.2e}"
+          f"  {'PASS' if pok else 'FAIL'}")
 sys.exit(1 if bad else 0)
 EOF
 

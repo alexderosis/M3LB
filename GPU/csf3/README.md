@@ -90,9 +90,9 @@ sbatch --array=2 --time=12:00:00 GPU/csf3/rb_cold.sub  # H = 1998, ~6 h
 sbatch GPU/csf3/ot3d_re3040.sub                      # OT 3-D, M=288, ~10 min
 sbatch GPU/csf3/mhd_jet.sub                          # MHD jet, nx=512 fp32, ~12 h
 sbatch GPU/csf3/tg_mhd_verify.sub                    # confined MHD: device twin check
-sbatch --array=0-5,12-17 --time=1:00:00 GPU/csf3/tg_mhd_ladder.sub   # then the ladder,
-sbatch --array=6-8,18-23 --time=3:00:00 GPU/csf3/tg_mhd_ladder.sub   # in three groups
-sbatch --array=9-11      --time=7:00:00 GPU/csf3/tg_mhd_ladder.sub   # (see below)
+sbatch --array=0-5,12-17 --time=0:30:00 GPU/csf3/tg_mhd_ladder.sub   # then the ladder,
+sbatch --array=6-8,18-23 --time=1:30:00 GPU/csf3/tg_mhd_ladder.sub   # in three groups
+sbatch --array=9-11      --time=3:00:00 GPU/csf3/tg_mhd_ladder.sub   # (see below)
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -177,14 +177,17 @@ submitting the ladder**: the ladder has no twin to check it against.
 
 The ladder is 24 array elements: setups A (free slip + conducting), B (no slip
 + conducting) and C (no slip, no field), at Re = 125 / 250 / 500 / 1000, each at
-a primary N = 192 / 256 / 384 / 512 and a coarser check grid, FP64, ~25 GPU-hours
-in all. It does **not** build — it refuses a `build64` binary older than the
+a primary N = 192 / 256 / 384 / 512 and a coarser check grid, FP64, ~9 GPU-hours
+in all as measured on the first ladder (2026-09-28; the job's header has the
+table, from 1 min at N = 128 to ~2 h at N = 512). It does **not** build — it refuses a `build64` binary older than the
 source and prints the rebuild command, so after every `git pull` rebuild on the
 login node (the job's header has the four lines). Submit in the three groups
 above so each asks for the wallclock it needs; the job's header maps elements to
 runs. Output goes to `runs/tg_mhd_ladder/<A|B|C>_re<Re>_n<N>/`: `series.dat`
-always, `anim_frames/` for the primary runs, and full `raw/` snapshots only with
-`RAW=1` (3.8 GB each at N = 512 — ask for them per run, for the figures).
+and `profile.dat` (the dissipation against wall distance, which f_w is read
+from) always, `anim_frames/` for the primary runs, and full `raw/` snapshots
+only with `RAW=1` (3.8 GB each at N = 512 — ask for them per run, for the
+figures).
 
 Then, on the login node — pure stdlib:
 
@@ -194,8 +197,19 @@ python3 tools/tg_mhd_ladder.py runs/tg_mhd_ladder
 
 It prints one row per run (f_w at the dissipation peak, min E_M/E_V, mass drift,
 div b), the plan's 5 % resolution gate per rung, and B − A and B − C against the
-resolution band. Exit status 1 means some rung failed the gate. The series are
-small: pulling `runs/tg_mhd_ladder/*/series.dat` back is a few MB.
+resolution band. Exit status 1 means some rung failed the gate. Series from
+before 2026-09-28 counted f_w in whole node layers, which made the first
+ladder's gate measure where the band edge fell between nodes rather than the
+flow; the tool corrects those from their three columns and marks them `*`, and
+only a re-run gives numbers for a figure. The files are small — `series.dat`,
+`profile.dat` and `log.txt` for all 24 runs are a few MB:
+
+```bash
+rsync -av --include='*/' --include='series.dat' --include='profile.dat' --include='log.txt' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_ladder/ results/P_tg_mhd/ladder/
+```
+
+run on the laptop from the repo root; `.gitignore` keeps the frames, raw
+volumes and films out of git at that depth.
 
 ---
 
