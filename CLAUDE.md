@@ -620,14 +620,21 @@ Do not spend time on these without saying so first; several are deliberate.
   (`src/tg_mhd.cu`, `set_parity_walls`, `seed_populations_with`). Its HOST build
   reproduces `demonstrator/tg_mhd` to every printed digit in FP64, free-slip and
   no-slip, N = 65 over 815 steps (series tracked in
-  `results/P_tg_mhd/xcheck_n65_re200/`). The DEVICE build has run on a CSF3
-  A100 (2026-09-27): `GPU/csf3/tg_mhd_verify.sub`'s FP64 check against those
-  series must have passed -- the job runs under `set -e` and its FP32 stage,
-  which comes after, ran -- but its PASS lines have not been read here; FP32 at
-  N = 257 gave 577 / 723 MLUPS free-slip / no-slip, probes included. Stage 3's
-  Reynolds ladder is `GPU/csf3/tg_mhd_ladder.sub`, gated by
-  `tools/tg_mhd_ladder.py`; its first run (2026-09-28, ~9 GPU-hours) failed the
-  gate on the node-layer count of f_w recorded above, not on the flow. **"At the dissipation peak" means the TURBULENT
+  `results/P_tg_mhd/xcheck_n65_re200/`). The DEVICE build PASSES
+  `GPU/csf3/tg_mhd_verify.sub` on a CSF3 A100 -- worst column 5.1e-16 / 5.5e-16
+  of its scale, free slip / no slip, both runs (2026-09-27 and -28), and the
+  wall-distance profile to 4e-33 in the second (logs in
+  `results/P_tg_mhd/ladder/`). Stage 3's Reynolds ladder is
+  `GPU/csf3/tg_mhd_ladder.sub`, gated by `tools/tg_mhd_ladder.py`; its first
+  run (2026-09-28, ~9 GPU-hours) failed the gate on the node-layer count of f_w
+  recorded above, not on the flow, and the rerun with the profile passes on
+  every rung that has a turbulent peak (worst 2.1 %): B - A = +0.073 / +0.065 /
+  +0.063 at Re = 250 / 500 / 1000, 22-157x its band, monotonic. The free-slip
+  box at Re = 1000 is Pouquet et al.'s C2 and is converged there at
+  min E_M/E_V = 0.369, 5.5 % above their 0.35 -- N = 97's 0.357 was
+  under-resolution, not agreement. Until 2026-09-29 the drivers' "probe share"
+  line on a DEVICE absorbed the asynchronously queued steps (it read 100 % at
+  N = 65); the totals were always right. **"At the dissipation peak" means the TURBULENT
   peak in a no-slip box:** its largest eps is the impulsive start, since the
   Taylor-Green velocity does not vanish on the walls (fw1 = 0.91 at t = 0 against
   0.15 at the t = 2 peak, N = 129, Re = 300), and both drivers' summary lines

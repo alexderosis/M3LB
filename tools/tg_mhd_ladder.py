@@ -276,9 +276,15 @@ def main(argv):
             print("  Re %-6g %s  one grid only (N = %d) -- not gated" % (Re, setup, lst[0][0]))
             continue
         (n1, f1, p1), (n2, f2, p2) = lst[-2], lst[-1]
+        if None in f1 and None in f2:
+            # No turbulent peak on either grid: no f_w exists, by the author's
+            # decision -- the grids AGREE, so this is not a failure of the gate.
+            print("  Re %-6g %s  N = %d vs %d: no f_w on either grid (no turbulent peak) -- not gated"
+                  % (Re, setup, n1, n2))
+            continue
         if None in f1 or None in f2:
-            print("  Re %-6g %s  N = %d vs %d: no f_w at the peak on %s -- not gated"
-                  % (Re, setup, n1, n2, "either grid" if (None in f1 and None in f2) else "one grid"))
+            # One grid has a peak and the other not: that IS a disagreement.
+            print("  Re %-6g %s  N = %d vs %d: a turbulent peak on one grid only  FAIL" % (Re, setup, n1, n2))
             failed.append((Re, setup))
             continue
         rel = [abs(a - b) / max(abs(a), abs(b)) if max(abs(a), abs(b)) > 0 else 0.0

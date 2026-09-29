@@ -44,7 +44,12 @@
 //  Table 1): min E_M/E_V = 0.35 (the conducting flow's ratio falls below one
 //  after a transient and never returns) and the first maximum of
 //  Omega_M/Omega_V after its initial fall, printed as "2." -- one figure. Their
-//  run is spectral at 128^3. Their SKEWNESS is not a reference: the paper calls
+//  run is spectral at 128^3. MEASURED against it (2026-09-29, the second CSF3
+//  ladder, free-slip box = their periodic run): min E_M/E_V = 0.3695 / 0.3693 at
+//  N = 384 / 512, a true minimum at t = 7.3 -- converged, and 5.5 % ABOVE their
+//  0.35; the first maximum of Omega_M/Omega_V is 2.154 / 2.159, their "2.". The
+//  N = 97 run's 0.357 (at t = 9.8) looked like agreement and was under-
+//  resolution. Their SKEWNESS is not a reference: the paper calls
 //  it "the normalized third-order moment of the velocity field" without a
 //  formula, and its Fig. 10 reaches ~2 by t ~ 0.5, which no velocity-DERIVATIVE
 //  skewness of this initial condition can do. The column here is the
@@ -835,6 +840,10 @@ int main(int argc, char** argv) {
       const bool probe = kp && (k % kp == 0 || k == T);
       const bool outp = (kv && k % kv == 0) || (kd && k % kd == 0) || (kr && k % kr == 0);
       if (probe || outp) {
+        // Drain the queued steps first, so the probe timer measures the probe
+        // and not the steps a device backend has queued (GPU/src/tg_mhd.cu's
+        // twin measured that at "100 % of the run"); a no-op on host backends.
+        Kokkos::fence();
         const auto d0 = std::chrono::steady_clock::now();
         refresh();
         ++nprobe;

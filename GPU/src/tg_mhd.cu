@@ -739,6 +739,12 @@ int main(int argc, char** argv) {
     const bool probe = kp && (k % kp == 0 || k == T);
     const bool outp = (kv && k % kv == 0) || (kd && k % kd == 0) || (kr && k % kr == 0);
     if (probe || outp) {
+      // Drain the queued steps FIRST: launches are asynchronous, so without this
+      // the probe's first copy waits for them and the probe timer absorbs the
+      // steps -- the first device runs read "100 % of the run" in probes at
+      // N = 65 and "7.5 GLUPS without them" at N = 257, twice what an A100's
+      // memory bandwidth allows. The total and its MLUPS were always right.
+      backend::sync();
       const auto d0 = std::chrono::steady_clock::now();
       refresh();
       const double t = double(k) * dt;
