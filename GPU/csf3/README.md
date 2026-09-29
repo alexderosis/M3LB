@@ -89,6 +89,12 @@ sbatch --array=1 GPU/csf3/rb_cold.sub                # H = 998,  ~45 min
 sbatch --array=2 --time=12:00:00 GPU/csf3/rb_cold.sub  # H = 1998, ~6 h
 sbatch GPU/csf3/ot3d_re3040.sub                      # OT 3-D, M=288, ~10 min
 sbatch GPU/csf3/mhd_jet.sub                          # MHD jet, nx=512 fp32, ~12 h
+sbatch GPU/csf3/tg_mhd_verify.sub                    # confined MHD: device twin check
+sbatch --array=0-5,12-17 --time=0:30:00 GPU/csf3/tg_mhd_ladder.sub   # then the ladder,
+sbatch --array=6-8,18-23 --time=1:30:00 GPU/csf3/tg_mhd_ladder.sub   # in three groups
+sbatch --array=9-11      --time=3:00:00 GPU/csf3/tg_mhd_ladder.sub   # (see below)
+sbatch --array=0-1 --time=5:00:00 GPU/csf3/tg_mhd_mach.sub           # its Mach check
+sbatch --array=2-3 --time=2:30:00 GPU/csf3/tg_mhd_mach.sub
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -161,6 +167,62 @@ Rough cost on one A100 at ~1.5 GLUPS FP64, 100 free-fall times:
 | 1998 | 4012 × 2000 | 8.0e6 | 4.0e6 | ~6 h |
 
 For scale, H = 498 took **3 hours on four CPU threads** before it died.
+
+**`tg_mhd_verify.sub`, then `tg_mhd_ladder.sub`** are the confined-MHD box
+(`GPU/src/tg_mhd.cu`: Taylor–Green MHD in a closed cube, on branch `mhd`).
+The verify job builds `GPU/build64` itself, runs the free-slip and no-slip
+boxes at N = 65 in FP64, and checks them against the Kokkos twin's series in
+`results/P_tg_mhd/xcheck_n65_re200/` — one `PASS`/`FAIL` line per wall, to
+1e-7 of each column's scale. It then times an FP32 pair at N = 257 (577 and
+723 MLUPS with probes on the first device run). **Read the two PASS lines before
+submitting the ladder**: the ladder has no twin to check it against.
+
+The ladder is 24 array elements: setups A (free slip + conducting), B (no slip
++ conducting) and C (no slip, no field), at Re = 125 / 250 / 500 / 1000, each at
+a primary N = 192 / 256 / 384 / 512 and a coarser check grid, FP64, ~9 GPU-hours
+in all as measured on the first ladder (2026-09-28; the job's header has the
+table, from 1 min at N = 128 to ~2 h at N = 512). It does **not** build — it refuses a `build64` binary older than the
+source and prints the rebuild command, so after every `git pull` rebuild on the
+login node (the job's header has the four lines). Submit in the three groups
+above so each asks for the wallclock it needs; the job's header maps elements to
+runs. Output goes to `runs/tg_mhd_ladder/<A|B|C>_re<Re>_n<N>/`: `series.dat`
+and `profile.dat` (the dissipation against wall distance, which f_w is read
+from) always, `anim_frames/` for the primary runs, and full `raw/` snapshots
+only with `RAW=1` (3.8 GB each at N = 512 — ask for them per run, for the
+figures).
+
+Then, on the login node — pure stdlib:
+
+```bash
+python3 tools/tg_mhd_ladder.py runs/tg_mhd_ladder
+```
+
+It prints one row per run (f_w at the dissipation peak, min E_M/E_V, mass drift,
+div b), the plan's 5 % resolution gate per rung, and B − A and B − C against the
+resolution band. Exit status 1 means some rung failed the gate. Series from
+before 2026-09-28 counted f_w in whole node layers, which made the first
+ladder's gate measure where the band edge fell between nodes rather than the
+flow; the tool corrects those from their three columns and marks them `*`, and
+only a re-run gives numbers for a figure. The files are small — `series.dat`,
+`profile.dat` and `log.txt` for all 24 runs are a few MB:
+
+```bash
+rsync -av --include='*/' --include='series.dat' --include='profile.dat' --include='log.txt' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_ladder/ results/P_tg_mhd/ladder/
+```
+
+run on the laptop from the repo root; `.gitignore` keeps the frames, raw
+volumes and films out of git at that depth.
+
+**`tg_mhd_mach.sub`** is the ladder's Mach-halving check, the plan's last
+Stage 3 gate: A and B at u0 = 0.025 instead of 0.05, at Re = 1000 (N = 512, the
+gate) and Re = 500 (N = 384, the fallback, since the top rung's tau - 1/2 = 0.012
+sits at RegWall's floor). The ladder's peak Mach is 0.117, above this tree's
+0.087 rule, so the cost of it has to be measured, not assumed. Halving u0 at
+fixed N also halves tau - 1/2, so the check sees the two errors together. The
+verdict is fixed in the job's header before the runs -- the shift in B - A
+against the rung's resolution band (PASS) or half the Re step it could fake
+(MARGINAL) -- and `tools/tg_mhd_mach.py` applies it; exit status 2 means the top
+rung gave no verdict and only the fallback did.
 
 ---
 

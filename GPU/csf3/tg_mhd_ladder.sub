@@ -1,0 +1,152 @@
+#!/bin/bash --login
+#==============================================================================
+#  Stage 3 of the confined-MHD plan: the Reynolds-number ladder.
+#
+#  THE QUESTION. Are the small scales of confined MHD turbulence made by the
+#  cascade or by the walls, and how does that change with Re? The primary
+#  observable is f_w, the share of the viscous plus Ohmic dissipation within 1,
+#  2 and 4 x Re^-1/2 of the walls (series.dat columns fw1 fw2 fw4), read at the
+#  dissipation peak. It was fixed before any of these runs, in the plan.
+#
+#  THE RUNS -- 24 array elements, one GPU each, GPU/src/tg_mhd.cu in FP64:
+#
+#    setup   (element % 3)      A  free slip + conducting   (the control)
+#                               B  no slip   + conducting   (the experiment)
+#                               C  no slip, no field        (hydrodynamics)
+#    rung    (element / 3 % 4)  Re      125   250   500   1000
+#                               N       192   256   384   512    primary
+#                               N       128   192   256   384    resolution check
+#    which   (element / 12)     0 primary, 1 check
+#
+#  WHY THOSE GRIDS. The primary N makes a Re^-1/2 wall layer at least five cells
+#  thick, which is the plan's sizing rule; tau - 1/2 is 0.018 or more on every
+#  rung, clear of RegWall's measured floor. The check grid is the next COARSER
+#  one, because the next finer would be 768^3 at the top rung and does not fit
+#  one card -- so each rung is judged on two resolutions whose ratio is 1.33 to
+#  1.5. A sheet that thins as Re^-1 still drops below a cell inside this ladder,
+#  and the paper has to say so.
+#
+#  THE GATE (the plan's Stage 3): at every rung, f_w from the two resolutions
+#  agrees within 5 %. tools/tg_mhd_ladder.py applies it; nothing from a rung that
+#  fails it goes into a figure. Then B - A must exceed the resolution band and
+#  trend monotonically over at least three rungs for the PRL claim. "The peak" of
+#  a no-slip run is its TURBULENT maximum, not t = 0: the impulsive start is the
+#  largest dissipation in the run (fw1 = 0.91 at t = 0 against 0.15 at the t = 2
+#  peak, N = 129, Re = 300), and the tool's banner says how it skips it.
+#
+#  COST, MEASURED on gpuA A100s (2026-09-28, the first ladder), FP64, probes
+#  included; the primary runs also write the frames of the OUTPUT list below:
+#
+#      N      nodes   steps (t = 10)   wall, A / B / C          host MaxRSS
+#      128    2.2M    8.1k             1.3 / 1.1 / 0.7 min       0.26 GB
+#      192    7.3M    12k              5.6 / 4.9 / 2.4 min       0.54 GB
+#      256    17M     16k              13 / 13 / 6.6 min         1.2 GB
+#      384    58M     24k              39 / 31 / 18 min          3.8 GB
+#      512    136M    33k              ~120 / ~100 / 53 min      8.8 GB
+#
+#  (primary-run times; N = 512's A and B extrapolated from their N = 384 runs by
+#  the 3.15x work ratio, C measured). That is 600-850 MLUPS for the MHD runs and
+#  1.38 GLUPS for the hydrodynamic ones, and ~9 GPU-hours for all 24 elements --
+#  a third of the ~25 the first bracket, FP32 timings halved, predicted. Device
+#  memory at N = 512 is ~61 GB of the 80. Host memory needs no --mem at -c 4.
+#  Probes are host-side and parallel over the job's -c cores.
+
+#  SUBMIT IN THREE GROUPS, so each asks for the wallclock it needs (the CSF3
+#  README says why that matters for backfill):
+#
+#      sbatch --array=0-5,12-17 --time=0:30:00 GPU/csf3/tg_mhd_ladder.sub
+#      sbatch --array=6-8,18-23 --time=1:30:00 GPU/csf3/tg_mhd_ladder.sub
+#      sbatch --array=9-11      --time=3:00:00 GPU/csf3/tg_mhd_ladder.sub
+#
+#  the first is rungs Re = 125 and 250 at both resolutions, the second Re = 500
+#  at both plus the Re = 1000 check (N = 384), the third the three N = 512 runs.
+#
+#  BUILD FIRST, once, on a login node, after every git pull -- the job refuses a
+#  binary older than the source rather than run stale code:
+#      cd ~/scratch/M3LB && git checkout mhd && git pull
+#      module load libs/cuda/12.8.1
+#      cd GPU
+#      cmake -S . -B build64 -DCMAKE_BUILD_TYPE=Release -DLBM_GPU_ARCH=80 \
+#            -DLBM_ONLY_OP=cm -DLBM_DOUBLE=ON
+#      cmake --build build64 --target tg_mhd -j8
+#      cd ..
+#  (build64 is the tree tg_mhd_verify.sub already made.)
+#
+#  OUTPUT, under runs/tg_mhd_ladder/<A|B|C>_re<Re>_n<N>/:
+#      series.dat     always -- the numbers; tools/tg_mhd_ladder.py tabulates them
+#      profile.dat    always -- the dissipation against wall distance, layer by
+#                     layer, one row per probe: what f_w is read from, and the
+#                     wall layers of A, B and C as a figure (~0.3 MB at N = 512)
+#      anim_frames/   primary runs: slices every 0.25 and the |J| volume, strided
+#                     to <= 128^3 by block maximum, for render_slices.py and
+#                     render_volume.py (a few hundred MB per run at N = 512)
+#      raw/           only with RAW=1: full float32 u, b, rho every 2 time units,
+#                     3.8 GB per snapshot at N = 512 -- for spectra and sheet
+#                     thickness, and worth it only for the runs a figure needs
+#  e.g.  RAW=1 sbatch --array=10 --time=3:00:00 GPU/csf3/tg_mhd_ladder.sub
+#
+#  THEN, on the login node (pure stdlib, no numpy):
+#      python3 tools/tg_mhd_ladder.py runs/tg_mhd_ladder
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-0:30               # per-group overrides above; this fits rungs 0-1
+#SBATCH -J tg_mhd_ladder
+#SBATCH -o tg_mhd_ladder-%A_%a.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+BIN="$ROOT/GPU/build64/tg_mhd"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN -- build it first (see the header)" >&2
+  exit 1
+fi
+# A binary older than any source it depends on is stale: refuse, and say which.
+STALE=$(find "$ROOT/GPU/src/tg_mhd.cu" "$ROOT/GPU/include" -newer "$BIN" -type f | head -3)
+if [ -n "$STALE" ]; then
+  echo "ERROR: $BIN is older than:" >&2
+  echo "$STALE" | sed 's/^/    /' >&2
+  echo "  Rebuild:  cd $ROOT/GPU && cmake --build build64 --target tg_mhd -j8" >&2
+  exit 1
+fi
+
+i=${SLURM_ARRAY_TASK_ID:?"submit as an array job; see the header"}
+SETUP=$(( i % 3 ))
+RUNG=$(( (i / 3) % 4 ))
+WHICH=$(( i / 12 ))
+RES=(125 250 500 1000)
+NPRI=(192 256 384 512)
+NCHK=(128 192 256 384)
+RE=${RES[$RUNG]}
+if [ "$WHICH" -eq 0 ]; then N=${NPRI[$RUNG]}; else N=${NCHK[$RUNG]}; fi
+
+case $SETUP in
+  0) NAME=A; FLAGS="-vwall slip   -mwall cond -ic tgc" ;;
+  1) NAME=B; FLAGS="-vwall noslip -mwall cond -ic tgc" ;;
+  2) NAME=C; FLAGS="-vwall noslip -ic hydro" ;;
+esac
+
+# Probes every 0.05 on the small grids, 0.1 on the big ones: at N = 512 a probe
+# is ~10 s of host work and 200 of them would be a sixth of the run.
+PROBE=0.05
+[ "$N" -ge 384 ] && PROBE=0.1
+OUTFLAGS=""
+if [ "$WHICH" -eq 0 ]; then
+  VS=$(( (N + 127) / 128 ))                # |J| volume at <= 128^3
+  OUTFLAGS="-dump 0.25 -dumpvol -volstride $VS"
+  [ "${RAW:-0}" = "1" ] && OUTFLAGS="$OUTFLAGS -raw 2"
+fi
+
+OUT="$ROOT/runs/tg_mhd_ladder/${NAME}_re${RE}_n${N}"
+mkdir -p "$OUT"
+echo "element $i: setup $NAME, Re $RE, N $N ($([ "$WHICH" -eq 0 ] && echo primary || echo check))"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+"$BIN" -n "$N" $FLAGS -re "$RE" -tmax 10 -probe "$PROBE" $OUTFLAGS -out "$OUT" 2>&1 \
+  | tee "$OUT/log.txt"

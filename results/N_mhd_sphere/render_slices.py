@@ -401,7 +401,7 @@ def read_volume(path):
 
 
 def read_meta(path):
-    meta = {'N': None, 'R': None, 'Te': None, 'frames': None, 'rows': {}}
+    meta = {'N': None, 'R': None, 'Te': None, 'frames': None, 'rows': {}, 'case': None}
     if not os.path.exists(path):
         return meta
     with open(path) as f:
@@ -418,6 +418,10 @@ def read_meta(path):
                     meta['Te'] = float(p[1])
                 elif p[0] == 'frames' and len(p) > 1:
                     meta['frames'] = int(p[1])
+                elif p[0] == 'case' and len(p) > 1:
+                    # optional; demonstrator/tg_mhd writes it so a closed box is
+                    # not captioned as the periodic Orszag-Tang it shares a mode with
+                    meta['case'] = ' '.join(p[1:])
                 elif p[0] == 'frame' and len(p) >= 5:
                     meta['rows'][int(p[1])] = (float(p[2]), float(p[3]), float(p[4]))
             except ValueError:
@@ -839,7 +843,9 @@ def main(argv):
         # In box mode there is no sphere and no radius to quote, and the case is
         # not mhd_sphere -- labelling it so is the kind of caption that outlives
         # the run and gets believed.
-        if R is not None and R <= 0:
+        if R is not None and R <= 0 and meta.get('case'):
+            h1 = '%s   N=%d   mid-plane z=%d   frame %d' % (meta['case'], N, N // 2, k)
+        elif R is not None and R <= 0:
             h1 = 'orszag_tang 3D   N=%d  periodic box   mid-plane z=%d   frame %d' \
                  % (N, N // 2, k)
         else:

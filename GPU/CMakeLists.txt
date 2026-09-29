@@ -161,11 +161,20 @@ if(LBM_PTXAS_VERBOSE)
 endif()
 
 set(LBM_APPS ice_equilibrium ice_melting square_entry ehd_cavity mhd_jet tgv3d tgv3d_bench bench box channel rayleigh_benard alfven orszag_tang droplet bubble newpaths hartmann rti3d impact skip rb_high_ra
-    mhd_decay mhd_sphere)
+    mhd_decay mhd_sphere tg_mhd)
+# tg_mhd's host diagnostics run on std::thread -- the only driver here that does.
+# glibc >= 2.34 carries pthreads in libc and this adds nothing; an older glibc
+# needs -lpthread at link time and was never told. THREADS_PREFER_PTHREAD_FLAG
+# stays at its default, so nothing new reaches the nvcc compile line.
+find_package(Threads REQUIRED)
+set(LBM_THREADED_APPS tg_mhd)
 if(NOT LBM_HOST_ONLY)
   foreach(app ${LBM_APPS})
     add_executable(${app} src/${app}.cu)
     target_link_libraries(${app} PRIVATE lbm_cuda_core)
+    if(app IN_LIST LBM_THREADED_APPS)
+      target_link_libraries(${app} PRIVATE Threads::Threads)
+    endif()
   endforeach()
 endif()
 
@@ -193,6 +202,9 @@ if(LBM_HOST_APPS OR LBM_HOST_ONLY)
       add_executable(host_${app} src/${app}.cu)
       set_source_files_properties(src/${app}.cu PROPERTIES LANGUAGE CXX)
       target_link_libraries(host_${app} PRIVATE lbm_cuda_core)
+      if(app IN_LIST LBM_THREADED_APPS)
+        target_link_libraries(host_${app} PRIVATE Threads::Threads)
+      endif()
     endif()
   endforeach()
 endif()

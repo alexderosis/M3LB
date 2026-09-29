@@ -1926,6 +1926,128 @@ static void alfven(Op op, const char* name) {
 }
 
 //==============================================================================
+
+//------------------------------------------------------------------------------
+// THE ON-NODE PARITY WALL for the magnetic field (set_parity_walls), checked the
+// way the parent's validation/mhd_parity_wall.cpp checks it, 2026-09-25.
+//
+// (a) The pair identities on a random D3Q7 vector: along a masked axis the pair
+//     (+k, -k) cancels for the component that plane flips and carries no flux
+//     for the one it keeps.
+// (b) THE IDENTITY. The Taylor-Green MHD fields of Pouquet et al. (2010) --
+//     B_C with the conducting parity on the faces of [0,pi]^3, B_I with the
+//     pseudo-vacuum one -- make a box of N nodes, walls ON nodes 0 and N-1,
+//     closed by SpecNode and the parity wall, the SAME problem as the periodic
+//     box of 2(N-1). The box must reproduce it node for node, transient
+//     included. Seeded exactly as src/tg_mhd.cu seeds: product-form equilibrium
+//     plus the Maxwell stress for the fluid, the velocity-dependent equilibrium
+//     for the field.
+//------------------------------------------------------------------------------
+static void magnetic_parity_wall() {
+  // (a) identities
+  double worst = 0.0;
+  const std::uint8_t masks[] = {SpecXm, SpecXp, SpecYm, SpecZp,
+                                std::uint8_t(SpecXm | SpecYp), std::uint8_t(SpecXp | SpecZm),
+                                std::uint8_t(SpecXm | SpecYm | SpecZm)};
+  for (std::uint8_t m : masks)
+    for (int cond = 0; cond < 2; ++cond)
+      for (int a = 0; a < 3; ++a) {
+        Real g[7];
+        unsigned st = 2654435761u * unsigned(a + 1) + unsigned(m) + 97u * unsigned(cond);
+        for (int i = 0; i < 7; ++i) {
+          st = st * 1664525u + 1013904223u;
+          g[i] = Real(double(st >> 8) / double(1u << 24) - 0.5);
+        }
+        mirror_unknowns_parity<D3Q7>(g, m, a, cond == 1);
+        for (int k = 0; k < 3; ++k) {
+          if (face_sign(m, k) == 0) continue;
+          const int ip = 1 + 2 * k, im = 2 + 2 * k;     // D3Q7: +x -x +y -y +z -z
+          const bool flipped = ((a == k) == (cond == 1));
+          worst = std::fmax(worst, std::fabs(double(flipped ? g[ip] + g[im] : g[ip] - g[im])));
+        }
+      }
+  check(worst == 0.0, "parity wall: pair identities, faces/edges/corner", worst, 0.0);
+
+  // (b) the identity, both parities
+  for (int cond = 1; cond >= 0; --cond) {
+    const int N = 13, steps = 150;
+    const double u0 = 0.04, b0 = 0.04 / std::sqrt(3.0), nu = 0.01, h = M_PI / double(N - 1);
+    std::vector<double> out[2];
+    for (int per = 0; per < 2; ++per) {
+      const int L = per ? 2 * (N - 1) : N;
+      host::Magnetic mag(L, L, L, Real(nu));
+      host::Fluid    fl (L, L, L, Op::CentralMoments, Real(nu));
+      if (!per) {
+        std::vector<std::uint8_t> faces(std::size_t(L) * L * L, std::uint8_t(SpecNone));
+        for (int z = 0; z < L; ++z)
+          for (int y = 0; y < L; ++y)
+            for (int x = 0; x < L; ++x) {
+              std::uint8_t mm = SpecNone;
+              if (x == 0) mm |= SpecXm; else if (x == L - 1) mm |= SpecXp;
+              if (y == 0) mm |= SpecYm; else if (y == L - 1) mm |= SpecYp;
+              if (z == 0) mm |= SpecZm; else if (z == L - 1) mm |= SpecZp;
+              faces[std::size_t(node_id(x, y, z, L, L))] = mm;
+            }
+        fl.set_specular_nodes(faces);
+        mag.set_parity_walls(faces, cond == 1);
+      }
+      fl.couple_magnetic(mag.Bx_device(), mag.By_device(), mag.Bz_device());
+      mag.advect_with(fl.ux_device(), fl.uy_device(), fl.uz_device());
+      auto U = [&](int x, int y, int z, Real u[3]) {
+        const double X = h * x, Y = h * y, Z = h * z;
+        u[0] = Real( u0 * std::sin(X) * std::cos(Y) * std::cos(Z));
+        u[1] = Real(-u0 * std::cos(X) * std::sin(Y) * std::cos(Z));
+        u[2] = Real(0);
+      };
+      auto Bf = [&](int x, int y, int z, Real b[3]) {
+        const double X = h * x, Y = h * y, Z = h * z;
+        if (cond) {
+          b[0] = Real( b0 * std::sin(2 * X) * std::cos(2 * Y) * std::cos(2 * Z));
+          b[1] = Real( b0 * std::cos(2 * X) * std::sin(2 * Y) * std::cos(2 * Z));
+          b[2] = Real(-2 * b0 * std::cos(2 * X) * std::cos(2 * Y) * std::sin(2 * Z));
+        } else {
+          b[0] = Real( b0 * std::cos(X) * std::sin(Y) * std::sin(Z));
+          b[1] = Real( b0 * std::sin(X) * std::cos(Y) * std::sin(Z));
+          b[2] = Real(-2 * b0 * std::sin(X) * std::sin(Y) * std::cos(Z));
+        }
+      };
+      mag.initialise_with(Bf, U);
+      fl.seed_populations_with([&](int x, int y, int z, Real f[27]) {
+        Real u[3], b[3];
+        U(x, y, z, u); Bf(x, y, z, b);
+        product_equilibrium(Real(1), u, f);
+        for (int i = 0; i < 27; ++i) f[i] += maxwell(i, b);
+      });
+      for (int t = 0; t < steps; ++t) { mag.compute_field(); fl.step(); mag.step(); }
+      std::vector<Real> rho, ux, uy, uz, bx, by, bz;
+      fl.macroscopic_to_host(rho, ux, uy, uz);
+      mag.field_to_host(bx, by, bz);
+      for (int z = 0; z < N; ++z)
+        for (int y = 0; y < N; ++y)
+          for (int x = 0; x < N; ++x) {
+            const std::size_t n = std::size_t(node_id(x, y, z, L, L));
+            const double v[6] = {double(ux[n]), double(uy[n]), double(uz[n]),
+                                 double(bx[n]), double(by[n]), double(bz[n])};
+            for (double q : v) out[per].push_back(q);
+          }
+    }
+    double wu = 0, wb = 0, su = 0, sb = 0;
+    for (std::size_t i = 0; i < out[0].size(); i += 6)
+      for (int c = 0; c < 6; ++c) {
+        const double d = std::fabs(out[0][i + c] - out[1][i + c]), sc = std::fabs(out[1][i + c]);
+        if (c < 3) { wu = std::fmax(wu, d); su = std::fmax(su, sc); }
+        else       { wb = std::fmax(wb, d); sb = std::fmax(sb, sc); }
+      }
+    const double tol = fp64 ? 1e-12 : 3e-6;
+    check(wu / su < tol && su > 0.25 * u0,
+          cond ? "parity wall: conducting TG-C box vs periodic, u"
+               : "parity wall: pseudo-vacuum TG-I box vs periodic, u", wu / su, 0.0);
+    check(wb / sb < tol && sb > 0.1 * b0,
+          cond ? "parity wall: conducting TG-C box vs periodic, b"
+               : "parity wall: pseudo-vacuum TG-I box vs periodic, b", wb / sb, 0.0);
+  }
+}
+
 int main() {
   std::printf("Physics checks, host build, Real = %s\n\n", fp64 ? "double" : "float");
 
@@ -1977,6 +2099,7 @@ int main() {
   magnetic_source();
   magnetic_thin();
   magnetic_neumann();
+  magnetic_parity_wall();
   alfven(Op::BGK, "BGK");
   alfven(Op::CentralMoments, "CM");
 

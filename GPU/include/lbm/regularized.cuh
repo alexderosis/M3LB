@@ -300,6 +300,30 @@ inline long build_reg_walls(const std::vector<RegWallSpec>& spec,
         unk[std::size_t(n)] = m;
       }
 
+  // A WALL NODE WITH NO UNKNOWN DIRECTION IS SILENTLY WRONG, and on this storage
+  // it is the default rather than an accident. The array wraps, so a RegWall on
+  // the array's own edge with nothing Solid or Excluded beyond it has every
+  // neighbour present -- the opposite face, through the wrap -- and gets an
+  // EMPTY mask: the scaffold then does nothing and Pi^(1) is built from what
+  // the far wall emitted. Found 2026-09-25 by src/tg_mhd.cu's no-slip box, whose
+  // wall vorticity came out at half the parent's after forty steps with no
+  // message anywhere. Every earlier case had solid rows beyond its walls, which
+  // is the fix: give the box a one-cell Solid shell. Reported, not refused, so
+  // no existing driver changes behaviour.
+  {
+    long noun = 0, nw = 0;
+    for (long n = 0; n < N; ++n) {
+      if (nrm[std::size_t(n)] == NrmNone) continue;
+      ++nw;
+      if (unk[std::size_t(n)] == 0u) ++noun;
+    }
+    if (noun)
+      std::fprintf(stderr,
+                   "  [reg] WARNING: %ld of %ld wall node(s) have NO unknown direction. "
+                   "A wall on the array edge needs a Solid (or Excluded) layer beyond it: "
+                   "the array wraps, so without one the far face feeds it.\n", noun, nw);
+  }
+
   // Corner rho stencils.
   has_corners = false;
   long blind = 0, ncorner = 0;
