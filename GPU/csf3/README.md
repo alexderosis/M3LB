@@ -93,6 +93,8 @@ sbatch GPU/csf3/tg_mhd_verify.sub                    # confined MHD: device twin
 sbatch --array=0-5,12-17 --time=0:30:00 GPU/csf3/tg_mhd_ladder.sub   # then the ladder,
 sbatch --array=6-8,18-23 --time=1:30:00 GPU/csf3/tg_mhd_ladder.sub   # in three groups
 sbatch --array=9-11      --time=3:00:00 GPU/csf3/tg_mhd_ladder.sub   # (see below)
+sbatch --array=0-1 --time=5:00:00 GPU/csf3/tg_mhd_mach.sub           # its Mach check
+sbatch --array=2-3 --time=2:30:00 GPU/csf3/tg_mhd_mach.sub
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -210,6 +212,17 @@ rsync -av --include='*/' --include='series.dat' --include='profile.dat' --includ
 
 run on the laptop from the repo root; `.gitignore` keeps the frames, raw
 volumes and films out of git at that depth.
+
+**`tg_mhd_mach.sub`** is the ladder's Mach-halving check, the plan's last
+Stage 3 gate: A and B at u0 = 0.025 instead of 0.05, at Re = 1000 (N = 512, the
+gate) and Re = 500 (N = 384, the fallback, since the top rung's tau - 1/2 = 0.012
+sits at RegWall's floor). The ladder's peak Mach is 0.117, above this tree's
+0.087 rule, so the cost of it has to be measured, not assumed. Halving u0 at
+fixed N also halves tau - 1/2, so the check sees the two errors together. The
+verdict is fixed in the job's header before the runs -- the shift in B - A
+against the rung's resolution band (PASS) or half the Re step it could fake
+(MARGINAL) -- and `tools/tg_mhd_mach.py` applies it; exit status 2 means the top
+rung gave no verdict and only the fallback did.
 
 ---
 

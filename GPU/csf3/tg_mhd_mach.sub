@@ -1,0 +1,108 @@
+#!/bin/bash --login
+#==============================================================================
+#  The Mach-halving check of the confined-MHD Reynolds ladder -- the plan's
+#  last Stage 3 gate, "one Mach-halving run at the top rung".
+#
+#  WHY IT IS NEEDED, and not a formality. The ladder (tg_mhd_ladder.sub) runs
+#  at u0 = 0.05, and at Re = 1000, N = 512 its peak lattice speed reaches 0.0673
+#  in A and 0.0607 in B: Ma = 0.117 and 0.105, above this tree's rule of
+#  u0 <= 0.05 (Ma <= 0.087) "unless you have measured what a larger one costs"
+#  (CLAUDE.md). This measures it.
+#
+#  WHAT IT CHANGES, stated so nobody reads more into it. At fixed N and Re,
+#  nu_lat = u0 (N - 1) / (pi Re), so halving u0 also halves tau - 1/2: the check
+#  sees the Ma^2 error and the tau-dependent error TOGETHER. That is the
+#  conventional test and the one the plan asked for. Holding tau fixed instead
+#  would need N doubled, 1024^3, which does not fit one A100.
+#
+#  THE RUNS -- 4 array elements, one GPU each, FP64 (build64), u0 = 0.025, to
+#  t = 10 with probes every 0.1 and no frames:
+#
+#      0  A  Re = 1000  N = 512   tau_f - 1/2 = 0.0122   65k steps   ~3.5 h
+#      1  B  Re = 1000  N = 512   tau_f - 1/2 = 0.0122   65k steps   ~3.1 h
+#      2  A  Re =  500  N = 384   tau_f - 1/2 = 0.0183   49k steps   ~1.3 h
+#      3  B  Re =  500  N = 384   tau_f - 1/2 = 0.0183   49k steps   ~1.1 h
+#
+#  (times: the ladder's own u0 = 0.05 runs at these grids, doubled for twice the
+#  steps). Elements 0-1 are the gate. Their tau_f - 1/2 = 0.0122 sits at the
+#  upper edge of RegWall's measured floor (~0.006-0.012), so the no-slip run at
+#  N = 512 may not survive; elements 2-3 are the rung below at a safe tau,
+#  submitted alongside so that a divergence costs no round trip -- and two rungs
+#  also say whether the Mach error grows with Re.
+#
+#  THE VERDICT, fixed before the runs; tools/tg_mhd_mach.py applies it. At each
+#  rung, the shift in B - A (fw1 at the turbulent peak) from u0 = 0.05 to 0.025:
+#
+#      PASS      |shift| <= that rung's resolution band from the ladder
+#                (the two setups' grid differences added: 0.0004 at Re = 1000)
+#      MARGINAL  |shift| <= half the ladder's B - A step to the rung below
+#                (0.0011 at Re = 1000): the error is below the trend it could fake
+#      FAIL      larger -- the Mach/tau error is the size of the Re trend, and the
+#                ladder must be rerun at a lower u0 before the trend is read
+#
+#  It also prints each setup's fw1/fw2/fw4 shift against the gate's 5 %, and
+#  B - A extrapolated to Ma -> 0 as Ma^2.
+#
+#  SUBMIT from the repo root, after a pull and a rebuild of build64 (the four
+#  lines are in tg_mhd_ladder.sub's header; this job refuses a stale binary):
+#
+#      sbatch --array=0-1 --time=5:00:00 GPU/csf3/tg_mhd_mach.sub
+#      sbatch --array=2-3 --time=2:30:00 GPU/csf3/tg_mhd_mach.sub
+#
+#  OUTPUT: runs/tg_mhd_mach/<A|B>_re<Re>_n<N>_u0p025/ -- series.dat, profile.dat,
+#  log.txt. Copy them back beside the ladder and compare, on the laptop:
+#
+#      rsync -av --include='*/' --include='series.dat' --include='profile.dat' \
+#            --include='log.txt' --exclude='*' \
+#            csf3:scratch/M3LB/runs/tg_mhd_mach/ results/P_tg_mhd/mach/
+#      python3 tools/tg_mhd_mach.py results/P_tg_mhd/mach results/P_tg_mhd/ladder
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-5:00               # elements 0-1; submit 2-3 with --time=2:30:00
+#SBATCH -J tg_mhd_mach
+#SBATCH -o tg_mhd_mach-%A_%a.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+BIN="$ROOT/GPU/build64/tg_mhd"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN -- build it first (see tg_mhd_ladder.sub)" >&2
+  exit 1
+fi
+# A binary older than any source it depends on is stale: refuse, and say which.
+STALE=$(find "$ROOT/GPU/src/tg_mhd.cu" "$ROOT/GPU/include" -newer "$BIN" -type f | head -3)
+if [ -n "$STALE" ]; then
+  echo "ERROR: $BIN is older than:" >&2
+  echo "$STALE" | sed 's/^/    /' >&2
+  echo "  Rebuild:  cd $ROOT/GPU && cmake --build build64 --target tg_mhd -j8" >&2
+  exit 1
+fi
+
+i=${SLURM_ARRAY_TASK_ID:?"submit as an array job; see the header"}
+U0=0.025
+case $i in
+  0) NAME=A; RE=1000; N=512 ;;
+  1) NAME=B; RE=1000; N=512 ;;
+  2) NAME=A; RE=500;  N=384 ;;
+  3) NAME=B; RE=500;  N=384 ;;
+  *) echo "ERROR: element $i -- this job has elements 0-3 (see the header)" >&2; exit 1 ;;
+esac
+case $NAME in
+  A) FLAGS="-vwall slip   -mwall cond -ic tgc" ;;
+  B) FLAGS="-vwall noslip -mwall cond -ic tgc" ;;
+esac
+
+OUT="$ROOT/runs/tg_mhd_mach/${NAME}_re${RE}_n${N}_u0p025"
+mkdir -p "$OUT"
+echo "element $i: setup $NAME, Re $RE, N $N, u0 $U0 (half the ladder's)"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+"$BIN" -n "$N" $FLAGS -re "$RE" -u0 "$U0" -tmax 10 -probe 0.1 -out "$OUT" 2>&1 \
+  | tee "$OUT/log.txt"
