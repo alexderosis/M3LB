@@ -1128,7 +1128,12 @@ Do not spend time on these without saying so first; several are deliberate.
   rungs: B - A moves by < 1e-4 at Re = 1000 against a band of 0.0004, and by
   -0.0014 at Re = 500 against 0.0030. At halved Mach B - A reads 0.063 at BOTH
   Re = 500 and 1000, equal within Re = 500's band -- so the monotonic fall rests
-  on the 250 -> 500 step, and whether B - A levels off needs a rung above 1000. The free-slip
+  on the 250 -> 500 step, and whether B - A levels off needs a rung above 1000. Since
+  2026-09-30 both drivers also write `profile_visc.dat` / `profile_ohm.dat` -- the
+  viscous and Ohmic parts of the profile, each a share of the TOTAL eps -- and
+  `GPU/csf3/tg_mhd_round2.sub` holds the Re = 2000 rung (FP32, N = 640 vs 512,
+  with an FP64 control), the insulating pair A' / B' (pseudo-vacuum walls need
+  the TG-I field; the driver refuses them with TG-C) and the split reruns. The free-slip
   box at Re = 1000 is Pouquet et al.'s C2 and is converged there at
   min E_M/E_V = 0.369, 5.5 % above their 0.35 -- N = 97's 0.357 was
   under-resolution, not agreement. Until 2026-09-29 the drivers' "probe share"

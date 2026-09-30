@@ -1,0 +1,141 @@
+#!/bin/bash --login
+#==============================================================================
+#  Round 2 of the confined-MHD ladder: the runs the PRL still needs.
+#
+#  WHERE THINGS STAND (2026-09-30). The ladder (tg_mhd_ladder.sub) passes its
+#  resolution gate, and its Mach-halving check (tg_mhd_mach.sub) passes too. The
+#  wall's excess share of the peak dissipation, B - A in fw1, is 0.073 at
+#  Re = 250 and 0.063 at BOTH Re = 500 and 1000 at halved Mach -- flat within
+#  Re = 500's band -- while the dissipation density at the no-slip wall rises from
+#  1.8x to 2.5x the mean. Whether B - A LEVELS OFF, the plan's "walls hold"
+#  outcome, cannot be told from two rungs. What is still missing:
+#
+#    R  a rung at Re = 2000 -- the most one A100 holds, and only in FP32;
+#    P  the INSULATING pair A' / B' (pseudo-vacuum walls with the TG-I field,
+#       whose symmetry planes those are; the driver refuses pv with TG-C), so
+#       B' - A' against B - A says whether the result needs a conducting wall;
+#    S  A and B rerun at Re = 250-1000 on both grids, because the drivers now
+#       also write profile_visc.dat / profile_ohm.dat (2026-09-30): which part
+#       of the wall excess is viscous and which Ohmic is the mechanism.
+#
+#  THE RUNS -- 29 array elements, one GPU each, to t = 10, no frames:
+#
+#   long (submit with --time=5:00:00)       short (submit with --time=2:00:00)
+#    0  A  Re 2000  N 640  FP32  primary     10  A  Re 2000  N 512  FP32  check
+#    1  B  Re 2000  N 640  FP32  primary     11  B  Re 2000  N 512  FP32  check
+#    2  C  Re 2000  N 640  FP32  primary     12  C  Re 2000  N 512  FP32  check
+#    3  A  Re 2000  N 512  FP64  control     13  A' Re 1000  N 384
+#    4  B  Re 2000  N 512  FP64  control     14  B' Re 1000  N 384
+#    5  C  Re 2000  N 512  FP64  control     15  A' Re  500  N 384
+#    6  A' Re 1000  N 512                    16  B' Re  500  N 384
+#    7  B' Re 1000  N 512                    17  A' Re  500  N 256
+#    8  A  Re 1000  N 512  (split)           18  B' Re  500  N 256
+#    9  B  Re 1000  N 512  (split)           19-24  A, B at Re 1000 N 384, Re 500
+#                                                   N 384 and N 256  (split)
+#                                            25-28  A, B at Re 250 N 256 and 192
+#
+#  All FP64 except R's primary and check. WHY THE Re = 2000 GRIDS ARE THESE.
+#  N = 640 is the largest that fits in FP32 (~64 GB of the 80); FP64 would need
+#  ~120 GB. It resolves delta = Re^-1/2 with 4.55 cells, UNDER the plan's 5, and
+#  the gate between it and the check grid is what decides whether that is enough.
+#  The check is N = 512, not the next-coarser 480, because tau_f - 1/2 is 0.0114
+#  at 480 -- below the 0.0122 the Mach runs showed RegWall surviving -- and
+#  exactly 0.0122 at 512; the price is a grid ratio of 1.25 instead of the
+#  ladder's 1.33-1.5. The FP64 control at N = 512 is the precision question
+#  asked by changing ONE thing: same grid, same u0, FP32 against FP64.
+#
+#  THE VERDICTS, fixed here before the runs:
+#    * Re = 2000 joins the ladder only if it passes the same 5 % gate on
+#      N = 640 against N = 512 (tools/tg_mhd_ladder.py runs/tg_mhd_round2);
+#    * FP32 is adequate there only if FP64 moves B - A by no more than that
+#      rung's resolution band (tools/tg_mhd_mach.py runs/tg_mhd_fp64check
+#      runs/tg_mhd_round2 runs/tg_mhd_ladder -- PASS / MARGINAL / FAIL as for the
+#      Mach check);
+#    * "walls hold" needs B - A at Re = 2000 inside the combined bands of
+#      Re = 1000 and 2000 from its Re = 1000 value; a fall outside them is the
+#      cascade outcome, and the paper is JFM / Phys. Plasmas instead.
+#
+#  COST, from the measured FP64 runs (865-1085 MLUPS at N = 384-512 without
+#  frames) and FP32 assumed 1.5x faster, which is NOT yet measured at this size:
+#  about 22 GPU-hours in all, the N = 640 primaries ~2 h each.
+#
+#  SUBMIT from the repo root, chained on the verify job, which pulls in nothing
+#  but rebuilds BOTH build64 and build32 and checks the device -- including the
+#  new split profiles -- before anything here starts:
+#
+#      jid=$(sbatch --parsable GPU/csf3/tg_mhd_verify.sub)
+#      sbatch --dependency=afterok:$jid --array=0-9   --time=5:00:00 GPU/csf3/tg_mhd_round2.sub
+#      sbatch --dependency=afterok:$jid --array=10-28 --time=2:00:00 GPU/csf3/tg_mhd_round2.sub
+#
+#  OUTPUT: runs/tg_mhd_round2/<A|B|C|Ap|Bp>_re<Re>_n<N>/ and, for the FP64
+#  controls 3-5, runs/tg_mhd_fp64check/ -- kept apart so the ladder tool never
+#  sees two runs at one (setup, Re, N). Each holds series.dat, profile.dat,
+#  profile_visc.dat, profile_ohm.dat and log.txt. RAW=1 adds full float32 fields
+#  every 2.5 time units (7.3 GB each at N = 640) for the elements a figure needs.
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-5:00               # elements 0-9; submit 10-28 with --time=2:00:00
+#SBATCH -J tg_mhd_round2
+#SBATCH -o tg_mhd_round2-%A_%a.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+i=${SLURM_ARRAY_TASK_ID:?"submit as an array job; see the header"}
+
+#          0    1    2    3    4    5    6    7    8    9    10   11   12   13   14   15   16   17   18   19   20   21   22   23   24   25   26   27   28
+NAMES=(    A    B    C    A    B    C    Ap   Bp   A    B    A    B    C    Ap   Bp   Ap   Bp   Ap   Bp   A    B    A    B    A    B    A    B    A    B   )
+RES=(      2000 2000 2000 2000 2000 2000 1000 1000 1000 1000 2000 2000 2000 1000 1000 500  500  500  500  1000 1000 500  500  500  500  250  250  250  250 )
+NS=(       640  640  640  512  512  512  512  512  512  512  512  512  512  384  384  384  384  256  256  384  384  384  384  256  256  256  256  192  192 )
+PRECS=(    32   32   32   64   64   64   64   64   64   64   32   32   32   64   64   64   64   64   64   64   64   64   64   64   64   64   64   64   64  )
+if [ "$i" -lt 0 ] || [ "$i" -ge "${#NAMES[@]}" ]; then
+  echo "ERROR: element $i -- this job has elements 0-$(( ${#NAMES[@]} - 1 )) (see the header)" >&2
+  exit 1
+fi
+NAME=${NAMES[$i]}; RE=${RES[$i]}; N=${NS[$i]}; PREC=${PRECS[$i]}
+
+BIN="$ROOT/GPU/build$PREC/tg_mhd"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN -- run tg_mhd_verify.sub first, which builds it" >&2
+  exit 1
+fi
+# A binary older than any source it depends on is stale: refuse, and say which.
+STALE=$(find "$ROOT/GPU/src/tg_mhd.cu" "$ROOT/GPU/include" -newer "$BIN" -type f | head -3)
+if [ -n "$STALE" ]; then
+  echo "ERROR: $BIN is older than:" >&2
+  echo "$STALE" | sed 's/^/    /' >&2
+  echo "  Rebuild by running tg_mhd_verify.sub, or: cd $ROOT/GPU && cmake --build build$PREC --target tg_mhd -j8" >&2
+  exit 1
+fi
+
+case $NAME in
+  A)  FLAGS="-vwall slip   -mwall cond -ic tgc" ;;
+  B)  FLAGS="-vwall noslip -mwall cond -ic tgc" ;;
+  C)  FLAGS="-vwall noslip -ic hydro" ;;
+  Ap) FLAGS="-vwall slip   -mwall pv   -ic tgi" ;;   # the insulating pair: TG-I's planes are
+  Bp) FLAGS="-vwall noslip -mwall pv   -ic tgi" ;;   # pseudo-vacuum, as TG-C's are conducting
+esac
+
+# Probes as in the ladder: every 0.05 on the small grids, 0.1 from N = 384.
+PROBE=0.05
+[ "$N" -ge 384 ] && PROBE=0.1
+OUTFLAGS=""
+[ "${RAW:-0}" = "1" ] && OUTFLAGS="-raw 2.5"
+
+if [ "$i" -ge 3 ] && [ "$i" -le 5 ]; then
+  OUT="$ROOT/runs/tg_mhd_fp64check/${NAME}_re${RE}_n${N}"
+else
+  OUT="$ROOT/runs/tg_mhd_round2/${NAME}_re${RE}_n${N}"
+fi
+mkdir -p "$OUT"
+echo "element $i: setup $NAME, Re $RE, N $N, FP$PREC -> $OUT"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+"$BIN" -n "$N" $FLAGS -re "$RE" -tmax 10 -probe "$PROBE" $OUTFLAGS -out "$OUT" 2>&1 \
+  | tee "$OUT/log.txt"

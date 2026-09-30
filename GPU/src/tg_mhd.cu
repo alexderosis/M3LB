@@ -22,7 +22,8 @@
 //      derivatives at a wall node closed by the extension that wall implies,
 //      direction-averaged moments before the skewness ratio;
 //    * the output formats: series.dat with the same columns, profile.dat (the
-//      dissipation against wall distance, which f_w is read from), anim_frames/
+//      dissipation against wall distance, which f_w is read from) with its
+//      viscous and Ohmic parts in profile_visc.dat and profile_ohm.dat, anim_frames/
 //      for the renderers, vti/ on the real [0, pi] coordinates, raw/ volumes.
 //
 //  WHAT IS NOT: the operator is written out in closed form here and reached
@@ -235,10 +236,11 @@ struct Acc {
   double mass = 0, jmax = 0, wmax = 0, umax = 0;
   bool finite = true;
   // Per wall-distance layer k -- the nodes k cells from the nearest wall -- the
-  // weighted dissipation and the weight itself; f_w and profile.dat come from
-  // these (within_cells says how).
-  std::vector<double> lay_e, lay_w;
-  explicit Acc(std::size_t nlay = 0) : lay_e(nlay, 0.0), lay_w(nlay, 0.0) {}
+  // weighted dissipation, its viscous and Ohmic parts, and the weight itself;
+  // f_w and the profile files come from these (within_cells says how).
+  std::vector<double> lay_e, lay_w, lay_v, lay_m;
+  explicit Acc(std::size_t nlay = 0)
+      : lay_e(nlay, 0.0), lay_w(nlay, 0.0), lay_v(nlay, 0.0), lay_m(nlay, 0.0) {}
   void add(const Acc& a) {
     W += a.W; ev += a.ev; em += a.em; hc += a.hc; w2 += a.w2; j2 += a.j2;
     for (int k = 0; k < 3; ++k) { d2[k] += a.d2[k]; d3[k] += a.d3[k]; }
@@ -246,7 +248,9 @@ struct Acc {
     tw += a.tw; ntw += a.ntw; mass += a.mass;
     jmax = std::max(jmax, a.jmax); wmax = std::max(wmax, a.wmax); umax = std::max(umax, a.umax);
     finite = finite && a.finite;
-    for (std::size_t k = 0; k < lay_e.size(); ++k) { lay_e[k] += a.lay_e[k]; lay_w[k] += a.lay_w[k]; }
+    for (std::size_t k = 0; k < lay_e.size(); ++k) {
+      lay_e[k] += a.lay_e[k]; lay_w[k] += a.lay_w[k]; lay_v[k] += a.lay_v[k]; lay_m[k] += a.lay_m[k];
+    }
   }
 };
 
@@ -301,6 +305,7 @@ struct Diag {
   double jmax = 0, wmax = 0, skew = 0, divb = 0, divb_wall = 0, mass = 0;
   double umax_lat = 0, fw[3] = {0, 0, 0}, tauw = 0;
   std::vector<double> prof, vol;   // each layer's share of eps and of the volume
+  std::vector<double> prof_v, prof_m;   // its viscous and Ohmic parts, shares of the TOTAL eps
   bool finite = true;
 };
 
@@ -528,6 +533,8 @@ int main(int argc, char** argv) {
           const std::size_t lay = std::min(std::size_t(dw), a.lay_e.size() - 1);
           a.lay_e[lay] += w * eloc;
           a.lay_w[lay] += w;
+          a.lay_v[lay] += w * (nu_tg * w2);     // eloc's viscous part
+          a.lay_m[lay] += w * (eta_tg * j2);    // and its Ohmic part
           if (dw <= 1) { a.divw += w * dvb * dvb; a.j2w += w * j2; a.ndivw += w; }
           a.jmax = std::max(a.jmax, std::sqrt(j2));
           a.wmax = std::max(a.wmax, std::sqrt(w2));
@@ -567,10 +574,12 @@ int main(int argc, char** argv) {
     for (double e : a.lay_e) etot += e;
     for (int m = 0; m < 3; ++m)
       g.fw[m] = (etot > 0) ? within_cells(a.lay_e, double(1 << m) * delta / h) / etot : 0.0;
-    g.prof.resize(nlay); g.vol.resize(nlay);
+    g.prof.resize(nlay); g.vol.resize(nlay); g.prof_v.resize(nlay); g.prof_m.resize(nlay);
     for (std::size_t k = 0; k < nlay; ++k) {
       g.prof[k] = (etot > 0) ? a.lay_e[k] / etot : 0.0;
       g.vol[k] = a.lay_w[k] / W;
+      g.prof_v[k] = (etot > 0) ? a.lay_v[k] / etot : 0.0;
+      g.prof_m[k] = (etot > 0) ? a.lay_m[k] / etot : 0.0;
     }
     g.tauw = (a.ntw > 0) ? a.tw / a.ntw : 0.0;
     g.mass = (t > 0) ? a.mass / mass0 - 1.0 : 0.0;
@@ -593,16 +602,26 @@ int main(int argc, char** argv) {
   std::fprintf(ser, "# t E_V E_M E_T H_C Omega_V Omega_M eps EM/EV OmM/OmV j_max w_max"
                     " skew divb/j divb_wall/j mass_drift umax_lat fw1 fw2 fw4 tau_wall\n");
   // profile.dat: the dissipation against wall distance, one row per probe --
-  // what f_w is read from, and a figure of its own.
-  std::FILE* pro = std::fopen((o.out + "/profile.dat").c_str(), "w");
-  if (!pro) { std::fprintf(stderr, "tg_mhd: cannot write profile.dat\n"); return 2; }
-  std::fprintf(pro, "# tg_mhd (%s %s)  %s  N=%d Re=%g h=%.8e delta=%.8e delta/h=%.6f layers=%zu\n",
-               backend::on_device ? "CUDA" : "host", sizeof(Real) == 4 ? "FP32" : "FP64",
-               tag, N, o.re, h, delta, delta / h, nlay);
-  std::fprintf(pro, "# layer k: the nodes k cells from the nearest wall, i.e. the slab"
-                    " [(k-1/2)h, (k+1/2)h] ([0, h/2] for k = 0)\n");
-  std::fprintf(pro, "# row 'vol': each layer's share of the volume; then per probe: t and"
-                    " each layer's share of eps\n");
+  // what f_w is read from, and a figure of its own. profile_visc.dat and
+  // profile_ohm.dat split it into its viscous (nu w^2) and Ohmic (eta j^2)
+  // parts, each still a share of the TOTAL eps, so the two add up to
+  // profile.dat: which one a wall layer is made of is what tells a no-slip
+  // boundary layer from a current sheet on a conducting wall.
+  const char* pro_name[3] = {"profile.dat", "profile_visc.dat", "profile_ohm.dat"};
+  const char* pro_what[3] = {"share of eps", "VISCOUS dissipation as a share of the total eps",
+                             "OHMIC dissipation as a share of the total eps"};
+  std::FILE* pro[3] = {nullptr, nullptr, nullptr};
+  for (int f = 0; f < 3; ++f) {
+    pro[f] = std::fopen((o.out + "/" + pro_name[f]).c_str(), "w");
+    if (!pro[f]) { std::fprintf(stderr, "tg_mhd: cannot write %s\n", pro_name[f]); return 2; }
+    std::fprintf(pro[f], "# tg_mhd (%s %s)  %s  N=%d Re=%g h=%.8e delta=%.8e delta/h=%.6f layers=%zu\n",
+                 backend::on_device ? "CUDA" : "host", sizeof(Real) == 4 ? "FP32" : "FP64",
+                 tag, N, o.re, h, delta, delta / h, nlay);
+    std::fprintf(pro[f], "# layer k: the nodes k cells from the nearest wall, i.e. the slab"
+                         " [(k-1/2)h, (k+1/2)h] ([0, h/2] for k = 0)\n");
+    std::fprintf(pro[f], "# row 'vol': each layer's share of the volume; then per probe: t and"
+                         " each layer's %s\n", pro_what[f]);
+  }
   bool pro_vol = false;
 
   std::FILE* meta = nullptr;
@@ -779,16 +798,19 @@ int main(int argc, char** argv) {
                      g.jmax, g.wmax, g.skew, g.divb, g.divb_wall, g.mass, g.umax_lat,
                      g.fw[0], g.fw[1], g.fw[2], g.tauw);
         std::fflush(ser);
-        if (!pro_vol) {
-          std::fprintf(pro, "# vol");
-          for (double v : g.vol) std::fprintf(pro, " %.6e", v);
-          std::fprintf(pro, "\n");
-          pro_vol = true;
+        const std::vector<double>* pv[3] = {&g.prof, &g.prof_v, &g.prof_m};
+        for (int f = 0; f < 3; ++f) {
+          if (!pro_vol) {
+            std::fprintf(pro[f], "# vol");
+            for (double v : g.vol) std::fprintf(pro[f], " %.6e", v);
+            std::fprintf(pro[f], "\n");
+          }
+          std::fprintf(pro[f], "%.6f", t);
+          for (double s : *pv[f]) std::fprintf(pro[f], " %.5e", s);
+          std::fprintf(pro[f], "\n");
+          std::fflush(pro[f]);
         }
-        std::fprintf(pro, "%.6f", t);
-        for (double s : g.prof) std::fprintf(pro, " %.5e", s);
-        std::fprintf(pro, "\n");
-        std::fflush(pro);
+        pro_vol = true;
         if (k % (kp * 10) == 0 || k == T)
           std::printf("  %7.3f %11.5e %11.5e %9.4f %9.4f %9.3e %9.3f %9.2e %+9.1e %10.4f\n",
                       t, g.ev, g.em, emev, ommv, g.eps, g.jmax, g.divb, g.mass, g.fw[0]);
@@ -806,7 +828,7 @@ int main(int argc, char** argv) {
   backend::sync();
   const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - wall0).count();
   std::fclose(ser);
-  std::fclose(pro);
+  for (std::FILE* f : pro) std::fclose(f);
   if (meta) { std::fprintf(meta, "frames %d\n", dframe); std::fclose(meta); }
   if (!pvd.empty()) write_pvd(o.out + "/vti/tg.pvd", pvd);
 

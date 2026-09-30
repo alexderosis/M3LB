@@ -95,6 +95,8 @@ sbatch --array=6-8,18-23 --time=1:30:00 GPU/csf3/tg_mhd_ladder.sub   # in three 
 sbatch --array=9-11      --time=3:00:00 GPU/csf3/tg_mhd_ladder.sub   # (see below)
 sbatch --array=0-1 --time=5:00:00 GPU/csf3/tg_mhd_mach.sub           # its Mach check
 sbatch --array=2-3 --time=2:30:00 GPU/csf3/tg_mhd_mach.sub
+sbatch --array=0-9   --time=5:00:00 GPU/csf3/tg_mhd_round2.sub     # round 2 (see below)
+sbatch --array=10-28 --time=2:00:00 GPU/csf3/tg_mhd_round2.sub
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -223,6 +225,26 @@ verdict is fixed in the job's header before the runs -- the shift in B - A
 against the rung's resolution band (PASS) or half the Re step it could fake
 (MARGINAL) -- and `tools/tg_mhd_mach.py` applies it; exit status 2 means the top
 rung gave no verdict and only the fallback did.
+
+**`tg_mhd_round2.sub`** is what the PRL still needs, 29 elements and about 22
+GPU-hours: the Re = 2000 rung (A, B, C in FP32 at N = 640 against N = 512, with
+an FP64 N = 512 control of the precision, kept in `runs/tg_mhd_fp64check/` so
+the ladder tool never sees two runs at one grid); the insulating pair A' / B'
+(pseudo-vacuum walls with the TG-I field) at Re = 500 and 1000 on two grids
+each; and A and B rerun at Re = 250-1000 on both grids, because the drivers now
+also write `profile_visc.dat` and `profile_ohm.dat`, the viscous and Ohmic
+parts of the wall-distance profile. Its three verdicts are fixed in the header
+before the runs. Chain it on the verify job, which rebuilds BOTH `build64` and
+`build32` and checks the device on the split profiles too:
+
+```
+jid=$(sbatch --parsable GPU/csf3/tg_mhd_verify.sub)
+sbatch --dependency=afterok:$jid --array=0-9   --time=5:00:00 GPU/csf3/tg_mhd_round2.sub
+sbatch --dependency=afterok:$jid --array=10-28 --time=2:00:00 GPU/csf3/tg_mhd_round2.sub
+```
+
+and copy back `runs/tg_mhd_round2/` and `runs/tg_mhd_fp64check/` with the
+same rsync line as the ladder, adding `--include='profile_*.dat'`.
 
 ---
 

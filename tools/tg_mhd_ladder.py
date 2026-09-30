@@ -97,10 +97,12 @@ def load(path):
         return None
     if "_periodic_" in tag:
         setup = "P"
+    elif "_nofield_" in tag:
+        setup = "C" if "_noslip_" in tag else "?"
+    elif "_pv_" in tag:          # pseudo-vacuum walls, with the TG-I field whose planes they are
+        setup = "B'" if "_noslip_" in tag else ("A'" if "_slip_" in tag else "?")
     elif "_slip_" in tag:
         setup = "A"
-    elif "_noslip_" in tag and "_nofield_" in tag:
-        setup = "C"
     elif "_noslip_" in tag:
         setup = "B"
     else:
@@ -205,6 +207,45 @@ def window_fw1(run, t0, t1):
     return area / (pts[-1][0] - pts[0][0])
 
 
+def within_cells(e, r):
+    """The drivers' within_cells: the dissipation within r cells of the walls, from
+    per-layer sums e, layer k being the slab [(k - 1/2) h, (k + 1/2) h]."""
+    if r <= 0 or not e:
+        return 0.0
+    if r < 0.5:
+        return e[0] * (r / 0.5)
+    k = int(math.floor(r + 0.5))
+    c = sum(e[:min(k, len(e))])
+    return c + e[k] * (r - (k - 0.5)) if k < len(e) else c
+
+
+def split_fw1(run, pk):
+    """[viscous, Ohmic] parts of fw1 at the peak, from the run's profile_visc.dat and
+    profile_ohm.dat (each a share of the TOTAL eps, so they add up to fw1), or None
+    for a run that did not write them."""
+    if pk is None:
+        return None
+    out = []
+    for name in ("profile_visc.dat", "profile_ohm.dat"):
+        p = os.path.join(os.path.dirname(run["path"]), name)
+        if not os.path.exists(p):
+            return None
+        with open(p) as f:
+            lines = f.read().splitlines()
+        m = re.search(r"delta/h=([0-9.eE+-]+)", lines[0])
+        rows = [[float(x) for x in l.split()] for l in lines if l and not l.startswith("#")]
+        e = None
+        for a, b in zip(rows, rows[1:]):
+            if a[0] <= pk[0] <= b[0]:
+                w = 0.0 if b[0] == a[0] else (pk[0] - a[0]) / (b[0] - a[0])
+                e = [(1 - w) * x + w * y for x, y in zip(a[1:], b[1:])]
+                break
+        if m is None or e is None:
+            return None
+        out.append(within_cells(e, float(m.group(1))))
+    return out
+
+
 def fmt(v, spec="%.4f", width=7):
     return "--".rjust(width) if v is None else (spec % v).rjust(width)
 
@@ -251,7 +292,7 @@ def main(argv):
                      fmt(fw[0] / vol1 if fw[0] is not None else None, "%.3f"), fmt(fwin),
                      fmt(min(em) if em else None, "%.3f", 8), fmt(mass, "%.1e", 8),
                      fmt(divb, "%.1e", 8), r["tag"], note))
-            res.setdefault((Re, r["setup"]), []).append((r["N"], fw, pk if ok else None))
+            res.setdefault((Re, r["setup"]), []).append((r["N"], fw, pk if ok else None, r))
         print()
     if counted:
         print("* f_w in this series counted whole node layers (no fw=profile in its header);"
@@ -260,22 +301,23 @@ def main(argv):
 
     print("RESOLUTION GATE: f_w at the peak from the two finest grids of each (setup, Re),"
           " tolerance %.0f %%" % (100 * args.tol))
-    band, fine, failed = {}, {}, []
+    band, fine, fine_run, failed = {}, {}, {}, []
     for (Re, setup), lst in sorted(res.items()):
         if setup == "P":
             continue
         lst = sorted(lst, key=lambda x: x[0])
         fine[(Re, setup)] = lst[-1][1][0]
-        grids = sorted({n for n, _, _ in lst})
+        fine_run[(Re, setup)] = (lst[-1][3], lst[-1][2])
+        grids = sorted({n for n, _, _, _ in lst})
         if len(grids) < len(lst):
             print("  Re %-6g %s  more than one run at N = %s: the gate compares the two finest"
                   " DISTINCT grids" % (Re, setup, ", ".join(str(n) for n in grids
-                                                          if sum(m == n for m, _, _ in lst) > 1)))
+                                                          if sum(m == n for m, _, _, _ in lst) > 1)))
             lst = [next(x for x in reversed(lst) if x[0] == n) for n in grids]
         if len(lst) < 2:
             print("  Re %-6g %s  one grid only (N = %d) -- not gated" % (Re, setup, lst[0][0]))
             continue
-        (n1, f1, p1), (n2, f2, p2) = lst[-2], lst[-1]
+        (n1, f1, p1, _), (n2, f2, p2, _) = lst[-2], lst[-1]
         if None in f1 and None in f2:
             # No turbulent peak on either grid: no f_w exists, by the author's
             # decision -- the grids AGREE, so this is not a failure of the gate.
@@ -298,36 +340,45 @@ def main(argv):
                  "ok" if ok else "FAIL"))
 
     print("\nHEADLINE: fw1 at the peak, finer grid of each; band = the two setups' grid differences added")
+    pairs = (("B", "A", "wall, conducting"), ("B", "C", "field"), ("B'", "A'", "wall, insulating"))
     wall = []
     for Re in sorted({k[0] for k in fine}):
-        fb = fine.get((Re, "B"))
-        if fb is None:
-            continue
-        line = "  Re %-6g" % Re
-        for other, what in (("A", "wall"), ("C", "field")):
-            fo = fine.get((Re, other))
-            if fo is None:
-                line += "   B - %s (%s)    --      " % (other, what)
+        for hi, lo, what in pairs:
+            fh, fl = fine.get((Re, hi)), fine.get((Re, lo))
+            if fh is None or fl is None:
                 continue
-            d = fb - fo
-            bb, bo = band.get((Re, "B")), band.get((Re, other))
-            gated = (Re, "B") not in failed and (Re, other) not in failed
-            if bb is None or bo is None:
-                verdict = "band unknown"
-            else:
-                verdict = ("clears %.4f" if abs(d) > bb + bo else "inside %.4f") % (bb + bo)
+            d = fh - fl
+            bh, bl = band.get((Re, hi)), band.get((Re, lo))
+            gated = (Re, hi) not in failed and (Re, lo) not in failed
+            verdict = ("band unknown" if bh is None or bl is None else
+                       ("clears %.4f" if abs(d) > bh + bl else "inside %.4f") % (bh + bl))
             if not gated:
                 verdict += ", GATE FAILED"
-            line += "   B - %s (%s) %+.4f  %-24s" % (other, what, d, verdict)
-            if other == "A" and gated and bb is not None and bo is not None and abs(d) > bb + bo:
+            print("  Re %-6g  %-2s - %-2s (%-16s) %+.4f  %s" % (Re, hi, lo, what, d, verdict))
+            if (hi, lo) == ("B", "A") and gated and bh is not None and bl is not None and abs(d) > bh + bl:
                 wall.append((Re, d))
-        print(line.rstrip())
     if len(wall) >= 3:
         ds = [d for _, d in wall]
         mono = all(a < b for a, b in zip(ds, ds[1:])) or all(a > b for a, b in zip(ds, ds[1:]))
         print("  B - A clears its band on %d rungs and is %s in Re" % (len(wall), "MONOTONIC" if mono else "NOT monotonic"))
     else:
         print("  B - A clears its band on %d rung(s); the claim needs three" % len(wall))
+
+    # the viscous / Ohmic split of fw1, where the runs wrote profile_visc/ohm.dat
+    lines = []
+    for Re in sorted({k[0] for k in fine_run}):
+        for hi, lo, what in pairs:
+            if (Re, hi) not in fine_run or (Re, lo) not in fine_run:
+                continue
+            sh, sl = [split_fw1(*fine_run[(Re, s_)]) for s_ in (hi, lo)]
+            if sh is None or sl is None:
+                continue
+            lines.append("  Re %-6g  %-2s visc %.4f ohm %.4f | %-2s visc %.4f ohm %.4f | %-2s - %-2s: visc %+.4f ohm %+.4f"
+                         % (Re, hi, sh[0], sh[1], lo, sl[0], sl[1], hi, lo, sh[0] - sl[0], sh[1] - sl[1]))
+    if lines:
+        print("\nSPLIT of fw1 at the peak into its viscous (nu w^2) and Ohmic (eta j^2) parts,"
+              " finer grid of each; the two add up to fw1")
+        print("\n".join(lines))
     return 1 if failed else 0
 
 
