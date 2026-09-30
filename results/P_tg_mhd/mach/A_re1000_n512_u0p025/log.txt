@@ -1,0 +1,24 @@
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP64
+  walls: velocity free-slip (SpecNode), field CONDUCTING parity
+  ic tgc   N = 512 (512^3 nodes)   Re = 1000   Pm = 1   u0 = 0.025 (Ma 0.043)
+  nu_lat = 4.0664e-03  tau_f = 0.51220   eta_lat = 4.0664e-03  tau_m = 0.51627
+  dt = 1.5370e-04  ->  65063 steps to t = 10   ->  ~/scratch/M3LB/runs/tg_mhd_mach/A_re1000_n512_u0p025
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 1.25000e-01 1.25000e-01    1.0000    3.9998 3.750e-03     3.464  7.56e-15  +0.0e+00     0.0403
+    1.001 1.22731e-01 1.22344e-01    0.9968    2.1914 7.373e-03     6.855  1.32e-04  -1.4e-07     0.0355
+    2.001 1.28256e-01 1.01021e-01    0.7876    2.1535 2.724e-02    33.397  2.47e-03  -6.3e-07     0.0555
+    3.002 1.27542e-01 7.07087e-02    0.5544    1.3895 3.196e-02    31.603  2.25e-03  -1.1e-08     0.0484
+    4.002 1.11119e-01 5.22084e-02    0.4698    1.6994 3.692e-02    28.423  3.64e-03  +1.3e-06     0.0341
+    5.003 9.13396e-02 3.72924e-02    0.4083    1.5549 2.986e-02    24.827  3.17e-03  -9.9e-08     0.0506
+    6.003 7.39008e-02 2.80716e-02    0.3799    1.4261 2.296e-02    27.135  3.03e-03  -3.8e-07     0.0497
+    7.004 5.97853e-02 2.20949e-02    0.3696    1.2196 1.770e-02    25.793  2.79e-03  +9.4e-07     0.0507
+    8.005 4.78913e-02 1.78452e-02    0.3726    1.1534 1.447e-02    22.757  2.52e-03  -3.5e-07     0.0504
+    9.005 3.83634e-02 1.43989e-02    0.3753    1.1801 1.111e-02    17.963  2.42e-03  -2.4e-07     0.0455
+   10.000 3.13880e-02 1.19549e-02    0.3809    1.2206 7.691e-03    17.911  1.96e-03  +7.2e-07     0.0340
+
+  9065.5 s   974.61 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 101 probes, 1221.4 s = 13 % of the run on 4 thread(s); 1126.37 MLUPS without them
+  peak dissipation eps = 3.6921e-02 at t = 4.002 (past any impulsive start); skewness there 0.403, max 0.565
+  min E_M/E_V = 0.369   first max of Omega_M/Omega_V after its initial fall = 2.161077
+  Pouquet et al. (2010) C2, nu = eta = 1e-3: min E_M/E_V = 0.35, first max Omega_M/Omega_V = 2

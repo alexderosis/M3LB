@@ -1,0 +1,40 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB, 595.71.05
+
+[ 50%] Building CUDA object CMakeFiles/tg_mhd.dir/src/tg_mhd.cu.o
+~/scratch/M3LB/GPU/include/lbm/core.cuh(175): warning #20013-D: calling a constexpr __host__ function("make_dir_table") from a __host__ __device__ function("pi") is not allowed. The experimental flag '--expt-relaxed-constexpr' can be used to allow this.
+    constexpr DirTable t = make_dir_table();
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+[100%] Linking CUDA executable tg_mhd
+[100%] Built target tg_mhd
+
+  1.6 s   149.18 MLUPS (storage nodes x steps; field and probes included)
+  peak dissipation eps = 4.3755e-02 at t = 1.912; skewness there 0.315, max 0.428
+  min E_M/E_V = 0.633   first max of Omega_M/Omega_V after its initial fall = not reached
+
+  1.3 s   187.36 MLUPS (storage nodes x steps; field and probes included)
+  peak dissipation eps = 6.0332e-02 at t = 0.101; skewness there 0.108, max 0.397
+  min E_M/E_V = 0.940   first max of Omega_M/Omega_V after its initial fall = 1.359957
+slip: device vs Kokkos parent, worst column divb/j 5.06e-16 of its scale  PASS
+noslip: device vs Kokkos parent, worst column divb/j 5.54e-16 of its scale  PASS
+[ 50%] Building CUDA object CMakeFiles/tg_mhd.dir/src/tg_mhd.cu.o
+~/scratch/M3LB/GPU/include/lbm/core.cuh(175): warning #20013-D: calling a constexpr __host__ function("make_dir_table") from a __host__ __device__ function("pi") is not allowed. The experimental flag '--expt-relaxed-constexpr' can be used to allow this.
+    constexpr DirTable t = make_dir_table();
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+[100%] Linking CUDA executable tg_mhd
+[100%] Built target tg_mhd
+    1.000 1.21381e-01 1.18824e-01    0.9789    2.2068 1.399e-02     6.369  4.74e-04  -5.9e-06     0.0491
+
+  49.1 s   577.34 MLUPS (storage nodes x steps; field and probes included)
+  peak dissipation eps = 1.3986e-02 at t = 1.000; skewness there 0.407, max 0.407
+  min E_M/E_V = 0.979   first max of Omega_M/Omega_V after its initial fall = not reached
+    1.000 1.00121e-01 1.16730e-01    1.1659    0.7666 2.732e-02     7.568  1.15e-03  -1.4e-05     0.3671
+
+  39.2 s   722.70 MLUPS (storage nodes x steps; field and probes included)
+  peak dissipation eps = 2.9506e-02 at t = 0.250; skewness there 0.103, max 0.378
+  min E_M/E_V = 1.089   first max of Omega_M/Omega_V after its initial fall = not reached

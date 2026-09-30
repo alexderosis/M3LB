@@ -1123,7 +1123,12 @@ Do not spend time on these without saying so first; several are deliberate.
   run (2026-09-28, ~9 GPU-hours) failed the gate on the node-layer count of f_w
   recorded above, not on the flow, and the rerun with the profile passes on
   every rung that has a turbulent peak (worst 2.1 %): B - A = +0.073 / +0.065 /
-  +0.063 at Re = 250 / 500 / 1000, 22-157x its band, monotonic. The free-slip
+  +0.063 at Re = 250 / 500 / 1000, 22-157x its band, monotonic. The Mach-halving check (`tg_mhd_mach.sub`, u0 = 0.05 -> 0.025,
+  2026-09-30; peak Ma 0.117 -> 0.058) PASSES its pre-registered verdict at both
+  rungs: B - A moves by < 1e-4 at Re = 1000 against a band of 0.0004, and by
+  -0.0014 at Re = 500 against 0.0030. At halved Mach B - A reads 0.063 at BOTH
+  Re = 500 and 1000, equal within Re = 500's band -- so the monotonic fall rests
+  on the 250 -> 500 step, and whether B - A levels off needs a rung above 1000. The free-slip
   box at Re = 1000 is Pouquet et al.'s C2 and is converged there at
   min E_M/E_V = 0.369, 5.5 % above their 0.35 -- N = 97's 0.357 was
   under-resolution, not agreement. Until 2026-09-29 the drivers' "probe share"

@@ -1,0 +1,42 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB, 595.71.05
+
+[ 50%] Building CUDA object CMakeFiles/tg_mhd.dir/src/tg_mhd.cu.o
+~/scratch/M3LB/GPU/include/lbm/core.cuh(175): warning #20013-D: calling a constexpr __host__ function("make_dir_table") from a __host__ __device__ function("pi") is not allowed. The experimental flag '--expt-relaxed-constexpr' can be used to allow this.
+    constexpr DirTable t = make_dir_table();
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+[100%] Linking CUDA executable tg_mhd
+[100%] Built target tg_mhd
+  1.3 s   189.21 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 21 probes, 1.3 s = 100 % of the run on 4 thread(s); 45921.25 MLUPS without them
+  peak dissipation eps = 4.3755e-02 at t = 1.912 (past any impulsive start); skewness there 0.315, max 0.428
+  min E_M/E_V = 0.633   first max of Omega_M/Omega_V after its initial fall = not reached
+  1.0 s   253.66 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 21 probes, 1.0 s = 99 % of the run on 4 thread(s); 25618.39 MLUPS without them
+  peak dissipation eps = 4.9713e-02 at t = 1.711 (past any impulsive start); skewness there 0.312, max 0.397
+  min E_M/E_V = 0.940   first max of Omega_M/Omega_V after its initial fall = 1.359957
+slip: device vs Kokkos parent, worst column divb/j 5.06e-16 of its scale  PASS
+slip: device vs Kokkos parent, wall-distance profile worst |share| 3.67e-33  PASS
+noslip: device vs Kokkos parent, worst column divb/j 5.54e-16 of its scale  PASS
+noslip: device vs Kokkos parent, wall-distance profile worst |share| 1.20e-33  PASS
+[ 50%] Building CUDA object CMakeFiles/tg_mhd.dir/src/tg_mhd.cu.o
+~/scratch/M3LB/GPU/include/lbm/core.cuh(175): warning #20013-D: calling a constexpr __host__ function("make_dir_table") from a __host__ __device__ function("pi") is not allowed. The experimental flag '--expt-relaxed-constexpr' can be used to allow this.
+    constexpr DirTable t = make_dir_table();
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+[100%] Linking CUDA executable tg_mhd
+[100%] Built target tg_mhd
+
+  31.6 s   897.05 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 6 probes, 27.8 s = 88 % of the run on 4 thread(s); 7522.07 MLUPS without them
+  dissipation peak not reached: eps = 1.3986e-02 still rising at t = 1.000; skewness max 0.407
+  min E_M/E_V = 0.979   first max of Omega_M/Omega_V after its initial fall = not reached
+
+  23.5 s   1204.94 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 6 probes, 17.0 s = 72 % of the run on 4 thread(s); 4351.14 MLUPS without them
+  dissipation peak not reached: eps = 2.7322e-02 still rising at t = 1.000; skewness max 0.378
+  min E_M/E_V = 1.089   first max of Omega_M/Omega_V after its initial fall = not reached
