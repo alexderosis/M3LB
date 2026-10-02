@@ -98,6 +98,7 @@ sbatch --array=2-3 --time=2:30:00 GPU/csf3/tg_mhd_mach.sub
 sbatch --array=0-9   --time=5:00:00 GPU/csf3/tg_mhd_round2.sub     # round 2 (see below)
 sbatch --array=10-28 --time=2:00:00 GPU/csf3/tg_mhd_round2.sub
 sbatch --array=0-2 GPU/csf3/tg_mhd_snap.sub                         # the paper's snapshots
+sbatch GPU/csf3/tg_mhd_vol.sub                                     # and its 3-D volumes
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -257,6 +258,16 @@ dumps per run are kept unless `KEEP_RAW=0`. It needs no rebuild: the round-2
 
 ```
 rsync -av --include='*/' --include='series.dat' --include='profile*.dat' --include='log.txt' --include='slices/*' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_snap/ results/P_tg_mhd/snap/
+```
+
+**`tg_mhd_vol.sub`** turns those dumps into the paper's 3-D views: it builds
+`tools/tg_mhd_vol.cpp` with the node's `g++` and writes, for A, B and C at
+t = 2.3 and 4.6, the viscous and Ohmic dissipation reduced by the block maximum
+to 256^3 -- 768 MB in all, so the 3.8 GB dumps stay on scratch. A few minutes;
+no GPU is used. Copy the volumes back with
+
+```
+rsync -av --include='*/' --include='vol/*' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_snap/ results/P_tg_mhd/snap/
 ```
 
 ---

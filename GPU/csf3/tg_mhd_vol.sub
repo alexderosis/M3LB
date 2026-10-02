@@ -1,0 +1,59 @@
+#!/bin/bash --login
+#==============================================================================
+#  3-D volumes for the confined-MHD paper, from the snapshot runs' dumps.
+#
+#  WHY. tg_mhd_snap.sub's dumps gave the paper its planes (Figs. 3 and 4). A
+#  current or vortex sheet is a SURFACE, and a plane shows it only where it cuts
+#  it; the paper's 3-D views project the whole volume instead. The dumps are
+#  3.8 GB each at N = 512 -- too much to copy for a picture -- so this reduces
+#  them here and only the volumes travel.
+#
+#  WHAT IT DOES. Builds tools/tg_mhd_vol.cpp with the node's g++ (standalone
+#  C++17, no Kokkos, no CUDA) and runs it on A, B and C in runs/tg_mhd_snap/ at
+#  t = 2.3 and 4.6: nu|w|^2 and eta|j|^2 with the drivers' own wall derivatives,
+#  reduced by the MAXIMUM over 2^3 blocks to 256^3 (a mean would dim the one-cell
+#  sheets the picture is of). 64 MB a volume, 768 MB in all. Each dump's box mean
+#  of the two is printed against series.dat's eps -- interpolated, because the
+#  dumps fall between probes, so reported rather than gated; the gated check is
+#  the N = 65 one, which passed at 3.3e-9 (2026-10-02).
+#
+#  No GPU is used. Any CPU partition with ~4 GB of memory per run would do; it
+#  stays on gpuA only because every other job here does.
+#
+#  SUBMIT from the repo root after a git pull, once tg_mhd_snap.sub has run and
+#  while its raw dumps are still on scratch:
+#
+#      sbatch GPU/csf3/tg_mhd_vol.sub
+#
+#  COPY BACK, from the laptop's repo root:
+#
+#      rsync -av --include='*/' --include='vol/*' --exclude='*' \
+#            csf3:scratch/M3LB/runs/tg_mhd_snap/ results/P_tg_mhd/snap/
+#
+#  then tools/plot_tg_mhd_3d.py makes the figure.
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 8
+#SBATCH -t 0-0:30
+#SBATCH -J tg_mhd_vol
+#SBATCH -o tg_mhd_vol-%j.log
+
+set -euo pipefail
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+SNAP="$ROOT/runs/tg_mhd_snap"
+BIN="$SNAP/tg_mhd_vol"                     # under runs/, not in the source tree
+
+g++ --version | head -1
+g++ -O2 -std=c++17 -pthread "$ROOT/tools/tg_mhd_vol.cpp" -o "$BIN"
+
+for S in A B C; do
+  RUN="$SNAP/${S}_re1000_n512"
+  if [ ! -d "$RUN/raw" ]; then
+    echo "ERROR: no $RUN/raw -- run tg_mhd_snap.sub first (with KEEP_RAW=1, its default)" >&2
+    exit 1
+  fi
+  echo "== $S"
+  "$BIN" "$RUN" --stride 2 --times 2.3,4.6 --threads "${SLURM_CPUS_PER_TASK:-8}"
+done
