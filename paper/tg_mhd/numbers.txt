@@ -1,0 +1,86 @@
+II. PARAMETERS (u0 = 0.05, t = 0..10)
+  Re   125  N 128/192  delta/h 3.62/5.44  tau-1/2 (fluid) 0.0485/0.0730  (magnetic, D3Q7 cs2=1/4) 0.0973  steps 12159  peak Ma 0.094  FP64
+  Re   250  N 192/256  delta/h 3.85/5.13  tau-1/2 (fluid) 0.0365/0.0487  (magnetic, D3Q7 cs2=1/4) 0.0649  steps 16234  peak Ma 0.102  FP64
+  Re   500  N 256/384  delta/h 3.63/5.45  tau-1/2 (fluid) 0.0244/0.0366  (magnetic, D3Q7 cs2=1/4) 0.0488  steps 24383  peak Ma 0.109  FP64
+  Re  1000  N 384/512  delta/h 3.86/5.14  tau-1/2 (fluid) 0.0183/0.0244  (magnetic, D3Q7 cs2=1/4) 0.0325  steps 32531  peak Ma 0.117  FP64
+  Re  2000  N 512/640  delta/h 3.64/4.55  tau-1/2 (fluid) 0.0122/0.0153  (magnetic, D3Q7 cs2=1/4) 0.0203  steps 40680  peak Ma 0.133  FP32
+
+III. VERIFICATION
+  C2 (A, Re 1000, N 384): min E_M/E_V 0.3695 at t = 7.31; first max Om_M/Om_V after its fall 2.154
+  C2 (A, Re 1000, N 512): min E_M/E_V 0.3693 at t = 7.29; first max Om_M/Om_V after its fall 2.159
+  A at Re 2000: min E_M/E_V 0.410
+  gate B Re 125: no turbulent peak (no turbulent peak by t = 10.0)
+  gate: worst 3.0 % (A Re 2000)
+  Mach halving, Re 500 N 384: B-A +0.0648 -> +0.0634, shift -0.00139; A's peak at halved Mach t = 2.22
+  Mach halving, Re 1000 N 512: B-A +0.0626 -> +0.0626, shift -0.00002; A's peak at halved Mach t = 4.04
+  FP32 vs FP64, Re 2000 N 512: B-A +0.0372 vs +0.0372, shift -0.00000; series differ up to 4e-05 relative
+  over every run: |mass drift| <= 4.4e-05, divb/|j| <= 9.8e-03
+
+IV.A WHERE IT DISSIPATES (integrated over t = 2-10)
+  Re 1000 C: density at the wall 8.50 x mean
+  Re 1000 B: density at the wall 2.43 x mean
+  Re 1000 A: density at the wall 0.38 x mean
+  A wall density, Re 250/500/1000/2000: 0.383 / 0.395 / 0.381 / 0.337
+  B wall density, Re 250/500/1000/2000: 1.443 / 1.824 / 2.429 / 3.128
+    window 2-6: B slope +0.44, A slope -0.02 (log over Re 250 -> 2000)
+    window 2-10: B slope +0.37, A slope -0.06 (log over Re 250 -> 2000)
+    window 3-10: B slope +0.34, A slope -0.07 (log over Re 250 -> 2000)
+    window 4-10: B slope +0.30, A slope -0.09 (log over Re 250 -> 2000)
+    window 5-10: B slope +0.25, A slope -0.11 (log over Re 250 -> 2000)
+  Re 1000: F1(C) 0.3304 vs F1(B) 0.0994 (ratio 3.3); C's turbulent peak t = 3.20 eps 9.102e-03 fw1 0.498
+  B's impulsive start: eps(0) = 0.297 / 0.220 / 0.146 / 0.091; fw1(0) = 0.954 / 0.968 / 0.975 / 0.980
+
+IV.B THE NO-SLIP EXCESS (integrated over t = 2-10)
+  Re  250: F1 A 0.0690 B 0.1278  B-A +0.0588 (band 0.0005) | visc A 0.0296 B 0.1021 (B-A +0.0725) | ohm A 0.0393 B 0.0257 (B-A -0.0136) | energy dissipated in the window / E_T(0): A 0.625 B 0.547 | absolute near-wall Ohmic B/A 0.57
+  Re  500: F1 A 0.0556 B 0.1108  B-A +0.0551 (band 0.0008) | visc A 0.0202 B 0.0894 (B-A +0.0692) | ohm A 0.0354 B 0.0213 (B-A -0.0141) | energy dissipated in the window / E_T(0): A 0.697 B 0.632 | absolute near-wall Ohmic B/A 0.55
+  Re 1000: F1 A 0.0455 B 0.0994  B-A +0.0539 (band 0.0008) | visc A 0.0146 B 0.0801 (B-A +0.0655) | ohm A 0.0309 B 0.0193 (B-A -0.0116) | energy dissipated in the window / E_T(0): A 0.735 B 0.693 | absolute near-wall Ohmic B/A 0.59
+  Re 2000: F1 A 0.0380 B 0.0861  B-A +0.0481 (band 0.0009) | visc A 0.0116 B 0.0704 (B-A +0.0588) | ohm A 0.0264 B 0.0157 (B-A -0.0107) | energy dissipated in the window / E_T(0): A 0.747 B 0.716 | absolute near-wall Ohmic B/A 0.57
+  F1 slopes over Re 250 -> 2000: A -0.29, B -0.19
+
+IV.C THE PRE-REGISTERED VERDICT
+  Re  250: t_peak A 2.01 B 1.90; B-A +0.0732, band 0.0020
+  Re  500: t_peak A 2.23 B 2.14; B-A +0.0648, band 0.0030
+  Re 1000: t_peak A 4.06 B 2.34; B-A +0.0626, band 0.0004
+  Re 2000: t_peak A 4.45 B 4.53; B-A +0.0361, band 0.0021
+  Re 1000 -> 2000: -0.0266 against bands 0.0025 (ratio 10.5): cascade
+
+IV.D THE PEAK SWITCHES
+  A Re  250: eps maxima t 2.00 eps 0.0451; fw1 over t >= 1.5 in [0.048, 0.103]
+  A Re  500: eps maxima t 2.20 eps 0.0377, t 3.60 eps 0.0359; fw1 over t >= 1.5 in [0.042, 0.074]
+  A Re 1000: eps maxima t 4.10 eps 0.0369; fw1 over t >= 1.5 in [0.030, 0.059]
+  A Re 2000: eps maxima t 4.40 eps 0.0394; fw1 over t >= 1.5 in [0.022, 0.060]
+  B Re  250: eps maxima t 1.90 eps 0.0516; fw1 over t >= 1.5 in [0.094, 0.205]
+  B Re  500: eps maxima t 2.10 eps 0.0451; fw1 over t >= 1.5 in [0.075, 0.237]
+  B Re 1000: eps maxima t 2.30 eps 0.0378; fw1 over t >= 1.5 in [0.066, 0.240]
+  B Re 2000: eps maxima t 0.70 eps 0.0109, t 3.70 eps 0.0345, t 4.00 eps 0.0342, t 4.50 eps 0.0361; fw1 over t >= 1.5 in [0.059, 0.318]
+  equal-time B-A at t =  1.5: +0.1310  +0.1746  +0.2230  +0.2784
+  equal-time B-A at t =  2.0: +0.0624  +0.0719  +0.0835  +0.0971
+  equal-time B-A at t =  2.3: +0.0489  +0.0528  +0.0590  +0.0642
+  equal-time B-A at t =  2.5: +0.0432  +0.0451  +0.0501  +0.0545
+  equal-time B-A at t =  3.0: +0.0271  +0.0203  +0.0209  +0.0266
+  equal-time B-A at t =  3.5: +0.0342  +0.0356  +0.0357  +0.0360
+  equal-time B-A at t =  3.7: +0.0355  +0.0384  +0.0400  +0.0401
+  equal-time B-A at t =  4.0: +0.0412  +0.0353  +0.0403  +0.0435
+  equal-time B-A at t =  4.5: +0.0617  +0.0436  +0.0351  +0.0283
+  equal-time B-A at t =  5.0: +0.0684  +0.0625  +0.0723  +0.0615
+  equal-time B-A at t =  6.0: +0.0991  +0.1060  +0.0873  +0.0529
+  equal-time B-A at t =  8.0: +0.1068  +0.0758  +0.0518  +0.0460
+  equal-time B-A at t = 10.0: +0.0791  +0.0781  +0.0458  +0.0397
+  B's fw1 at t = 1.5 and 3.7, Re 2000: 0.319, 0.063
+
+IV.E THE WINDOWS
+  t = 2-6: 0.0490 / 0.0477 / 0.0506 / 0.0476  (250 -> 2000 -3 %; steps -0.0013 (in), +0.0029 (out), -0.0030 (out); largest band 0.0010)
+  t = 2-10: 0.0588 / 0.0551 / 0.0539 / 0.0481  (250 -> 2000 -18 %; steps -0.0037 (out), -0.0013 (in), -0.0058 (out); largest band 0.0009)
+  t = 3-10: 0.0656 / 0.0589 / 0.0550 / 0.0465  (250 -> 2000 -29 %; steps -0.0067 (out), -0.0039 (out), -0.0085 (out); largest band 0.0009)
+  t = 4-10: 0.0821 / 0.0716 / 0.0636 / 0.0504  (250 -> 2000 -39 %; steps -0.0105 (out), -0.0080 (out), -0.0132 (out); largest band 0.0009)
+  t = 5-10: 0.0949 / 0.0855 / 0.0716 / 0.0537  (250 -> 2000 -43 %; steps -0.0094 (out), -0.0138 (out), -0.0180 (out); largest band 0.0010)
+  E_T/E_T(0) 0.9 -> 0.5: 0.1662 / 0.1126 / 0.0710 / 0.0478  (largest band 0.0027)
+  E_T/E_T(0) 0.8 -> 0.5: 0.1076 / 0.0611 / 0.0357 / 0.0328  (largest band 0.0014)
+  E_T/E_T(0) 0.7 -> 0.4: 0.0625 / 0.0364 / 0.0327 / 0.0400  (largest band 0.0011)
+  E_T/E_T(0) 0.6 -> 0.4: 0.0478 / 0.0288 / 0.0335 / 0.0528  (largest band 0.0013)
+
+IV.F THE INSULATING PAIR
+  A' Re  500 N 384: F1 0.3097 (visc 0.0372, ohm 0.2725, Ohmic 88 %); peak: t 3.24
+  B' Re  500 N 384: F1 0.6257 (visc 0.3701, ohm 0.2556, Ohmic 41 %); peak: no turbulent peak by t = 10.0
+  A' Re 1000 N 512: F1 0.2700 (visc 0.0312, ohm 0.2387, Ohmic 88 %); peak: t 3.31
+  B' Re 1000 N 512: F1 0.6895 (visc 0.4441, ohm 0.2454, Ohmic 36 %); peak: no turbulent peak by t = 10.0
