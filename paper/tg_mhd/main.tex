@@ -124,8 +124,16 @@ velocity amplitude and the density are one,
   \partial_t \BB &= \nabla\times(\vv\times\BB) + \eta\nabla^2\BB, \label{eq:ind}
 \end{align}
 with $\nabla\cdot\vv=\nabla\cdot\BB=0$ and $\nu=\eta=1/\Rey$, so the magnetic Prandtl
-number is one and $\Rey=1000$ is run C2 of Ref.~\onlinecite{pouquet2010}. The initial
-conditions are those of Refs.~\onlinecite{lee2008,pouquet2010}:
+number is one and $\Rey=1000$ is run C2 of Ref.~\onlinecite{pouquet2010}. Lengths are
+in units of $1/k_0$, where $k_0=1$ is the wavenumber of the TG velocity below, so the
+box has side $\pi$; velocities are in units of its initial amplitude $v_0$; times are in
+units of $1/(k_0v_0)$, about one large-eddy turnover time; and the magnetic field is in
+Alfv\'en units, $\BB/\sqrt{\mu_0\rho}$, which is why Eq.~(\ref{eq:ns}) carries no
+$\mu_0$. Every quantity is therefore dimensionless: $\Rey=v_0/(k_0\nu)$, energies are
+per unit mass, and dissipation rates are in units of $k_0v_0^3$. Most of what follows
+needs no units at all, being shares of the total dissipation or densities relative to
+the box mean. The initial conditions are those of
+Refs.~\onlinecite{lee2008,pouquet2010}:
 \begin{align}
   \vv &= (\sin x\cos y\cos z,\; -\cos x\sin y\cos z,\; 0), \label{eq:v0}\\
   \BB_C &= b_0\,(\sin 2x\cos 2y\cos 2z,\; \cos 2x\sin 2y\cos 2z, \nonumber\\
@@ -390,7 +398,8 @@ at $\Rey=2000$.
 
 \begin{table*}
 \caption{\label{tab:results}Results on the finer grid of each rung. At the peak:
-$t_p$, the time of the turbulent dissipation peak, and B$-$A in $f_1$ there, the
+$t_p$, the time of the turbulent dissipation peak in units of $1/(k_0v_0)$, and B$-$A
+in $f_1$ there, the
 pre-registered observable. Integrated: the share $F_1$ of the dissipation over
 $t=2$--$10$ within $\delta$ of the walls, and the viscous and Ohmic parts of B$-$A.
 The grid bands of the integrated B$-$A are at most $0.0009$.}
@@ -422,12 +431,14 @@ runs, the outcome is ``cascade''.
 
 \begin{figure*}
 \includegraphics[width=\textwidth]{tg_mhd_peaks.pdf}
-\caption{\label{fig:peaks}The turbulent peak switches. The dissipation rate $\eps(t)$
-(a, b) and the share within $\delta$ of the walls, $f_1(t)$ (c, d), for the free-slip
+\caption{\label{fig:peaks}The turbulent peak switches. The dissipation rate $\eps(t)$,
+in units of $k_0v_0^3$ (a, b), and the share within $\delta$ of the walls, $f_1(t)$
+(c, d), for the free-slip
 box A (a, c) and the no-slip box B (b, d) at $\Rey=250$--$2000$ (light to dark). Dots
 mark each run's turbulent peak and the $f_1$ read there. A's early maximum is the
 larger up to $\Rey=500$ and its later one from $\Rey=1000$; B's switches between
-$\Rey=1000$ and $2000$. B starts off scale at $t=0$ (impulsive start).}
+$\Rey=1000$ and $2000$. B starts off scale at $t=0$ (impulsive start). Time is in
+units of $1/(k_0v_0)$.}
 \end{figure*}
 
 Figure~\ref{fig:peaks} shows why the last step is not what it seems. The dissipation
