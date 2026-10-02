@@ -1,0 +1,6 @@
+[
+ {"file": "visc_t2.300.f32", "field": "visc", "t": 2.299940923, "N": 512, "M": 256, "stride": 2, "reduce": "max", "Re": 1000, "Pm": 1, "h": 0.0061479308289428434, "tag": "tgc_slip_cond_n512_re1000", "eps_mean": 0.03054168795, "box_mean": 0.01020714503, "layout": "x fastest, then y, then z"},
+ {"file": "ohm_t2.300.f32", "field": "ohm", "t": 2.299940923, "N": 512, "M": 256, "stride": 2, "reduce": "max", "Re": 1000, "Pm": 1, "h": 0.0061479308289428434, "tag": "tgc_slip_cond_n512_re1000", "eps_mean": 0.03054168795, "box_mean": 0.02033875114, "layout": "x fastest, then y, then z"},
+ {"file": "visc_t4.600.f32", "field": "visc", "t": 4.599881846, "N": 512, "M": 256, "stride": 2, "reduce": "max", "Re": 1000, "Pm": 1, "h": 0.0061479308289428434, "tag": "tgc_slip_cond_n512_re1000", "eps_mean": 0.03362862654, "box_mean": 0.01233373553, "layout": "x fastest, then y, then z"},
+ {"file": "ohm_t4.600.f32", "field": "ohm", "t": 4.599881846, "N": 512, "M": 256, "stride": 2, "reduce": "max", "Re": 1000, "Pm": 1, "h": 0.0061479308289428434, "tag": "tgc_slip_cond_n512_re1000", "eps_mean": 0.03362862654, "box_mean": 0.02129540089, "layout": "x fastest, then y, then z"}
+]

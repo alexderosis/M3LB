@@ -44,9 +44,9 @@ Reynolds numbers $250$ to $2000$, on grids that resolve the $\Rey^{-1/2}$ wall l
 with the observable, the resolution criterion and the decision rule fixed before the
 runs. No-slip walls add dissipation within $\Rey^{-1/2}$ of them at every Reynolds
 number and under every definition we tried. The excess is viscous: the near-wall
-Ohmic dissipation is 40--45\% lower than with free-slip walls. Snapshots of the
-local dissipation show current sheets crossing the near-wall layer of the free-slip
-box and a broad viscous layer at the no-slip walls. The pre-registered
+Ohmic dissipation is 40--45\% lower than with free-slip walls. Snapshots and
+three-dimensional views of the local dissipation show current sheets crossing the
+near-wall layer of the free-slip box and a broad viscous layer at the no-slip walls. The pre-registered
 reading, the excess at the dissipation peak, falls from $0.063$ to $0.036$ between
 $\Rey=1000$ and $2000$, the outcome we had called ``cascade''. That fall is set by
 which of two maxima of the dissipation is the larger: the peak switches between
@@ -408,59 +408,6 @@ integrated over five time windows, after the fact (light to dark: later windows)
 and Ohmic parts. Grid bands are at most $0.001$, smaller than the symbols.}
 \end{figure*}
 
-\subsection{What the fields show}
-\label{sec:fields}
-
-The shares above are integrals of local fields. Figures~\ref{fig:snap23}
-and~\ref{fig:snap46} show the fields themselves at $\Rey=1000$: at $t=2.3$, B's
-turbulent peak, and at $t=4.6$, by the later maxima. They come from reruns of the
-production runs that also write the full fields, and the reruns reproduce the
-production time series exactly, at every one of the 48 probes to $t=4.7$. The local
-viscous and Ohmic dissipation is computed from the fields with the drivers' own
-derivatives at the walls; summed over the box, it reproduces $\eps$ to
-$2\times10^{-8}$ (checked at $N=65$ for all three boxes).
-
-In the bulk the two MHD boxes are alike. In the section $y=\pi/4$ they show the same
-current and vorticity sheets, and their plane means differ by less than 15\%: viscous
-$0.37$ and $0.39$ of the box mean in A and B at $t=2.3$, Ohmic $0.49$ and $0.42$. They
-differ next to the walls. In the plane $0.58\delta$ above the bottom wall, B's viscous
-dissipation is broad and strong, $1.49$ of its box mean against A's $0.53$, and its
-Ohmic dissipation is weaker, $0.39$ against $0.61$. In absolute terms, B's viscous
-dissipation there is $3.5$ times A's and its Ohmic $0.79$ of A's. In A the plane is
-crossed by current sheets, and bright ones run along its edges, where it meets the
-vertical walls. By $t=4.6$ the bulk of both boxes is more finely structured and A's
-near-wall plane has quietened, but the contrast remains: B's viscous dissipation there
-is $6.8$ times A's and its Ohmic $0.68$ of A's. These are single planes at two
-instants, but they point the same way as the time-integrated profiles of
-Sec.~\ref{sec:excess}, in which B's near-wall Ohmic dissipation is $0.55$--$0.59$ of
-A's.
-
-The box without a field is different in kind. Its sections glow at all four walls
-while its bulk is nearly uniform, and its near-wall plane dissipates at $6.7$ times its
-box mean at $t=2.3$ and $3.3$ times at $t=4.6$, about $3.5$ and $3.2$ times B's
-relative level.
-
-The near-wall planes show the bottom wall. By the symmetries of the TG flow the six
-walls fall into two classes, the two horizontal walls and the four vertical ones, and
-these planes show only the first; the sections cross both.
-
-\begin{figure*}
-\includegraphics[width=\textwidth]{tg_mhd_snap_t2.3.pdf}
-\caption{\label{fig:snap23}Where the dissipation sits, at $\Rey=1000$ and $t=2.3$
-(B's turbulent peak), on the finer grid ($N=512$). Rows: the free-slip box A, the
-no-slip box B and the box without a field C. Columns: the viscous and Ohmic
-dissipation, $\nu|\bm\omega|^2$ and $\eta|\bm{j}|^2$, in the vertical section
-$y=\pi/4$, with dashed lines at $\delta$ from its four walls, and in the plane
-$0.58\delta$ above the bottom wall. One logarithmic colour scale, relative to each
-box's mean dissipation at that time; each panel gives its plane's mean.}
-\end{figure*}
-
-\begin{figure*}
-\includegraphics[width=\textwidth]{tg_mhd_snap_t4.6.pdf}
-\caption{\label{fig:snap46}As Fig.~\ref{fig:snap23}, at $t=4.6$, by the later
-maxima of the dissipation.}
-\end{figure*}
-
 \subsection{The pre-registered verdict}
 \label{sec:verdict}
 
@@ -538,6 +485,93 @@ energy windows.}
 \input{tab_windows}
 \end{ruledtabular}
 \end{table*}
+
+\subsection{What the fields show}
+\label{sec:fields}
+
+The shares above are integrals of local fields. Figures~\ref{fig:snap23}
+and~\ref{fig:snap46} show the fields themselves at $\Rey=1000$: at $t=2.3$, B's
+turbulent peak, and at $t=4.6$, by the later maxima. They come from reruns of the
+production runs that also write the full fields, and the reruns reproduce the
+production time series exactly, at every one of the 48 probes to $t=4.7$. The local
+viscous and Ohmic dissipation is computed from the fields with the drivers' own
+derivatives at the walls; summed over the box, it reproduces $\eps$ to
+$2\times10^{-8}$ (checked at $N=65$ for all three boxes).
+
+In the bulk the two MHD boxes are alike. In the section $y=\pi/4$ they show the same
+current and vorticity sheets, and their plane means differ by less than 15\%: viscous
+$0.37$ and $0.39$ of the box mean in A and B at $t=2.3$, Ohmic $0.49$ and $0.42$. They
+differ next to the walls. In the plane $0.58\delta$ above the bottom wall, B's viscous
+dissipation is broad and strong, $1.49$ of its box mean against A's $0.53$, and its
+Ohmic dissipation is weaker, $0.39$ against $0.61$. In absolute terms, B's viscous
+dissipation there is $3.5$ times A's and its Ohmic $0.79$ of A's. In A the plane is
+crossed by current sheets, and bright ones run along its edges, where it meets the
+vertical walls. By $t=4.6$ the bulk of both boxes is more finely structured and A's
+near-wall plane has quietened, but the contrast remains: B's viscous dissipation there
+is $6.8$ times A's and its Ohmic $0.68$ of A's. These are single planes at two
+instants, but they point the same way as the time-integrated profiles of
+Sec.~\ref{sec:excess}, in which B's near-wall Ohmic dissipation is $0.55$--$0.59$ of
+A's.
+
+The box without a field is different in kind. Its sections glow at all four walls
+while its bulk is nearly uniform, and its near-wall plane dissipates at $6.7$ times its
+box mean at $t=2.3$ and $3.3$ times at $t=4.6$, about $3.5$ and $3.2$ times B's
+relative level.
+
+The near-wall planes show the bottom wall. By the symmetries of the TG flow the six
+walls fall into two classes, the two horizontal walls and the four vertical ones, and
+these planes show only the first; the sections cross both.
+
+Figures~\ref{fig:vol23} and~\ref{fig:vol46} show the same fields in three dimensions.
+A sheet is a surface, and a plane shows it only where the plane cuts it. These views
+project the whole box instead: each pixel shows the largest local dissipation along
+its line of sight (a maximum-intensity projection), and the far half of the box is
+dimmed, so that nearer structures read as nearer. They are computed from the dumps
+with the same derivatives as the planes and reduced to $256^3$ by the maximum over
+blocks of $2^3$ nodes, and every plane of Figs.~\ref{fig:snap23} and~\ref{fig:snap46}
+lies inside its volume exactly. A projection of the maximum shows where the sheets
+are, not how much they dissipate; the shares are those of Sec.~\ref{sec:excess}.
+
+The views confirm the planes and add to them. The current sheets fill the bulk of
+both MHD boxes alike, at both times, and by $t=4.6$ both have broken up into finer
+sheets. The viscous dissipation of the no-slip box lines its walls, all of them and
+not only the bottom one of the planes, and by $t=4.6$ it forms ring-like patterns on
+its faces; the free-slip box has no such lining. The box without a field is dominated
+by its walls and edges, as its sections were.
+
+\begin{figure*}
+\includegraphics[width=\textwidth]{tg_mhd_snap_t2.3.pdf}
+\caption{\label{fig:snap23}Where the dissipation sits, at $\Rey=1000$ and $t=2.3$
+(B's turbulent peak), on the finer grid ($N=512$). Rows: the free-slip box A, the
+no-slip box B and the box without a field C. Columns: the viscous and Ohmic
+dissipation, $\nu|\bm\omega|^2$ and $\eta|\bm{j}|^2$, in the vertical section
+$y=\pi/4$, with dashed lines at $\delta$ from its four walls, and in the plane
+$0.58\delta$ above the bottom wall. One logarithmic colour scale, relative to each
+box's mean dissipation at that time; each panel gives its plane's mean.}
+\end{figure*}
+
+\begin{figure*}
+\includegraphics[width=\textwidth]{tg_mhd_snap_t4.6.pdf}
+\caption{\label{fig:snap46}As Fig.~\ref{fig:snap23}, at $t=4.6$, by the later
+maxima of the dissipation.}
+\end{figure*}
+
+\begin{figure*}
+\includegraphics[width=\textwidth]{tg_mhd_3d_t2.3.pdf}
+\caption{\label{fig:vol23}Three-dimensional views of the local dissipation at
+$\Rey=1000$ and $t=2.3$, on the finer grid. Columns: the boxes A, B and C; rows: the
+viscous and Ohmic dissipation. Each pixel is the largest value along an oblique line
+of sight (maximum-intensity projection) through the volume, reduced to $256^3$ by the
+maximum over $2^3$ blocks, relative to the box mean. The far half is dimmed as a
+depth cue, which must not be read as an intensity; hidden edges of the box are
+dashed. One logarithmic colour scale, shared with Fig.~\ref{fig:vol46}.}
+\end{figure*}
+
+\begin{figure*}
+\includegraphics[width=\textwidth]{tg_mhd_3d_t4.6.pdf}
+\caption{\label{fig:vol46}As Fig.~\ref{fig:vol23}, at $t=4.6$, on the same colour
+scale.}
+\end{figure*}
 
 \subsection{Insulating walls}
 
@@ -652,7 +686,7 @@ The code (both implementations), the job scripts with the decision rules fixed b
 the runs, the time series and wall-distance profiles of every run, the plane means of
 the field snapshots, the analysis tools, and the script that produces every number in
 this paper are in the M3LB repository, \url{https://github.com/alexderosis/M3LB}. The
-field dumps behind Figs.~\ref{fig:snap23} and~\ref{fig:snap46} (11\,GB per run) are
+field dumps behind Figs.~\ref{fig:snap23}--\ref{fig:vol46} (11\,GB per run) are
 available from the author.
 % TODO(author): confirm the repository is public, and cite a tagged release or DOI.
 

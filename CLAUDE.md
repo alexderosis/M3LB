@@ -1453,7 +1453,7 @@ journal-neutral, so moving to JFM is a class swap.
   the f_w estimator after the first ladder failed its gate. One date -- 25
   September, for the two qualitative outcomes -- comes from the plan artifact,
   which is not in the repository.
-- **THE FIELD SNAPSHOTS (Figs. 3 and 4) COME FROM `GPU/csf3/tg_mhd_snap.sub`**: A,
+- **THE FIELD SNAPSHOTS (Figs. 4 and 5) COME FROM `GPU/csf3/tg_mhd_snap.sub`**: A,
   B and C rerun at Re = 1000, N = 512 with full dumps at t = 0, 2.3 and 4.6 --
   reproducing the production series exactly, all 48 probes to t = 4.7 -- and cut
   into planes by `tools/tg_mhd_slices.py`, which uses the drivers' own wall
@@ -1464,6 +1464,15 @@ journal-neutral, so moving to JFM is a class swap.
   symmetry classes, two horizontal and four vertical, so a near-wall plane shows
   one class, and the text must say which. The raw dumps (11 GB a run) are on CSF3
   scratch, which is not permanent.
+- **THE 3-D VIEWS (Figs. 6 and 7) COME FROM `GPU/csf3/tg_mhd_vol.sub`**, which
+  builds `tools/tg_mhd_vol.cpp` on the node and reduces the same dumps to 256^3
+  volumes by the block MAXIMUM, so only 768 MB travel; `tools/plot_tg_mhd_3d.py`
+  renders them as maximum-intensity projections. Checked: the tool's box means
+  reproduce eps to 3.3e-9 on dumps that fall on a probe, and every slice plane lies
+  inside its volume bit for bit (80 pairs). A MIP shows WHERE the sheets are, not
+  how much they dissipate, and its depth cue is not an intensity -- the text says
+  so, and the shares stay the quantitative claim. Both figures share one colour
+  range, fixed in the Makefile (`RANGE3D`), so `make figs` rebuilds them exactly.
 - Left for the author as TODOs in `main.tex`: the department, funding, the
   AI-use disclosure AIP asks for, and whether the repository is public (with a
   DOI).

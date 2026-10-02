@@ -289,7 +289,7 @@ def main():
           + "\n".join(rows) + "\n\\end{tabular}\n")
 
     say()
-    say("IV.F THE INSULATING PAIR")
+    say("IV.G THE INSULATING PAIR")
     pv = {}                    # plot_tg_mhd_ladder.load_all keeps A, B and C only
     for p in sorted(glob.glob(os.path.join(res("round2"), "*", "series.dat"))):
         r = T.load(p)
@@ -307,11 +307,11 @@ def main():
                 s, Re, r["N"], F[0], sp[0], sp[1], 100 * sp[1] / F[0],
                 "t %.2f" % pk[0] if isinstance(pk, tuple) else pk))
 
-    # ---- Sec. IV.C: the field snapshots (GPU/csf3/tg_mhd_snap.sub) -----------------
+    # ---- Sec. IV.F: the field snapshots (GPU/csf3/tg_mhd_snap.sub) -----------------
     # The plane means come from slices/index.json, which is tracked; the .f32 planes
     # themselves are not, and are needed only to redraw the figures.
     say()
-    say("IV.C THE FIELDS (results/P_tg_mhd/snap, Re 1000, N 512)")
+    say("IV.F THE FIELDS (results/P_tg_mhd/snap, Re 1000, N 512)")
     snap, prod = runs_of("snap"), {"A": RUNS[("A", 1000)][512], "B": RUNS[("B", 1000)][512],
                                    "C": RUNS[("C", 1000)][512]}
     for s in ("A", "B", "C"):
@@ -349,6 +349,26 @@ def main():
         say("    wall plane, C's total over B's total (each over its own box mean): %.1f" % (
             (c["mean"]["visc"] + c["mean"]["ohm"]) / c["eps_mean"]
             / ((bb["mean"]["visc"] + bb["mean"]["ohm"]) / bb["eps_mean"])))
+
+    # ---- Sec. IV F: the 3-D views (GPU/csf3/tg_mhd_vol.sub) ------------------------
+    say()
+    say("IV.F THE 3-D VIEWS (results/P_tg_mhd/snap/*/vol, block maximum over 2^3 -> 256^3)")
+    for s in ("A", "B", "C"):
+        with open(os.path.join(res("snap"), "%s_re1000_n512" % s, "vol", "index.json")) as f:
+            v = json.load(f)
+        for t in sorted({r["t"] for r in v}):
+            rr = [r for r in v if r["t"] == t]
+            tot = sum(r["box_mean"] for r in rr)
+            say("  %s t = %.2f: M = %d, box mean of nu|w|^2 + eta|j|^2 %.5e against series eps %.5e"
+                " (interpolated between probes), rel %.1e" % (s, t, rr[0]["M"], tot, rr[0]["eps_mean"],
+                                                              abs(tot - rr[0]["eps_mean"]) / rr[0]["eps_mean"]))
+    # Recorded, not regenerable from tracked data: these checks read raw dumps and
+    # .f32 planes, which git does not keep. Measured 2026-10-02.
+    say("  RECORDED: tools/tg_mhd_slices.py --check, N = 65 Re = 200, A B C at t = 0 and 2: "
+        "box mean against series eps <= 1.7e-8 relative")
+    say("  RECORDED: tools/tg_mhd_vol.cpp, the same six dumps (each on a probe): <= 3.3e-9 relative, gated")
+    say("  RECORDED: the 256^3 volumes against the slice planes, 80 (volume, plane) pairs at t = 2.3 and 4.6: "
+        "no plane's 2x2 block maximum exceeds its volume's, and they are equal bit for bit where the plane holds it")
     write("numbers.txt", "\n".join(out) + "\n")
     return 0
 

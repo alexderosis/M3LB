@@ -79,13 +79,13 @@ IV.E THE WINDOWS
   E_T/E_T(0) 0.7 -> 0.4: 0.0625 / 0.0364 / 0.0327 / 0.0400  (largest band 0.0011)
   E_T/E_T(0) 0.6 -> 0.4: 0.0478 / 0.0288 / 0.0335 / 0.0528  (largest band 0.0013)
 
-IV.F THE INSULATING PAIR
+IV.G THE INSULATING PAIR
   A' Re  500 N 384: F1 0.3097 (visc 0.0372, ohm 0.2725, Ohmic 88 %); peak: t 3.24
   B' Re  500 N 384: F1 0.6257 (visc 0.3701, ohm 0.2556, Ohmic 41 %); peak: no turbulent peak by t = 10.0
   A' Re 1000 N 512: F1 0.2700 (visc 0.0312, ohm 0.2387, Ohmic 88 %); peak: t 3.31
   B' Re 1000 N 512: F1 0.6895 (visc 0.4441, ohm 0.2454, Ohmic 36 %); peak: no turbulent peak by t = 10.0
 
-IV.C THE FIELDS (results/P_tg_mhd/snap, Re 1000, N 512)
+IV.F THE FIELDS (results/P_tg_mhd/snap, Re 1000, N 512)
   A: the snapshot run against the production run, 48 probe rows to t = 4.7: worst 0.0e+00
   B: the snapshot run against the production run, 48 probe rows to t = 4.7: worst 0.0e+00
   C: the snapshot run against the production run, 48 probe rows to t = 4.7: worst 0.0e+00
@@ -100,3 +100,14 @@ IV.C THE FIELDS (results/P_tg_mhd/snap, Re 1000, N 512)
     wall plane / box mean: A visc 0.12 ohm 0.19   B visc 0.90 ohm 0.13   C visc 3.26 ohm 0.00
     wall plane, absolute B/A: viscous 6.79, Ohmic 0.68
     wall plane, C's total over B's total (each over its own box mean): 3.2
+
+IV.F THE 3-D VIEWS (results/P_tg_mhd/snap/*/vol, block maximum over 2^3 -> 256^3)
+  A t = 2.30: M = 256, box mean of nu|w|^2 + eta|j|^2 3.05459e-02 against series eps 3.05417e-02 (interpolated between probes), rel 1.4e-04
+  A t = 4.60: M = 256, box mean of nu|w|^2 + eta|j|^2 3.36291e-02 against series eps 3.36286e-02 (interpolated between probes), rel 1.5e-05
+  B t = 2.30: M = 256, box mean of nu|w|^2 + eta|j|^2 3.78385e-02 against series eps 3.78304e-02 (interpolated between probes), rel 2.1e-04
+  B t = 4.60: M = 256, box mean of nu|w|^2 + eta|j|^2 3.15971e-02 against series eps 3.15942e-02 (interpolated between probes), rel 9.2e-05
+  C t = 2.30: M = 256, box mean of nu|w|^2 + eta|j|^2 8.39902e-03 against series eps 8.39951e-03 (interpolated between probes), rel 5.8e-05
+  C t = 4.60: M = 256, box mean of nu|w|^2 + eta|j|^2 8.16930e-03 against series eps 8.17051e-03 (interpolated between probes), rel 1.5e-04
+  RECORDED: tools/tg_mhd_slices.py --check, N = 65 Re = 200, A B C at t = 0 and 2: box mean against series eps <= 1.7e-8 relative
+  RECORDED: tools/tg_mhd_vol.cpp, the same six dumps (each on a probe): <= 3.3e-9 relative, gated
+  RECORDED: the 256^3 volumes against the slice planes, 80 (volume, plane) pairs at t = 2.3 and 4.6: no plane's 2x2 block maximum exceeds its volume's, and they are equal bit for bit where the plane holds it

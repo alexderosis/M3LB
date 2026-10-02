@@ -18,7 +18,8 @@ DEPTH CUE is the same substitute that renderer uses: the depth at which each
 ray's maximum lies dims the far half by up to 35 % along the colour ramp. It
 says which of two
 structures is nearer and must not be read as an intensity. Rays are orthographic,
-sampled trilinearly at 2.5 samples per voxel, from a camera --view yaw and
+sampled trilinearly at 2.5 samples per voxel from a jittered start, from a
+camera --view yaw and
 elevation degrees off the x axis and the horizontal; the box's edges are drawn,
 the hidden ones dashed, and its origin corner marks x, y and z.
 
@@ -68,9 +69,14 @@ def mip(np, vol, u, v, w, size):
     best = np.full((size, size), -np.inf, dtype=np.float32)
     depth = np.zeros((size, size), dtype=np.float32)
     c = np.array([0.5, 0.5, 0.5])
+    # Each ray starts at its own offset within one depth step: regular sampling beat
+    # against the voxel grid and striped the smooth regions (moire); the jitter turns
+    # that into fine noise. A fixed seed keeps the figure byte-identical.
+    jitter = np.random.default_rng(0).uniform(0.0, s[1] - s[0], (size, size))
     for r0 in range(0, size, 16):
         rows = a[::-1][r0:r0 + 16]                       # image row 0 is the top
         B, A, S = np.meshgrid(rows, a, s, indexing="ij")
+        S = S + jitter[r0:r0 + len(rows), :, None]
         P = (c[None, None, None, :] + A[..., None] * u + B[..., None] * v + S[..., None] * w)
         q = P * (M - 1)                                  # voxel coordinates, x y z
         inside = np.all((q >= 0) & (q <= M - 1), axis=-1)
