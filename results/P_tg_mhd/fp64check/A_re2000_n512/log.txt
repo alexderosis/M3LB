@@ -1,0 +1,24 @@
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP64
+  walls: velocity free-slip (SpecNode), field CONDUCTING parity
+  ic tgc   N = 512 (512^3 nodes)   Re = 2000   Pm = 1   u0 = 0.05 (Ma 0.087)
+  nu_lat = 4.0664e-03  tau_f = 0.51220   eta_lat = 4.0664e-03  tau_m = 0.51627
+  dt = 3.0740e-04  ->  32531 steps to t = 10   ->  ~/scratch/M3LB/runs/tg_mhd_fp64check/A_re2000_n512
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 1.25000e-01 1.25000e-01    1.0000    3.9998 1.875e-03     3.464  7.56e-15  +0.0e+00     0.0285
+    0.999 1.23369e-01 1.23930e-01    1.0045    2.1870 3.766e-03     7.090  1.40e-04  -3.2e-06     0.0245
+    1.998 1.30521e-01 1.07466e-01    0.8234    2.3079 1.880e-02    49.121  4.49e-03  +4.1e-07     0.0533
+    2.997 1.33081e-01 8.04162e-02    0.6043    1.4392 2.657e-02    50.294  4.97e-03  +7.1e-07     0.0394
+    3.996 1.16599e-01 6.49766e-02    0.5573    1.7969 3.657e-02    61.412  7.97e-03  -8.5e-07     0.0233
+    4.995 9.41644e-02 4.94189e-02    0.5248    1.6585 3.252e-02    40.969  6.74e-03  +3.8e-06     0.0453
+    5.994 7.51793e-02 3.86614e-02    0.5143    1.6714 2.664e-02    75.173  5.65e-03  -1.0e-06     0.0454
+    6.993 6.22786e-02 2.82400e-02    0.4534    1.4832 1.919e-02    35.904  5.82e-03  -1.6e-06     0.0354
+    7.992 5.12429e-02 2.18680e-02    0.4268    1.4082 1.551e-02    36.131  5.67e-03  +3.4e-06     0.0370
+    8.991 4.08321e-02 1.77320e-02    0.4343    1.4971 1.232e-02    38.425  5.34e-03  -9.0e-07     0.0279
+    9.990 3.40816e-02 1.39933e-02    0.4106    1.4365 8.466e-03    26.063  4.71e-03  -1.1e-06     0.0255
+   10.000 3.40298e-02 1.39643e-02    0.4104    1.4358 8.434e-03    25.971  4.70e-03  -1.7e-06     0.0255
+
+  4798.0 s   920.72 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 102 probes, 868.4 s = 18 % of the run on 4 thread(s); 1124.19 MLUPS without them
+  peak dissipation eps = 3.8917e-02 at t = 4.396 (past any impulsive start); skewness there 0.268, max 0.643
+  min E_M/E_V = 0.410   first max of Omega_M/Omega_V after its initial fall = 2.374901

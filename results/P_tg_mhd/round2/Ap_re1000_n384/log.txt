@@ -1,0 +1,23 @@
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP64
+  walls: velocity free-slip (SpecNode), field pseudo-vacuum parity
+  ic tgi   N = 384 (384^3 nodes)   Re = 1000   Pm = 1   u0 = 0.05 (Ma 0.087)
+  nu_lat = 6.0956e-03  tau_f = 0.51829   eta_lat = 6.0956e-03  tau_m = 0.52438
+  dt = 4.1013e-04  ->  24383 steps to t = 10   ->  ~/scratch/M3LB/runs/tg_mhd_round2/Ap_re1000_n384
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 1.25000e-01 1.25000e-01    1.0000    1.0000 1.500e-03     1.732  7.50e-15  +0.0e+00     0.0596
+    1.001 1.18338e-01 1.29467e-01    1.0940    0.9903 2.105e-03     2.039  1.23e-05  +1.7e-05     0.0650
+    2.001 9.30983e-02 1.50862e-01    1.6205    1.6204 7.067e-03    18.767  1.19e-04  +2.0e-05     0.3110
+    3.002 4.54417e-02 1.80939e-01    3.9818    3.0232 2.991e-02    68.446  4.22e-03  +1.4e-06     0.4496
+    4.003 2.93977e-02 1.65680e-01    5.6358    2.4858 2.751e-02    46.328  2.93e-03  +1.1e-05     0.3411
+    5.004 3.83338e-02 1.32489e-01    3.4562    1.9721 1.973e-02    31.865  4.77e-03  +1.7e-05     0.2168
+    6.004 4.54695e-02 1.08592e-01    2.3882    1.6117 1.461e-02    25.370  3.35e-03  -5.6e-07     0.1570
+    7.005 3.80059e-02 1.01853e-01    2.6799    1.7324 1.375e-02    35.681  2.40e-03  +6.1e-06     0.1695
+    8.006 3.32963e-02 9.24704e-02    2.7772    1.9251 1.313e-02    23.753  2.57e-03  +1.5e-05     0.1413
+    9.006 3.38323e-02 8.04967e-02    2.3793    1.4226 9.811e-03    28.363  2.85e-03  -1.8e-07     0.0927
+   10.000 3.25186e-02 7.33338e-02    2.2551    1.3596 7.388e-03    16.153  3.47e-03  +3.7e-06     0.0731
+
+  1621.3 s   864.96 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 101 probes, 289.2 s = 18 % of the run on 4 thread(s); 1052.74 MLUPS without them
+  peak dissipation eps = 3.2202e-02 at t = 3.302 (past any impulsive start); skewness there -0.156, max 1.096
+  min E_M/E_V = 1.000   first max of Omega_M/Omega_V after its initial fall = 3.078337

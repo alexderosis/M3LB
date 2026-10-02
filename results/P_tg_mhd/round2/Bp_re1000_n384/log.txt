@@ -1,0 +1,24 @@
+  [reg] 8 of 4592 corner(s) have no straight-wall stencil and fall back to rho = 1
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP64
+  walls: velocity NO-SLIP (RegWall), field pseudo-vacuum parity
+  ic tgi   N = 384 (384^3 nodes)   Re = 1000   Pm = 1   u0 = 0.05 (Ma 0.087)
+  nu_lat = 6.0956e-03  tau_f = 0.51829   eta_lat = 6.0956e-03  tau_m = 0.52438
+  dt = 4.1013e-04  ->  24383 steps to t = 10   ->  ~/scratch/M3LB/runs/tg_mhd_round2/Bp_re1000_n384
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 1.23698e-01 1.25000e-01    1.0105    0.0070 1.076e-01     1.732  7.50e-15  +0.0e+00     0.9869
+    1.001 5.02629e-02 1.44398e-01    2.8728    0.5230 4.557e-02    64.934  3.19e-03  +1.3e-05     0.9135
+    2.001 1.74105e-02 1.33816e-01    7.6859    0.5122 3.477e-02    68.368  5.25e-03  +1.2e-05     0.8943
+    3.002 1.08217e-02 1.19990e-01   11.0879    0.7358 1.114e-02    63.997  7.73e-03  -5.5e-07     0.6883
+    4.003 9.36862e-03 1.10344e-01   11.7781    0.8445 1.055e-02    49.298  7.43e-03  +8.3e-06     0.6512
+    5.004 6.07709e-03 1.03349e-01   17.0063    0.9151 8.778e-03    40.027  6.72e-03  +1.0e-05     0.6328
+    6.004 3.14155e-03 9.86149e-02   31.3905    1.0898 6.168e-03    27.837  4.88e-03  +2.1e-06     0.5985
+    7.005 1.85956e-03 9.45987e-02   50.8715    1.2539 4.161e-03    22.317  3.72e-03  +7.1e-06     0.5764
+    8.006 1.42529e-03 9.14258e-02   64.1455    1.4935 2.955e-03    17.660  3.50e-03  +9.3e-06     0.5463
+    9.006 1.12505e-03 8.91590e-02   79.2489    1.8237 2.333e-03    14.878  2.99e-03  +4.1e-06     0.4870
+   10.000 8.60739e-04 8.72268e-02  101.3394    2.1814 2.045e-03    12.920  2.43e-03  +7.2e-06     0.4356
+
+  1504.3 s   932.20 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 101 probes, 384.1 s = 26 % of the run on 4 thread(s); 1251.86 MLUPS without them
+  no dissipation peak: eps fell throughout the run; skewness max 0.953
+  min E_M/E_V = 1.106   first max of Omega_M/Omega_V after its initial fall = 0.529835

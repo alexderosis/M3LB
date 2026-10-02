@@ -1,0 +1,25 @@
+  [reg] 8 of 6128 corner(s) have no straight-wall stencil and fall back to rho = 1
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP64
+  walls: velocity NO-SLIP (RegWall), field pseudo-vacuum parity
+  ic tgi   N = 512 (512^3 nodes)   Re = 1000   Pm = 1   u0 = 0.05 (Ma 0.087)
+  nu_lat = 8.1328e-03  tau_f = 0.52440   eta_lat = 8.1328e-03  tau_m = 0.53253
+  dt = 3.0740e-04  ->  32531 steps to t = 10   ->  ~/scratch/M3LB/runs/tg_mhd_round2/Bp_re1000_n512
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 1.24023e-01 1.25000e-01    1.0079    0.0053 1.433e-01     1.732  1.03e-14  +0.0e+00     0.9902
+    0.999 5.04230e-02 1.44272e-01    2.8612    0.5671 4.762e-02    77.820  2.05e-03  +1.0e-05     0.9172
+    1.998 1.74608e-02 1.33894e-01    7.6683    0.5541 3.680e-02    82.923  3.39e-03  +8.8e-06     0.8999
+    2.997 1.08225e-02 1.20069e-01   11.0944    0.7569 1.164e-02    76.707  5.13e-03  -3.9e-07     0.7004
+    3.996 9.39007e-03 1.10391e-01   11.7561    0.8661 1.097e-02    59.210  4.97e-03  +7.1e-06     0.6628
+    4.995 6.11672e-03 1.03402e-01   16.9048    0.9368 9.138e-03    47.106  4.47e-03  +7.3e-06     0.6447
+    5.994 3.15354e-03 9.86586e-02   31.2851    1.1056 6.401e-03    34.338  3.19e-03  +1.2e-06     0.6110
+    6.993 1.86666e-03 9.46199e-02   50.6895    1.2686 4.290e-03    27.498  2.42e-03  +5.7e-06     0.5877
+    7.992 1.43988e-03 9.14585e-02   63.5183    1.5096 3.028e-03    20.221  2.31e-03  +6.1e-06     0.5559
+    8.991 1.13076e-03 8.91848e-02   78.8719    1.8395 2.371e-03    16.979  1.98e-03  +2.2e-06     0.4944
+    9.990 8.65403e-04 8.72294e-02  100.7963    2.1974 2.071e-03    15.424  1.61e-03  +5.1e-06     0.4419
+   10.000 8.64411e-04 8.72183e-02  100.8991    2.2012 2.068e-03    15.462  1.61e-03  +4.7e-06     0.4411
+
+  4466.7 s   989.01 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 102 probes, 911.6 s = 20 % of the run on 4 thread(s); 1242.61 MLUPS without them
+  no dissipation peak: eps fell throughout the run; skewness max 0.957
+  min E_M/E_V = 1.104   first max of Omega_M/Omega_V after its initial fall = 0.574901

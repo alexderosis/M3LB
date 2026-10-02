@@ -1,0 +1,24 @@
+  [reg] 8 of 7664 corner(s) have no straight-wall stencil and fall back to rho = 1
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP32
+  walls: velocity NO-SLIP (RegWall), field CONDUCTING parity
+  ic tgc   N = 640 (640^3 nodes)   Re = 2000   Pm = 1   u0 = 0.05 (Ma 0.087)
+  nu_lat = 5.0850e-03  tau_f = 0.51526   eta_lat = 5.0850e-03  tau_m = 0.52034
+  dt = 2.4582e-04  ->  40680 steps to t = 10   ->  ~/scratch/M3LB/runs/tg_mhd_round2/B_re2000_n640
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 1.24219e-01 1.25000e-01    1.0063    0.0168 9.062e-02     3.464  2.09e-06  +0.0e+00     0.9799
+    1.000 1.12196e-01 1.22862e-01    1.0951    0.5251 1.176e-02    16.758  4.93e-04  -7.5e-06     0.4805
+    2.001 1.14428e-01 1.03701e-01    0.9063    1.4827 2.543e-02    52.044  2.77e-03  -1.0e-05     0.1514
+    3.001 1.13882e-01 7.38523e-02    0.6485    1.3292 3.122e-02    54.885  3.65e-03  -1.4e-05     0.0668
+    4.002 1.00861e-01 5.31190e-02    0.5267    1.2522 3.420e-02    42.478  4.71e-03  -1.7e-05     0.0671
+    5.002 7.83012e-02 3.99830e-02    0.5106    1.2662 3.320e-02    57.426  5.38e-03  -1.7e-05     0.1082
+    6.003 5.88095e-02 3.06996e-02    0.5220    1.2504 2.414e-02    65.416  4.61e-03  -2.1e-05     0.0986
+    7.003 4.66644e-02 2.21798e-02    0.4753    1.1951 1.680e-02    41.262  3.78e-03  -2.2e-05     0.0888
+    8.004 3.76595e-02 1.70226e-02    0.4520    1.1257 1.152e-02    27.369  3.61e-03  -2.1e-05     0.0831
+    9.004 3.06536e-02 1.39681e-02    0.4557    1.1347 8.657e-03    34.124  2.99e-03  -2.4e-05     0.0684
+   10.000 2.53026e-02 1.16124e-02    0.4589    1.1351 6.820e-03    18.832  2.69e-03  -2.4e-05     0.0652
+
+  6511.3 s   1653.16 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 101 probes, 1888.5 s = 29 % of the run on 4 thread(s); 2328.51 MLUPS without them
+  peak dissipation eps = 3.6052e-02 at t = 4.502 (past any impulsive start); skewness there 0.317, max 0.567
+  min E_M/E_V = 0.451   first max of Omega_M/Omega_V after its initial fall = 1.746324

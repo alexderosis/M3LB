@@ -1,0 +1,23 @@
+  [reg] 8 of 7664 corner(s) have no straight-wall stencil and fall back to rho = 1
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP32
+  walls: velocity NO-SLIP (RegWall), field none (B = 0)
+  ic hydro   N = 640 (640^3 nodes)   Re = 2000   Pm = 1   u0 = 0.05 (Ma 0.087)
+  nu_lat = 5.0850e-03  tau_f = 0.51526   eta_lat = 5.0850e-03  tau_m = 0.52034
+  dt = 2.4582e-04  ->  40680 steps to t = 10   ->  ~/scratch/M3LB/runs/tg_mhd_round2/C_re2000_n640
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 1.24219e-01 0.00000e+00    0.0000    0.0000 8.912e-02     0.000  0.00e+00  +0.0e+00     0.9959
+    1.000 1.13102e-01 0.00000e+00    0.0000    0.0000 6.411e-03     0.000  0.00e+00  +3.4e-06     0.6544
+    2.001 1.07113e-01 0.00000e+00    0.0000    0.0000 5.903e-03     0.000  0.00e+00  +2.8e-06     0.5490
+    3.001 1.00657e-01 0.00000e+00    0.0000    0.0000 7.015e-03     0.000  0.00e+00  -1.7e-06     0.5306
+    4.002 9.33209e-02 0.00000e+00    0.0000    0.0000 7.463e-03     0.000  0.00e+00  +9.6e-07     0.4551
+    5.002 8.60351e-02 0.00000e+00    0.0000    0.0000 7.027e-03     0.000  0.00e+00  +4.8e-07     0.3261
+    6.003 7.91622e-02 0.00000e+00    0.0000    0.0000 6.701e-03     0.000  0.00e+00  -3.3e-06     0.2670
+    7.003 7.23487e-02 0.00000e+00    0.0000    0.0000 6.917e-03     0.000  0.00e+00  -1.4e-06     0.2243
+    8.004 6.53571e-02 0.00000e+00    0.0000    0.0000 6.847e-03     0.000  0.00e+00  -1.7e-06     0.1786
+    9.004 5.84469e-02 0.00000e+00    0.0000    0.0000 7.257e-03     0.000  0.00e+00  -5.0e-06     0.1452
+   10.000 5.08644e-02 0.00000e+00    0.0000    0.0000 7.658e-03     0.000  0.00e+00  -3.4e-06     0.1107
+
+  3254.2 s   3307.83 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 101 probes, 680.1 s = 21 % of the run on 4 thread(s); 4181.83 MLUPS without them
+  dissipation peak not reached: eps = 7.6582e-03 still rising at t = 10.000; skewness max 0.882

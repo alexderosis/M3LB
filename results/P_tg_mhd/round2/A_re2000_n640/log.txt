@@ -1,0 +1,23 @@
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP32
+  walls: velocity free-slip (SpecNode), field CONDUCTING parity
+  ic tgc   N = 640 (640^3 nodes)   Re = 2000   Pm = 1   u0 = 0.05 (Ma 0.087)
+  nu_lat = 5.0850e-03  tau_f = 0.51526   eta_lat = 5.0850e-03  tau_m = 0.52034
+  dt = 2.4582e-04  ->  40680 steps to t = 10   ->  ~/scratch/M3LB/runs/tg_mhd_round2/A_re2000_n640
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 1.25000e-01 1.25000e-01    1.0000    3.9999 1.875e-03     3.464  2.09e-06  +0.0e+00     0.0285
+    1.000 1.23375e-01 1.23918e-01    1.0044    2.1853 3.774e-03     7.121  9.06e-05  -2.9e-06     0.0245
+    2.001 1.30533e-01 1.07410e-01    0.8229    2.3132 1.900e-02    49.764  2.94e-03  +9.2e-07     0.0546
+    3.001 1.33089e-01 8.03045e-02    0.6034    1.4358 2.680e-02    51.186  3.24e-03  +4.4e-07     0.0404
+    4.002 1.16457e-01 6.49057e-02    0.5573    1.7991 3.697e-02    62.929  5.22e-03  -1.6e-06     0.0235
+    5.002 9.40176e-02 4.93195e-02    0.5246    1.6588 3.282e-02    41.708  4.40e-03  +4.3e-06     0.0469
+    6.003 7.50788e-02 3.85560e-02    0.5135    1.6716 2.684e-02    76.863  3.67e-03  -1.2e-06     0.0459
+    7.003 6.21832e-02 2.81597e-02    0.4529    1.4840 1.930e-02    36.747  3.77e-03  -2.4e-06     0.0358
+    8.004 5.11090e-02 2.18189e-02    0.4269    1.4131 1.563e-02    37.275  3.69e-03  +4.1e-06     0.0372
+    9.004 4.07415e-02 1.76790e-02    0.4339    1.4989 1.236e-02    39.087  3.45e-03  -1.3e-06     0.0281
+   10.000 3.40305e-02 1.39603e-02    0.4102    1.4399 8.489e-03    27.280  3.06e-03  -1.7e-06     0.0255
+
+  7862.3 s   1369.10 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 101 probes, 1760.8 s = 22 % of the run on 4 thread(s); 1764.20 MLUPS without them
+  peak dissipation eps = 3.9362e-02 at t = 4.402 (past any impulsive start); skewness there 0.274, max 0.642
+  min E_M/E_V = 0.410   first max of Omega_M/Omega_V after its initial fall = 2.379891
