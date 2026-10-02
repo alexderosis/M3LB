@@ -289,6 +289,17 @@ def split_fw1(run, pk):
     return lerp(parts, pk[0]) if parts else None
 
 
+def trapz_window(q, a, b):
+    """Trapezoidal integral over [a, b] of every column of [(t, [values])], each column
+    interpolated to the edges; [a, b] must lie inside the sampled range."""
+    seg = [(a, lerp(q, a))] + [p for p in q if a < p[0] < b] + [(b, lerp(q, b))]
+    tot = [0.0] * len(q[0][1])
+    for (ta, va), (tb, vb) in zip(seg, seg[1:]):
+        for k in range(len(tot)):
+            tot[k] += 0.5 * (va[k] + vb[k]) * (tb - ta)
+    return tot
+
+
 def integrated(run, t0, t1):
     """POST HOC (see the module docstring): ([F1, F2, F4], [viscous, Ohmic] or None)
     over [t0, t1], F = int fw eps dt / int eps dt -- the share of ALL the dissipation
@@ -310,11 +321,7 @@ def integrated(run, t0, t1):
         parts = None          # the drivers write both at every probe; anything else is not trusted
     q = [(t, [e] + [x * e for x in f] + ([x * e for x in parts[i][1]] if parts else []))
          for i, ((t, f), e) in enumerate(zip(fw, eps))]
-    seg = [(a, lerp(q, a))] + [p for p in q if a < p[0] < b] + [(b, lerp(q, b))]
-    tot = [0.0] * len(q[0][1])
-    for (ta, va), (tb, vb) in zip(seg, seg[1:]):
-        for k in range(len(tot)):
-            tot[k] += 0.5 * (va[k] + vb[k]) * (tb - ta)
+    tot = trapz_window(q, a, b)
     if not all(math.isfinite(x) for x in tot) or tot[0] <= 0:
         return "no finite dissipation in the window"
     F = [x / tot[0] for x in tot[1:]]
