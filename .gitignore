@@ -96,6 +96,8 @@ results/P_tg_mhd/**/vti/
 results/P_tg_mhd/**/raw/
 # tools/tg_mhd_slices.py's planes of those volumes, ~100 MB a run: regenerable
 # from raw/, and the figures made from them are tracked in results/P_tg_mhd/fig/.
-results/P_tg_mhd/**/slices/
+# Their slices/index.json stays tracked: it is small, and it carries each plane's
+# means, which paper/tg_mhd/numbers.py quotes.
+results/P_tg_mhd/**/slices/*.f32
 results/P_tg_mhd/**/png/
 results/P_tg_mhd/**/*.mp4

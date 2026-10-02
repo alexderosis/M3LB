@@ -1453,6 +1453,17 @@ journal-neutral, so moving to JFM is a class swap.
   the f_w estimator after the first ladder failed its gate. One date -- 25
   September, for the two qualitative outcomes -- comes from the plan artifact,
   which is not in the repository.
+- **THE FIELD SNAPSHOTS (Figs. 3 and 4) COME FROM `GPU/csf3/tg_mhd_snap.sub`**: A,
+  B and C rerun at Re = 1000, N = 512 with full dumps at t = 0, 2.3 and 4.6 --
+  reproducing the production series exactly, all 48 probes to t = 4.7 -- and cut
+  into planes by `tools/tg_mhd_slices.py`, which uses the drivers' own wall
+  derivatives (whole-box eps to 1.7e-8). The `.f32` planes are gitignored;
+  `slices/index.json` is tracked and carries each plane's means, which
+  `numbers.py` quotes, so `make` never needs the planes and only `make figs` does.
+  **The near-wall panels show the BOTTOM wall**: the box's walls fall into two
+  symmetry classes, two horizontal and four vertical, so a near-wall plane shows
+  one class, and the text must say which. The raw dumps (11 GB a run) are on CSF3
+  scratch, which is not permanent.
 - Left for the author as TODOs in `main.tex`: the department, funding, the
   AI-use disclosure AIP asks for, and whether the repository is public (with a
   DOI).

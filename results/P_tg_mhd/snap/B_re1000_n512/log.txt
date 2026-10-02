@@ -1,0 +1,46 @@
+  [reg] 8 of 6128 corner(s) have no straight-wall stencil and fall back to rho = 1
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP64
+  walls: velocity NO-SLIP (RegWall), field CONDUCTING parity
+  ic tgc   N = 512 (512^3 nodes)   Re = 1000   Pm = 1   u0 = 0.05 (Ma 0.087)
+  nu_lat = 8.1328e-03  tau_f = 0.52440   eta_lat = 8.1328e-03  tau_m = 0.53253
+  dt = 3.0740e-04  ->  15290 steps to t = 4.7   ->  ~/scratch/M3LB/runs/tg_mhd_snap/B_re1000_n512
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 1.24023e-01 1.25000e-01    1.0079    0.0210 1.456e-01     3.464  7.56e-15  +0.0e+00     0.9753
+    0.999 1.07244e-01 1.20716e-01    1.1256    0.6313 1.794e-02    11.226  4.78e-04  -7.1e-06     0.4299
+    1.998 1.06390e-01 9.65742e-02    0.9077    1.5252 3.475e-02    36.438  2.36e-03  -1.0e-05     0.1394
+    2.997 1.01975e-01 6.36859e-02    0.6245    1.2783 3.621e-02    33.971  2.71e-03  -1.2e-05     0.0694
+    3.996 8.77829e-02 4.24242e-02    0.4833    1.1736 3.374e-02    32.098  2.95e-03  -1.4e-05     0.0745
+    4.700 7.34559e-02 3.37344e-02    0.4592    1.1374 3.092e-02    35.555  3.26e-03  -1.7e-05     0.1051
+
+  2025.7 s   1024.98 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 51 probes, 374.1 s = 18 % of the run on 4 thread(s); 1257.12 MLUPS without them
+  peak dissipation eps = 3.7831e-02 at t = 2.298 (past any impulsive start); skewness there 0.447, max 0.531
+  min E_M/E_V = 0.459   first max of Omega_M/Omega_V after its initial fall = 1.654985
+  Pouquet et al. (2010) C2, nu = eta = 1e-3: min E_M/E_V = 0.35, first max Omega_M/Omega_V = 2
+  3 raw field file(s) in ~/scratch/M3LB/runs/tg_mhd_snap/B_re1000_n512/raw
+  z0_t0.000.f32  (eps mean 1.4557e-01)
+  z3_t0.000.f32  (eps mean 1.4557e-01)
+  z5_t0.000.f32  (eps mean 1.4557e-01)
+  z128_t0.000.f32  (eps mean 1.4557e-01)
+  z256_t0.000.f32  (eps mean 1.4557e-01)
+  y64_t0.000.f32  (eps mean 1.4557e-01)
+  y128_t0.000.f32  (eps mean 1.4557e-01)
+  y256_t0.000.f32  (eps mean 1.4557e-01)
+  z0_t2.300.f32  (eps mean 3.7830e-02)
+  z3_t2.300.f32  (eps mean 3.7830e-02)
+  z5_t2.300.f32  (eps mean 3.7830e-02)
+  z128_t2.300.f32  (eps mean 3.7830e-02)
+  z256_t2.300.f32  (eps mean 3.7830e-02)
+  y64_t2.300.f32  (eps mean 3.7830e-02)
+  y128_t2.300.f32  (eps mean 3.7830e-02)
+  y256_t2.300.f32  (eps mean 3.7830e-02)
+  z0_t4.600.f32  (eps mean 3.1594e-02)
+  z3_t4.600.f32  (eps mean 3.1594e-02)
+  z5_t4.600.f32  (eps mean 3.1594e-02)
+  z128_t4.600.f32  (eps mean 3.1594e-02)
+  z256_t4.600.f32  (eps mean 3.1594e-02)
+  y64_t4.600.f32  (eps mean 3.1594e-02)
+  y128_t4.600.f32  (eps mean 3.1594e-02)
+  y256_t4.600.f32  (eps mean 3.1594e-02)
+wrote 24 planes to ~/scratch/M3LB/runs/tg_mhd_snap/B_re1000_n512/slices

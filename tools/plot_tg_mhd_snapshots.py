@@ -18,7 +18,9 @@ nearest --t, is one row per box (free slip, no slip, no field) and four columns:
         the z = 0 wall), viscous and Ohmic, on the same scale.
 
 The no-field box has no Ohmic panels. One logarithmic colour scale, --range,
-serves every panel, so a colour means the same multiple of the mean everywhere.
+serves every panel, so a colour means the same multiple of the mean everywhere,
+and each panel is labelled with its plane's mean (trapezoidal weights, as the
+box averages), so the comparison can be read in numbers as well as colour.
 
 Needs numpy and matplotlib (a scratch venv; see tools/plot_tg_mhd_ladder.py).
 """
@@ -84,6 +86,7 @@ def main(argv):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.colors import LogNorm
+    import matplotlib.patheffects as pe
 
     runs = {}
     for d in args.dirs:
@@ -93,7 +96,7 @@ def main(argv):
     if "A" not in runs or "B" not in runs:
         raise SystemExit("need at least the free-slip (A) and no-slip (B) runs")
 
-    plt.rcParams.update({"font.family": "sans-serif", "font.size": 8.5, "axes.labelcolor": INK,
+    plt.rcParams.update({"font.family": "sans-serif", "font.size": 10, "axes.labelcolor": INK,
                          "axes.titlecolor": INK, "text.color": INK})
     norm = LogNorm(vmin=args.range[0], vmax=args.range[1])
     cmap = plt.get_cmap("magma").copy()
@@ -103,14 +106,14 @@ def main(argv):
     fig.patch.set_facecolor(SURFACE)
     # a spacer column keeps the wall-plane group's axis labels off the section group
     gs = fig.add_gridspec(nr, 5, width_ratios=[1, 1, 0.16, 1, 1], left=0.075, right=0.905,
-                          bottom=0.075, top=0.93, wspace=0.07, hspace=0.12)
+                          bottom=0.075, top=0.89, wspace=0.07, hspace=0.12)
     axs = [[fig.add_subplot(gs[r, c]) for c in (0, 1, 3, 4)] for r in range(nr)]
     meta = None
     for r, s in enumerate(order):
         d, recs = runs[s]
         sec = pick(recs, args.t, plane=args.section, axis="y")
         wal = pick(recs, args.t, plane=args.wall, axis="z", near_d=0.5)
-        meta = sec
+        meta, wal_d = sec, wal["d_over_delta"]
         S, W = load(np, d, sec), load(np, d, wal)
         delta = sec["delta"] / math.pi                           # in units of pi
         for c, (fld, src, kind) in enumerate((("visc", S, "sec"), ("ohm", S, "sec"),
@@ -120,39 +123,47 @@ def main(argv):
             if s == "C" and fld == "ohm":
                 ax.axis("off")
                 ax.text(0.5, 0.5, "no field", ha="center", va="center", color=MUTED,
-                        transform=ax.transAxes, fontsize=9)
+                        transform=ax.transAxes, fontsize=10.5)
                 continue
             im = ax.imshow(np.clip(src[fld], args.range[0] * 1e-3, None), origin="lower",
                            extent=[0, 1, 0, 1], cmap=cmap, norm=norm, interpolation="nearest")
+            # the plane's mean, with the trapezoidal weights of the box averages
+            w = np.ones(src[fld].shape[0])
+            w[[0, -1]] = 0.5
+            m = float((w[:, None] * w[None, :] * src[fld]).sum() / w.sum() ** 2)
+            ax.text(0.03, 0.035, "mean %.2f" % m, transform=ax.transAxes, fontsize=9.5, color="white",
+                    path_effects=[pe.withStroke(linewidth=1.6, foreground="black")])
             if kind == "sec":
                 for v in (delta, 1 - delta):
                     ax.axhline(v, color="#9fd7ff", lw=0.6, ls=(0, (3, 2)))
                     ax.axvline(v, color="#9fd7ff", lw=0.6, ls=(0, (3, 2)))
             ax.set_xticks([0, 0.5, 1])
             ax.set_yticks([0, 0.5, 1])
-            ax.tick_params(labelsize=7, length=2, colors=INK2)
+            ax.tick_params(labelsize=8.5, length=2, colors=INK2)
             if r == nr - 1:
-                ax.set_xlabel(r"$x/\pi$", fontsize=8)
+                ax.set_xlabel(r"$x/\pi$", fontsize=10)
             else:
                 ax.set_xticklabels([])
             if c in (0, 2):
-                ax.set_ylabel(r"$z/\pi$" if kind == "sec" else r"$y/\pi$", fontsize=8)
+                ax.set_ylabel(r"$z/\pi$" if kind == "sec" else r"$y/\pi$", fontsize=10)
             else:
                 ax.set_yticklabels([])
             if r == 0:
-                where = ("section $y=%.2f\\pi$" % (sec["index"] / (sec["N"] - 1)) if kind == "sec"
-                         else "wall plane, $d=%.2f\\delta$" % wal["d_over_delta"])
-                ax.set_title("%s: %s" % (where, "viscous" if fld == "visc" else "Ohmic"),
-                             fontsize=8.5, loc="left")
+                ax.set_title("viscous" if fld == "visc" else "Ohmic", fontsize=10)
         bb = axs[r][0].get_position()
         fig.text(0.014, 0.5 * (bb.y0 + bb.y1), ROWNAME[s], rotation=90, ha="center", va="center",
-                 fontsize=9)
+                 fontsize=10.5)
+    # one header over each pair of columns: the section, and the near-wall plane
+    for c0, text in ((0, "section $y=%.2f\\pi$" % (meta["index"] / (meta["N"] - 1))),
+                     (2, "plane $%.2f\\delta$ above the bottom wall" % wal_d)):
+        b0, b1 = axs[0][c0].get_position(), axs[0][c0 + 1].get_position()
+        fig.text(0.5 * (b0.x0 + b1.x1), b0.y1 + 0.035, text, ha="center", va="bottom", fontsize=10.5)
     cax = fig.add_axes([0.925, 0.12, 0.011, 0.76])
     cb = fig.colorbar(im, cax=cax)
-    cb.set_label("local dissipation / box mean", fontsize=8)
-    cb.ax.tick_params(labelsize=7)
+    cb.set_label("local dissipation / box mean", fontsize=10)
+    cb.ax.tick_params(labelsize=8.5)
     fig.suptitle("Re = %g,  t = %.2f,  N = %d" % (meta["Re"], meta["t"], meta["N"]), x=0.08, ha="left",
-                 fontsize=9.5, y=0.995)
+                 fontsize=11, y=0.995)
     for f in args.fmt.split(","):
         fig.savefig("%s.%s" % (args.out, f), dpi=200, facecolor=SURFACE,
                     metadata={"CreationDate": None} if f == "pdf" else None)

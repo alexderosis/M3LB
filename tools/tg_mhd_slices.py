@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Planes of the local dissipation from tg_mhd's raw dumps -- the paper's snapshots.
 
-    tg_mhd_slices.py RUN_DIR [--planes z0,z3,y128] [--jobs 4] [--check]
+    tg_mhd_slices.py RUN_DIR [--planes z0,z3,y128] [--jobs 4] [--check | --index-only]
 
 RUN_DIR is a run's output directory from demonstrator/tg_mhd or GPU/src/tg_mhd.cu
 run with -raw: series.dat names the setup, Re and Pm, and raw/fields_NNNN.raw hold
@@ -12,7 +12,12 @@ RUN_DIR/slices/,
 
     <plane>_t<t>.f32   float32 [4][rows][cols]: nu|w|^2, eta|j|^2, |u|, |b|
     index.json         one record per file: plane, time, N, Re, h, delta, the box
-                       mean eps at that time (series.dat, interpolated), the axes
+                       mean eps at that time (series.dat, interpolated), the axes,
+                       and each field's trapezoid-weighted plane mean. It is
+                       small and tracked; the .f32 files are not (.gitignore), so
+                       paper/tg_mhd/numbers.py reads the means from here.
+                       --index-only fills them in for slices cut before the
+                       index carried them.
 
 A plane is zK -- the wall-parallel plane K nodes from the z = 0 wall, rows y and
 columns x -- or yK, the vertical section K nodes from the y = 0 wall, rows z and
@@ -156,6 +161,34 @@ def compute(task):
     return out
 
 
+def plane_mean(a, L):
+    """The trapezoid-weighted mean of an L x L plane: half weight on its edge rows
+    and columns, as the box averages weight the nodes on a wall."""
+    tot = 0.0
+    for r in range(L):
+        row = a[r * L:(r + 1) * L]
+        tot += (sum(row) - 0.5 * (row[0] + row[-1])) * (0.5 if r in (0, L - 1) else 1.0)
+    return tot / (L - 1) ** 2
+
+
+def index_only(out_dir):
+    """Fill in each indexed plane's means from its .f32, for slices cut before the
+    index carried them; the slices themselves are not touched."""
+    idx = os.path.join(out_dir, "index.json")
+    recs = json.load(open(idx))
+    for m in recs:
+        L = m["N"]
+        a = array("f")
+        with open(os.path.join(out_dir, m["file"]), "rb") as f:
+            a.frombytes(f.read())
+        if sys.byteorder != "little":
+            a.byteswap()
+        m["mean"] = {name: plane_mean(a[k * L * L:(k + 1) * L * L], L) for k, name in enumerate(m["fields"])}
+    json.dump(recs, open(idx, "w"), indent=1)
+    print("means for %d planes written to %s" % (len(recs), idx))
+    return 0
+
+
 def default_planes(L, Re, h):
     dh = 1.0 / math.sqrt(Re) / h                # delta in cells
     q = lambda frac: int(round(frac * (L - 1)))
@@ -186,10 +219,15 @@ def main(argv):
     ap.add_argument("--planes", default=None, help="comma-separated zK / yK (default: see the docstring)")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--check", action="store_true", help="whole-box eps against series.dat (slow; small runs)")
+    ap.add_argument("--index-only", action="store_true",
+                    help="only fill in the plane means of slices already cut (no raw dumps needed)")
     args = ap.parse_args(argv)
 
+    if args.index_only:
+        return index_only(os.path.join(args.run_dir, "slices"))
     info = run_info(args.run_dir)
-    raw = sorted(os.path.join(args.run_dir, "raw", f) for f in os.listdir(os.path.join(args.run_dir, "raw"))
+    rdir = os.path.join(args.run_dir, "raw")
+    raw = sorted(os.path.join(rdir, f) for f in (os.listdir(rdir) if os.path.isdir(rdir) else [])
                  if f.startswith("fields_") and f.endswith(".raw"))
     if not raw:
         raise SystemExit("no raw/fields_*.raw under %s -- run the driver with -raw" % args.run_dir)
@@ -224,6 +262,7 @@ def main(argv):
                          "rows": "y" if p[0] == "z" else "z", "cols": "x"})
     with multiprocessing.Pool(max(1, min(args.jobs, len(tasks)))) as pool:
         for m, res in zip(meta, pool.imap(compute, tasks)):
+            m["mean"] = {name: plane_mean(a, L) for name, a in zip(m["fields"], res)}
             with open(os.path.join(out_dir, m["file"]), "wb") as f:
                 for a in res:
                     if sys.byteorder != "little":

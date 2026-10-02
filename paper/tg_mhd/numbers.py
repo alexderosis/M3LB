@@ -12,6 +12,7 @@ A number in the text that this script does not print is a number to distrust.
 Pure stdlib, like the tools it imports.
 """
 import glob
+import json
 import math
 import os
 import sys
@@ -305,6 +306,49 @@ def main():
             say("  %s Re %4d N %d: F1 %.4f (visc %.4f, ohm %.4f, Ohmic %.0f %%); peak: %s" % (
                 s, Re, r["N"], F[0], sp[0], sp[1], 100 * sp[1] / F[0],
                 "t %.2f" % pk[0] if isinstance(pk, tuple) else pk))
+
+    # ---- Sec. IV.C: the field snapshots (GPU/csf3/tg_mhd_snap.sub) -----------------
+    # The plane means come from slices/index.json, which is tracked; the .f32 planes
+    # themselves are not, and are needed only to redraw the figures.
+    say()
+    say("IV.C THE FIELDS (results/P_tg_mhd/snap, Re 1000, N 512)")
+    snap, prod = runs_of("snap"), {"A": RUNS[("A", 1000)][512], "B": RUNS[("B", 1000)][512],
+                                   "C": RUNS[("C", 1000)][512]}
+    for s in ("A", "B", "C"):
+        a, b = snap[(s, 1000)][512], prod[s]
+        tb = {round(r[0], 4): r for r in b["rows"]}
+        common = [(r, tb[round(r[0], 4)]) for r in a["rows"][:-1] if round(r[0], 4) in tb]
+        worst = max(abs(x[T.IX[c]] - y[T.IX[c]]) / max(abs(y[T.IX[c]]), 1e-300)
+                    for x, y in common for c in ("eps", "fw1", "E_V", "E_M"))
+        say("  %s: the snapshot run against the production run, %d probe rows to t = %.1f: worst %.1e"
+            % (s, len(common), common[-1][0][0], worst))
+    idx = {}
+    for s in ("A", "B", "C"):
+        with open(os.path.join(res("snap"), "%s_re1000_n512" % s, "slices", "index.json")) as f:
+            idx[s] = json.load(f)
+
+    def plane(s, name, t):
+        return min((r for r in idx[s] if r["plane"] == name), key=lambda r: abs(r["t"] - t))
+    sec, wal = "y128", "z3"
+    r0 = plane("A", sec, 2.3)
+    say("  planes: section %s at y = %.4f pi; wall plane %s at d = %.2f delta (delta = %.2f cells)"
+        % (sec, r0["index"] / (r0["N"] - 1), wal, plane("A", wal, 2.3)["d_over_delta"],
+           r0["delta"] / r0["h"]))
+    for t in (2.3, 4.6):
+        say("  t = %.2f (box mean eps: %s)" % (plane("A", sec, t)["t"], ", ".join(
+            "%s %.4e" % (s, plane(s, sec, t)["eps_mean"]) for s in ("A", "B", "C"))))
+        for name, what in ((sec, "section"), (wal, "wall plane")):
+            say("    %-10s / box mean: %s" % (what, "   ".join(
+                "%s visc %.2f ohm %.2f" % (s, plane(s, name, t)["mean"]["visc"] / plane(s, name, t)["eps_mean"],
+                                         plane(s, name, t)["mean"]["ohm"] / plane(s, name, t)["eps_mean"])
+                for s in ("A", "B", "C"))))
+        a, b = plane("A", wal, t)["mean"], plane("B", wal, t)["mean"]
+        say("    wall plane, absolute B/A: viscous %.2f, Ohmic %.2f" % (b["visc"] / a["visc"], b["ohm"] / a["ohm"]))
+        c = plane("C", wal, t)
+        bb = plane("B", wal, t)
+        say("    wall plane, C's total over B's total (each over its own box mean): %.1f" % (
+            (c["mean"]["visc"] + c["mean"]["ohm"]) / c["eps_mean"]
+            / ((bb["mean"]["visc"] + bb["mean"]["ohm"]) / bb["eps_mean"])))
     write("numbers.txt", "\n".join(out) + "\n")
     return 0
 

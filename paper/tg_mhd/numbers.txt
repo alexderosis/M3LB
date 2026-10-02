@@ -84,3 +84,19 @@ IV.F THE INSULATING PAIR
   B' Re  500 N 384: F1 0.6257 (visc 0.3701, ohm 0.2556, Ohmic 41 %); peak: no turbulent peak by t = 10.0
   A' Re 1000 N 512: F1 0.2700 (visc 0.0312, ohm 0.2387, Ohmic 88 %); peak: t 3.31
   B' Re 1000 N 512: F1 0.6895 (visc 0.4441, ohm 0.2454, Ohmic 36 %); peak: no turbulent peak by t = 10.0
+
+IV.C THE FIELDS (results/P_tg_mhd/snap, Re 1000, N 512)
+  A: the snapshot run against the production run, 48 probe rows to t = 4.7: worst 0.0e+00
+  B: the snapshot run against the production run, 48 probe rows to t = 4.7: worst 0.0e+00
+  C: the snapshot run against the production run, 48 probe rows to t = 4.7: worst 0.0e+00
+  planes: section y128 at y = 0.2505 pi; wall plane z3 at d = 0.58 delta (delta = 5.14 cells)
+  t = 2.30 (box mean eps: A 3.0542e-02, B 3.7830e-02, C 8.3995e-03)
+    section    / box mean: A visc 0.37 ohm 0.49   B visc 0.39 ohm 0.42   C visc 0.70 ohm 0.00
+    wall plane / box mean: A visc 0.53 ohm 0.61   B visc 1.49 ohm 0.39   C visc 6.67 ohm 0.00
+    wall plane, absolute B/A: viscous 3.46, Ohmic 0.79
+    wall plane, C's total over B's total (each over its own box mean): 3.5
+  t = 4.60 (box mean eps: A 3.3629e-02, B 3.1594e-02, C 8.1705e-03)
+    section    / box mean: A visc 0.48 ohm 0.64   B visc 0.55 ohm 0.59   C visc 0.65 ohm 0.00
+    wall plane / box mean: A visc 0.12 ohm 0.19   B visc 0.90 ohm 0.13   C visc 3.26 ohm 0.00
+    wall plane, absolute B/A: viscous 6.79, Ohmic 0.68
+    wall plane, C's total over B's total (each over its own box mean): 3.2
