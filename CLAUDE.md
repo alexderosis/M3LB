@@ -1144,6 +1144,7 @@ Do not spend time on these without saying so first; several are deliberate.
   share -- `tg_mhd_ladder.py`'s POST HOC section -- keeps B - A positive and beyond
   its band at every rung, VISCOUS (+0.059 to +0.073 over t = 2..10) with a
   NEGATIVE Ohmic part (-0.011 to -0.014), and leaves its Re trend undecided.
+  The paper written from all this is `paper/tg_mhd/` (the section on papers below).
   **The insulating pair is not the control it was meant to be**: B' never becomes
   turbulent by t = 10 at Re = 500 or 1000, so B' - A' (+0.32 and +0.42,
   integrated) compares a laminar box with a turbulent one, and under TG-I rather
@@ -1408,6 +1409,56 @@ the same few mistakes, so they are worth naming.
 
 ---
 
+## Papers (`paper/`)
+
+`paper/tg_mhd/` is the confined-MHD paper, "Walls or cascade? A pre-registered
+test of wall dissipation in decaying magnetohydrodynamic turbulence": 9 pages in
+REVTeX 4.2 for Physics of Plasmas, tracked with its PDF (5ee9407, 2026-10-02).
+`make -C paper/tg_mhd` rebuilds it; `make -C paper/tg_mhd figs PY=<a python with
+numpy and matplotlib>` remakes its three figures into `results/P_tg_mhd/fig/`,
+byte-identical when the data have not changed. After new runs, `make -B`: make
+does not track `results/`. `jfm.cls` is not installed here, and the text is
+journal-neutral, so moving to JFM is a class swap.
+
+- **EVERY NUMBER IN THE TEXT COMES FROM `numbers.py`.** It reads
+  `results/P_tg_mhd/` through `tools/tg_mhd_ladder.py` and
+  `tools/plot_tg_mhd_ladder.py` -- the same peak, f_w and integrated share as the
+  figures -- prints every quoted number, section by section, into `numbers.txt`,
+  and writes the four `tab_*.tex`. A number in `main.tex` that `numbers.txt` does
+  not contain is a number to distrust. To change a number, change the script and
+  regenerate; never type one in.
+- **WHAT THE PAPER CLAIMS IS FIXED BY WHAT SURVIVED, NOT BY WHAT WAS HOPED.** It
+  reports the pre-registered verdict, "cascade", as the result of the registered
+  test, and says why it is fragile. It claims only what held under every
+  definition: B - A positive and viscous; the near-wall Ohmic dissipation 40-45 %
+  lower than at a free-slip wall, in absolute terms; the no-slip wall layer
+  intensifying with Re; and, at Re = 1000, the hydrodynamic box putting 3.3x more
+  of its dissipation within delta of the walls. It claims no trend in Re, and
+  reports A'/B' only as confounded. A revision that strengthens a trend claim --
+  choosing the window that gives "walls hold", say -- is the forking path the
+  protocol exists to prevent. It needs its own pre-registered test; the
+  discussion proposes a forced, statistically stationary box.
+- **CHECK EVERY CLAIM BROADER THAN ONE NUMBER AGAINST THE DATA BEFORE WRITING
+  IT.** Drafting the paper, three sentences were wrong although every number in
+  them was right: "t = 2-6 contains every turbulent peak" (B at Re = 250 peaks at
+  t = 1.90); "the mass drift is mostly at the regularized corners" (the free-slip
+  A' boxes drift as much); and "about 40 %" for a deficit of 41-45 %. Words like
+  every, mostly, about and monotonically are claims too.
+- **A REFERENCE WRITTEN FROM MEMORY IS UNVERIFIED UNTIL IT IS CHECKED.** All 21
+  entries of `refs.bib` were checked on 2026-10-02 against the paper itself
+  (`SomeRefs/`) or its publisher or index record, and the file's header says so.
+  The nine first written from memory and kept were all right this time, which
+  is not a reason to skip the check next time. A new entry goes in the same way.
+- **THE PROTOCOL SECTION IS DATED FROM `git log`**, including the correction of
+  the f_w estimator after the first ladder failed its gate. One date -- 25
+  September, for the two qualitative outcomes -- comes from the plan artifact,
+  which is not in the repository.
+- Left for the author as TODOs in `main.tex`: the department, funding, the
+  AI-use disclosure AIP asks for, and whether the repository is public (with a
+  DOI).
+
+---
+
 ## Conventions
 
 - Match the surrounding code: banner comments that argue the decision, measured
@@ -1416,5 +1467,7 @@ the same few mistakes, so they are worth naming.
 - When a limitation is found, write it into the module banner and into
   `doc/m3lb.tex`'s "Known limitations" — not only into a commit message.
 - Results in `results/` are tracked reference data. Build trees and field dumps
-  are ignored; `doc/m3lb.pdf` is tracked because it is the deliverable.
-- Rebuild the document with `make -C doc` (needs a full TeX install).
+  are ignored; `doc/m3lb.pdf` and `paper/*/main.pdf` are tracked because they are
+  the deliverables.
+- Rebuild the document with `make -C doc`, and a paper with `make -C paper/<name>`
+  (both need a full TeX install).
