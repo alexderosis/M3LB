@@ -99,6 +99,9 @@ sbatch --array=0-9   --time=5:00:00 GPU/csf3/tg_mhd_round2.sub     # round 2 (se
 sbatch --array=10-28 --time=2:00:00 GPU/csf3/tg_mhd_round2.sub
 sbatch --array=0-2 GPU/csf3/tg_mhd_snap.sub                         # the paper's snapshots
 sbatch GPU/csf3/tg_mhd_vol.sub                                     # and its 3-D volumes
+sbatch --array=0-3  --time=4:00:00 GPU/csf3/tg_mhd_budget.sub       # Phase 1: the energy budget,
+sbatch --array=4-7  --time=2:30:00 GPU/csf3/tg_mhd_budget.sub       # chained on the verify job
+sbatch --array=8-15 --time=1:00:00 GPU/csf3/tg_mhd_budget.sub       # (see below)
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -268,6 +271,30 @@ no GPU is used. Copy the volumes back with
 
 ```
 rsync -av --include='*/' --include='vol/*' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_snap/ results/P_tg_mhd/snap/
+```
+
+**`tg_mhd_budget.sub`** is Phase 1 of the paper: A and B on both grids of every
+rung, at round 2's exact settings, now also writing `budget.dat` -- the kinetic
+and magnetic energy budgets against wall distance. Its header FIXES, before the
+runs, the test of the paper's conjecture for the near-wall Ohmic deficit (phi,
+the share of the deficit that the stretching deficit accounts for, against 1/2
+at every rung), and every element checks that its `series.dat` is round 2's
+exactly. About 13 GPU-hours. Chain it on the verify job, which rebuilds both
+trees from the new source and checks the device's budget against the host's:
+
+```
+git pull
+jid=$(sbatch --parsable GPU/csf3/tg_mhd_verify.sub)
+sbatch --dependency=afterok:$jid --array=0-3  --time=4:00:00 GPU/csf3/tg_mhd_budget.sub
+sbatch --dependency=afterok:$jid --array=4-7  --time=2:30:00 GPU/csf3/tg_mhd_budget.sub
+sbatch --dependency=afterok:$jid --array=8-15 --time=1:00:00 GPU/csf3/tg_mhd_budget.sub
+```
+
+then `python3 tools/tg_mhd_budget.py runs/tg_mhd_budget` on the login node, and
+copy back with
+
+```
+rsync -av --include='*/' --include='series.dat' --include='profile*.dat' --include='budget.dat' --include='log.txt' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_budget/ results/P_tg_mhd/budget/
 ```
 
 ---

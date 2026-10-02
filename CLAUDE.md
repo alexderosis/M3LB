@@ -1517,6 +1517,31 @@ does) fails on it. Run such scripts from elsewhere.
   estimate, not a measurement. The 8-page main text the plan aimed at would need
   about three more pages cut -- a figure moved or the discussion halved -- which
   is the author's call.
+- **PHASE 1, THE MECHANISM: THE ENERGY BUDGET AGAINST WALL DISTANCE.** Since
+  2026-10-02 both drivers write `budget.dat`: per probe, twelve terms -- eK, eM,
+  viscous and Ohmic loss, stretching S = B_i B_j d_j u_i, Lorentz work, both
+  advections, pressure work, viscous and resistive transport, and the
+  compressible remainder of the induction -- as each layer's contribution to the
+  box mean, out to 8 delta, then the rest of the box in one column (the banner
+  above `Acc` in `demonstrator/tg_mhd.cpp` defines them). Verified on the host:
+  the two drivers agree to every printed digit after t = 0 (the six rows that
+  differ are t = 0, where those terms vanish and print round-off); the free-slip
+  box equals its periodic twin the same way; series and profiles stay
+  byte-identical to the references; the box sums reproduce E_V, E_M and eps.
+  **THE EXPLICIT TRANSPORTS DO NOT CLOSE A LAYER, AND THE TEST DOES NOT USE
+  THEM.** Products of central differences do not telescope, and the
+  compressible term oscillates with the acoustic waves at the size of a layer's
+  Ohmic loss; at N = 65 (1.4 cells in delta) the box budget closes to about 4 %
+  of eps over t = 2..10 and a delta layer to 10-15 %. So the pre-registered
+  test in `GPU/csf3/tg_mhd_budget.sub` uses only S and ohm, pointwise
+  first-derivative products: phi = (S_A - S_B)/(Omega_A - Omega_B), the share of
+  the near-wall Ohmic deficit the stretching deficit accounts for, against 1/2
+  at every rung, with the transport defined as the remainder so that the
+  layer's budget closes exactly. `tools/tg_mhd_budget.py` applies it and prints
+  the closure, the box identities and the kinetic side beside it. The job
+  header records exactly what had been seen when the rule was written (a t <= 2
+  closure table of one preview) and what was read after (the Re = 200, N = 65
+  preview over t = 2..10: phi = 2.5, not a rung and not a measurement).
 - Left for the author: in `main.tex` the department, funding, the AI-use
   disclosure AIP asks for, and the DOI; in `ARCHIVING.md` a LICENSE (the
   repository has none, so the code is readable but not reusable, and Zenodo will

@@ -23,7 +23,8 @@
 //      direction-averaged moments before the skewness ratio;
 //    * the output formats: series.dat with the same columns, profile.dat (the
 //      dissipation against wall distance, which f_w is read from) with its
-//      viscous and Ohmic parts in profile_visc.dat and profile_ohm.dat, anim_frames/
+//      viscous and Ohmic parts in profile_visc.dat and profile_ohm.dat, the
+//      energy budget against wall distance in budget.dat, anim_frames/
 //      for the renderers, vti/ on the real [0, pi] coordinates, raw/ volumes.
 //
 //  WHAT IS NOT: the operator is written out in closed form here and reached
@@ -202,6 +203,23 @@ struct HostFields {
     const double in = at(s), ghost = (e == ExtEven) ? in : -in;
     return double(s) * 0.5 * (in - ghost);
   }
+  // d^2 f_c / d x_k^2 per CELL^2, closed by the same extension as d -- the
+  // parent's HostFields::d2. The no-slip one-sided stencil (second order) only
+  // ever multiplies the wall node's own velocity, which RegWall holds at zero.
+  double d2(int c, int k, int x, int y, int z) const {
+    const int p[3] = {x, y, z};
+    auto at = [&](int off) {
+      int q[3] = {p[0], p[1], p[2]};
+      q[k] += off;
+      return v(c, q[0], q[1], q[2]);
+    };
+    if (periodic || (p[k] > 0 && p[k] < L - 1)) return at(1) - 2.0 * at(0) + at(-1);
+    const int e = ext(c, k);
+    const int s = (p[k] == 0) ? 1 : -1;
+    if (e == ExtOneSided) return 2.0 * at(0) - 5.0 * at(s) + 4.0 * at(2 * s) - at(3 * s);
+    const double in = at(s), ghost = (e == ExtEven) ? in : -in;
+    return in - 2.0 * at(0) + ghost;
+  }
 };
 
 // mkdir -p on POSIX ::mkdir, not std::filesystem: every GPU/ driver that has
@@ -222,6 +240,16 @@ bool mkdir_p(const std::string& path) {
   return true;
 }
 
+// THE ENERGY BUDGET AGAINST WALL DISTANCE (budget.dat), term for term the
+// parent's -- its banner above Acc argues what each term is, what the analysis
+// uses it for (where a layer's dissipated energy comes from) and why it closes
+// only to a residual in a weakly compressible scheme:
+//    d eK / dt = lor + advK + pres + difK - visc
+//    d eM / dt = S   + advM + difM + cmpM - ohm
+enum BudgetTerm : int { BeK, BeM, Bvisc, Bohm, BS, Blor, BadvK, Bpres, BdifK, BadvM, BdifM, BcmpM, NBUD };
+const char* const budget_name[NBUD] = {"eK",   "eM",   "visc", "ohm",  "S",    "lor",
+                                       "advK", "pres", "difK", "advM", "difM", "cmpM"};
+
 // THE PROBE RUNS ON THE HOST, PARALLEL OVER z. Every probe copies the fields
 // down and walks every node computing eighteen derivatives, and at N = 512 a
 // serial pass of that is ~10^9 operations -- more than the steps between
@@ -237,10 +265,12 @@ struct Acc {
   bool finite = true;
   // Per wall-distance layer k -- the nodes k cells from the nearest wall -- the
   // weighted dissipation, its viscous and Ohmic parts, and the weight itself;
-  // f_w and the profile files come from these (within_cells says how).
-  std::vector<double> lay_e, lay_w, lay_v, lay_m;
+  // f_w and the profile files come from these (within_cells says how). lay_b
+  // holds the energy budget's NBUD terms, term-major: lay_b[term * nlay + k].
+  std::vector<double> lay_e, lay_w, lay_v, lay_m, lay_b;
   explicit Acc(std::size_t nlay = 0)
-      : lay_e(nlay, 0.0), lay_w(nlay, 0.0), lay_v(nlay, 0.0), lay_m(nlay, 0.0) {}
+      : lay_e(nlay, 0.0), lay_w(nlay, 0.0), lay_v(nlay, 0.0), lay_m(nlay, 0.0),
+        lay_b(std::size_t(NBUD) * nlay, 0.0) {}
   void add(const Acc& a) {
     W += a.W; ev += a.ev; em += a.em; hc += a.hc; w2 += a.w2; j2 += a.j2;
     for (int k = 0; k < 3; ++k) { d2[k] += a.d2[k]; d3[k] += a.d3[k]; }
@@ -251,6 +281,7 @@ struct Acc {
     for (std::size_t k = 0; k < lay_e.size(); ++k) {
       lay_e[k] += a.lay_e[k]; lay_w[k] += a.lay_w[k]; lay_v[k] += a.lay_v[k]; lay_m[k] += a.lay_m[k];
     }
+    for (std::size_t k = 0; k < lay_b.size(); ++k) lay_b[k] += a.lay_b[k];
   }
 };
 
@@ -288,8 +319,9 @@ void parallel_z(int L, int nt, Fn fn) {
 // k h < m delta, measured a band of (floor(m delta / h) + 1/2) h instead of
 // m delta -- 0.91 delta at N = 384 and 1.07 delta at N = 512 for Re = 1000 -- and
 // in the first CSF3 ladder (2026-09-28) fw1 differed by 8-25 % between the two
-// grids of a rung while the peak dissipation agreed to 1 %: the gate was
-// measuring where the band edge fell between nodes, not the flow. r is the
+// grids of the rungs whose bands fell that way (Re = 250 and 1000; 1-7 % at the
+// other two) while the peak dissipation agreed to 1 %: the gate was measuring
+// where the band edge fell between nodes, not the flow. r is the
 // distance in cells; e[k] the layer sums.
 double within_cells(const std::vector<double>& e, double r) {
   if (r <= 0.0 || e.empty()) return 0.0;
@@ -306,6 +338,10 @@ struct Diag {
   double umax_lat = 0, fw[3] = {0, 0, 0}, tauw = 0;
   std::vector<double> prof, vol;   // each layer's share of eps and of the volume
   std::vector<double> prof_v, prof_m;   // its viscous and Ohmic parts, shares of the TOTAL eps
+  // The energy budget: per term, each of the first nbw layers' contribution to
+  // the BOX MEAN, then the rest of the box beyond them (budget.dat).
+  std::vector<double> bud;              // NBUD x (nbw + 1), term-major
+  std::vector<double> bvol;             // the same columns' shares of the volume
   bool finite = true;
 };
 
@@ -481,9 +517,12 @@ int main(int argc, char** argv) {
     else       mag.field_to_host(bx, by, bz);
   };
 
-  const double nu_tg = 1.0 / o.re, eta_tg = nu_tg / o.pm, ih = 1.0 / h;
+  const double nu_tg = 1.0 / o.re, eta_tg = nu_tg / o.pm, ih = 1.0 / h, ih2 = ih * ih;
   const double delta = 1.0 / std::sqrt(o.re);
   const double mass0 = double(NP);
+  // p = cs^2 rho in lattice units (D3Q27, cs^2 = 1/3), and a lattice pressure
+  // is u0^2 of the paper's -- the parent's pscale, written as a double.
+  const double pscale = (1.0 / 3.0) / (o.u0 * o.u0);
 
   const int nthreads = diag_threads(o.threads);
   auto measure_slab = [&](int z0, int z1, Acc& a) {
@@ -535,6 +574,44 @@ int main(int argc, char** argv) {
           a.lay_w[lay] += w;
           a.lay_v[lay] += w * (nu_tg * w2);     // eloc's viscous part
           a.lay_m[lay] += w * (eta_tg * j2);    // and its Ohmic part
+          // The energy budget at this node, formula for formula the parent's.
+          {
+            double lu[3] = {0, 0, 0}, lb[3] = {0, 0, 0}, gp = 0;
+            for (int c = 0; c < 3; ++c)
+              for (int k = 0; k < 3; ++k) {
+                lu[c] += H.d2(c, k, x, y, z) * ih2;
+                if (!hydro) lb[c] += H.d2(3 + c, k, x, y, z) * ih2;
+              }
+            for (int k = 0; k < 3; ++k) gp += u[k] * H.d(6, k, x, y, z) * ih * pscale;
+            double S = 0, advK = 0, advM = 0;
+            for (int i = 0; i < 3; ++i)
+              for (int q = 0; q < 3; ++q) {
+                S    += b[i] * b[q] * du[i][q];
+                advK -= u[q] * u[i] * du[i][q];
+                advM -= u[q] * b[i] * db[i][q];
+              }
+            const double jxb[3] = {jv[1] * b[2] - jv[2] * b[1], jv[2] * b[0] - jv[0] * b[2],
+                                   jv[0] * b[1] - jv[1] * b[0]};
+            const double u2 = u[0] * u[0] + u[1] * u[1] + u[2] * u[2];
+            const double b2 = b[0] * b[0] + b[1] * b[1] + b[2] * b[2];
+            const double ub = u[0] * b[0] + u[1] * b[1] + u[2] * b[2];
+            const double divu = du[0][0] + du[1][1] + du[2][2];
+            double tb[NBUD];
+            tb[BeK] = 0.5 * u2;
+            tb[BeM] = 0.5 * b2;
+            tb[Bvisc] = nu_tg * w2;
+            tb[Bohm] = eta_tg * j2;
+            tb[BS] = S;
+            tb[Blor] = u[0] * jxb[0] + u[1] * jxb[1] + u[2] * jxb[2];
+            tb[BadvK] = advK;
+            tb[Bpres] = -gp;
+            tb[BdifK] = nu_tg * (w2 + u[0] * lu[0] + u[1] * lu[1] + u[2] * lu[2]);
+            tb[BadvM] = advM;
+            tb[BdifM] = eta_tg * (j2 + b[0] * lb[0] + b[1] * lb[1] + b[2] * lb[2]);
+            tb[BcmpM] = -b2 * divu + ub * dvb;
+            const std::size_t nl = a.lay_e.size();
+            for (int q = 0; q < NBUD; ++q) a.lay_b[std::size_t(q) * nl + lay] += w * tb[q];
+          }
           if (dw <= 1) { a.divw += w * dvb * dvb; a.j2w += w * j2; a.ndivw += w; }
           a.jmax = std::max(a.jmax, std::sqrt(j2));
           a.wmax = std::max(a.wmax, std::sqrt(w2));
@@ -551,6 +628,8 @@ int main(int argc, char** argv) {
 
   // Wall-distance layers: 0 .. (N - 1)/2 cells, in the box and in the twin alike.
   const std::size_t nlay = std::size_t((N - 1) / 2 + 1);
+  // budget.dat's columns: the layers out to 8 delta, then the rest of the box.
+  const std::size_t nbw = std::min(nlay, std::size_t(std::ceil(8.0 * delta / h)) + 1);
   auto measure = [&](double t) {
     std::vector<Acc> part(static_cast<std::size_t>(nthreads), Acc(nlay));
     parallel_z(L, nthreads, [&](int z0, int z1, int tid) {
@@ -580,6 +659,14 @@ int main(int argc, char** argv) {
       g.vol[k] = a.lay_w[k] / W;
       g.prof_v[k] = (etot > 0) ? a.lay_v[k] / etot : 0.0;
       g.prof_m[k] = (etot > 0) ? a.lay_m[k] / etot : 0.0;
+    }
+    g.bud.assign(std::size_t(NBUD) * (nbw + 1), 0.0);
+    g.bvol.assign(nbw + 1, 0.0);
+    for (std::size_t k = 0; k < nlay; ++k) {
+      const std::size_t col = std::min(k, nbw);
+      g.bvol[col] += a.lay_w[k] / W;
+      for (int q = 0; q < NBUD; ++q)
+        g.bud[std::size_t(q) * (nbw + 1) + col] += a.lay_b[std::size_t(q) * nlay + k] / W;
     }
     g.tauw = (a.ntw > 0) ? a.tw / a.ntw : 0.0;
     g.mass = (t > 0) ? a.mass / mass0 - 1.0 : 0.0;
@@ -623,6 +710,25 @@ int main(int argc, char** argv) {
                          " each layer's %s\n", pro_what[f]);
   }
   bool pro_vol = false;
+  // budget.dat: the energy budget against wall distance, the parent's format.
+  std::FILE* bud = std::fopen((o.out + "/budget.dat").c_str(), "w");
+  if (!bud) { std::fprintf(stderr, "tg_mhd: cannot write budget.dat\n"); return 2; }
+  std::fprintf(bud, "# tg_mhd (%s %s)  %s  N=%d Re=%g h=%.8e delta=%.8e delta/h=%.6f layers=%zu written=%zu\n",
+               backend::on_device ? "CUDA" : "host", sizeof(Real) == 4 ? "FP32" : "FP64",
+               tag, N, o.re, h, delta, delta / h, nlay, nbw);
+  std::fprintf(bud, "# THE ENERGY BUDGET against wall distance. Per probe, one row per term: t, the term,\n"
+                    "# its contribution to the BOX MEAN from each of the layers 0..%zu (layer k: the nodes\n"
+                    "# k cells from the nearest wall, the slab [(k-1/2)h, (k+1/2)h]) and from the rest of\n"
+                    "# the box beyond them, so a row sums to the box average. Paper units: energies in\n"
+                    "# v0^2, rates in k0 v0^3. With eK = |u|^2/2 and eM = |B|^2/2,\n"
+                    "#   d eK/dt = lor + advK + pres + difK - visc\n"
+                    "#   d eM/dt = S + advM + difM + cmpM - ohm\n"
+                    "# lor = u.(j x B); S = B_i B_j d_j u_i; advK, advM = -u.grad eK, -u.grad eM;\n"
+                    "# pres = -u.grad p, p = cs^2 rho/u0^2; difK = nu div(u x w); difM = eta div(B x j);\n"
+                    "# cmpM = -|B|^2 div u + (u.B) div B; visc = nu |w|^2; ohm = eta |j|^2. The scheme is\n"
+                    "# weakly compressible, so a layer's terms close only to a residual.\n"
+                    "# row 'vol': each column's share of the volume\n", nbw - 1);
+  bool bud_vol = false;
 
   std::FILE* meta = nullptr;
   int dframe = 0, vframe = 0, rframe = 0;
@@ -811,6 +917,18 @@ int main(int argc, char** argv) {
           std::fflush(pro[f]);
         }
         pro_vol = true;
+        if (!bud_vol) {
+          std::fprintf(bud, "# vol");
+          for (double v : g.bvol) std::fprintf(bud, " %.6e", v);
+          std::fprintf(bud, "\n");
+          bud_vol = true;
+        }
+        for (int q = 0; q < NBUD; ++q) {
+          std::fprintf(bud, "%.6f %s", t, budget_name[q]);
+          for (std::size_t c = 0; c <= nbw; ++c) std::fprintf(bud, " %.6e", g.bud[std::size_t(q) * (nbw + 1) + c]);
+          std::fprintf(bud, "\n");
+        }
+        std::fflush(bud);
         if (k % (kp * 10) == 0 || k == T)
           std::printf("  %7.3f %11.5e %11.5e %9.4f %9.4f %9.3e %9.3f %9.2e %+9.1e %10.4f\n",
                       t, g.ev, g.em, emev, ommv, g.eps, g.jmax, g.divb, g.mass, g.fw[0]);
@@ -829,6 +947,7 @@ int main(int argc, char** argv) {
   const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - wall0).count();
   std::fclose(ser);
   for (std::FILE* f : pro) std::fclose(f);
+  std::fclose(bud);
   if (meta) { std::fprintf(meta, "frames %d\n", dframe); std::fclose(meta); }
   if (!pvd.empty()) write_pvd(o.out + "/vti/tg.pvd", pvd);
 

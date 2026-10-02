@@ -1,0 +1,177 @@
+#!/bin/bash --login
+#==============================================================================
+#  Phase 1 of the confined-MHD paper (paper/tg_mhd/): the MECHANISM of the
+#  near-wall Ohmic deficit, tested with the energy budget against wall distance.
+#
+#  THE QUESTION. Over t = 2..10, the Ohmic dissipation within delta = Re^-1/2 of
+#  a no-slip conducting wall (box B) is 0.55-0.59 of what it is at a free-slip
+#  one (box A), in absolute terms, at every rung from Re = 250 to 2000 (paper,
+#  Sec. IV B; round 2, results/P_tg_mhd/round2/). The paper conjectures why: at a
+#  free-slip conducting wall the tangential flow reaches the wall and stretches
+#  tangential field along it, building current sheets there; a no-slip wall stops
+#  that flow, and with it the stretching. The snapshots are consistent with this
+#  and cannot test it. The budget can: since 2026-10-02 both drivers write
+#  budget.dat, the kinetic and magnetic energy budgets layer by layer out to
+#  8 delta (the banner above Acc in demonstrator/tg_mhd.cpp defines each term).
+#
+#  THE OBSERVABLE, from budget.dat (tools/tg_mhd_budget.py computes it). Over
+#  t = 2..10 and within delta of the walls, read as f_w is read (the layer sums
+#  with the band edge interpolated) and integrated with the window's edges
+#  interpolated, for each box X:
+#
+#      Omega_X = int eta |j|^2          the near-wall Ohmic dissipation
+#      S_X     = int B_i B_j d_j u_i    the stretching of the field by the flow
+#      dE_X    = E_M,delta(10) - E_M,delta(2)
+#      T_X     = dE_X - S_X + Omega_X   everything else that feeds the layer
+#
+#  so that Omega = S + T - dE holds exactly, and the share of the Ohmic deficit
+#  that the stretching deficit accounts for is
+#
+#      phi = (S_A - S_B) / (Omega_A - Omega_B)
+#
+#  on the finer grid of each rung. Its BAND is |phi(finer) - phi(coarser)|
+#  between the rung's two grids. phi uses only S and the Ohmic dissipation, both
+#  pointwise products of first derivatives; it does NOT use the explicit
+#  transport terms (advection, resistive transport, the compressible remainder),
+#  which a weakly compressible scheme closes only to a residual.
+#
+#  THE VERDICT, FIXED HERE BEFORE THE RUNS (2026-10-02):
+#    * "stretching" if phi - band > 1/2 at EVERY rung, Re = 250, 500, 1000, 2000:
+#      the Ohmic deficit is mainly the stretching that the no-slip wall removes,
+#      and the conjecture stands;
+#    * "transport" if phi + band < 1/2 at EVERY rung: the deficit is mainly
+#      energy carried to or from the layer, or kept in it, and the conjecture
+#      falls -- which includes phi < 0, B stretching MORE than A;
+#    * otherwise "undecided", and the paper says so. A rung whose
+#      Omega_A - Omega_B is not positive has no phi, and makes the verdict
+#      undecided.
+#  The threshold is the plain majority -- the stretching deficit is more than
+#  half of the Ohmic deficit or it is not. WHAT HAD BEEN SEEN when the rule was
+#  written: laptop previews at Re = 200 (not a rung) run to check the budget's
+#  machinery, of which one, N = 65 to t = 2, had been analysed for its closure --
+#  a table that showed S and the Ohmic dissipation within delta over t <= 2, no
+#  rung and not the test's window. No preview over t = 2..10 had been analysed.
+#  Read afterwards, the N = 65 preview over t = 2..10 has Omega_B/Omega_A = 0.70
+#  and phi = 2.5, on a grid with 1.4 cells in delta: not a measurement, and
+#  recorded here because it was seen.
+#
+#  REPORTED, NOT GATING (the tool prints all of it): phi's three parts (the
+#  deficit = stretching + transport + storage, adding to 1); the explicit
+#  transport against T, i.e. how well the budget closes; the box identities
+#  (<S> = -<lor>, every transport integrating to zero); the same numbers within
+#  2 and 4 delta and over t = 2..6 and 5..10; and the kinetic budget of each
+#  box's layer -- how much of B's near-wall viscous dissipation the local
+#  Lorentz work, the pressure work, advection and viscous transport supply.
+#
+#  ALREADY ESTABLISHED WITHOUT A GPU (2026-10-02). The two drivers' host builds
+#  write budget.dat identically -- every printed digit after t = 0, where six of
+#  the terms vanish and print round-off -- at N = 65, Re = 200, free and no slip
+#  (references in results/P_tg_mhd/xcheck_n65_re200/*_budget.dat, which
+#  tg_mhd_verify.sub now also checks the DEVICE against); the free-slip box's
+#  budget equals its periodic twin's to every printed digit; and series.dat and
+#  the profiles are byte-identical to the references, so adding the budget moved
+#  nothing it did not add.
+#
+#  THE RUNS -- 16 elements, A and B on both grids of every rung, at exactly round
+#  2's settings (FP64 to Re = 1000, FP32 at 2000 where N = 640 fits only in
+#  FP32; probes every 0.05 below N = 384 and every 0.1 from there), so each run
+#  must REPRODUCE round 2's series.dat exactly -- the budget is host-side and
+#  touches no kernel -- and each says whether it did:
+#
+#      element   0    1    2    3    4    5    6    7    8    9    10   11   12   13   14   15
+#      setup     A    B    A    B    A    B    A    B    A    B    A    B    A    B    A    B
+#      Re        2000 2000 2000 2000 1000 1000 1000 1000 500  500  500  500  250  250  250  250
+#      N         640  640  512  512  512  512  384  384  384  384  256  256  256  256  192  192
+#
+#  COST, from round 2's logs for these 16 runs: 10.8 GPU-hours, 2.7 of them in
+#  the host probes. The budget makes a probe 1.6x as expensive -- measured on the
+#  host build, N = 65, 103 probes, the probes' share of the run rising from 33 %
+#  to 44-45 % with the steps untouched -- so about 13 GPU-hours in all, the
+#  N = 640 pair ~2.5 h each.
+#
+#  SUBMIT from the repo root, after git pull, chained on the verify job, which
+#  rebuilds build64 and build32 from the new source and checks the device's
+#  budget.dat before anything here starts:
+#
+#      jid=$(sbatch --parsable GPU/csf3/tg_mhd_verify.sub)
+#      sbatch --dependency=afterok:$jid --array=0-3  --time=4:00:00 GPU/csf3/tg_mhd_budget.sub
+#      sbatch --dependency=afterok:$jid --array=4-7  --time=2:30:00 GPU/csf3/tg_mhd_budget.sub
+#      sbatch --dependency=afterok:$jid --array=8-15 --time=1:00:00 GPU/csf3/tg_mhd_budget.sub
+#
+#  OUTPUT: runs/tg_mhd_budget/<A|B>_re<Re>_n<N>/ with series.dat, profile.dat,
+#  profile_visc.dat, profile_ohm.dat, budget.dat and log.txt. Then, on the login
+#  node (pure stdlib):
+#      python3 tools/tg_mhd_budget.py runs/tg_mhd_budget
+#  and copy back (from the laptop's repo root):
+#      rsync -av --include='*/' --include='series.dat' --include='profile*.dat' \
+#            --include='budget.dat' --include='log.txt' --exclude='*' \
+#            csf3:scratch/M3LB/runs/tg_mhd_budget/ results/P_tg_mhd/budget/
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-4:00               # elements 0-3; see the header for 4-7 and 8-15
+#SBATCH -J tg_mhd_budget
+#SBATCH -o tg_mhd_budget-%A_%a.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+i=${SLURM_ARRAY_TASK_ID:?"submit as an array job; see the header"}
+
+#        0    1    2    3    4    5    6    7    8    9    10   11   12   13   14   15
+NAMES=(  A    B    A    B    A    B    A    B    A    B    A    B    A    B    A    B   )
+RES=(    2000 2000 2000 2000 1000 1000 1000 1000 500  500  500  500  250  250  250  250 )
+NS=(     640  640  512  512  512  512  384  384  384  384  256  256  256  256  192  192 )
+PRECS=(  32   32   32   32   64   64   64   64   64   64   64   64   64   64   64   64  )
+if [ "$i" -lt 0 ] || [ "$i" -ge "${#NAMES[@]}" ]; then
+  echo "ERROR: element $i -- this job has elements 0-$(( ${#NAMES[@]} - 1 )) (see the header)" >&2
+  exit 1
+fi
+NAME=${NAMES[$i]}; RE=${RES[$i]}; N=${NS[$i]}; PREC=${PRECS[$i]}
+
+BIN="$ROOT/GPU/build$PREC/tg_mhd"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN -- run tg_mhd_verify.sub first, which builds it" >&2
+  exit 1
+fi
+# A binary older than any source it depends on is stale: refuse, and say which.
+STALE=$(find "$ROOT/GPU/src/tg_mhd.cu" "$ROOT/GPU/include" -newer "$BIN" -type f | head -3)
+if [ -n "$STALE" ]; then
+  echo "ERROR: $BIN is older than:" >&2
+  echo "$STALE" | sed 's/^/    /' >&2
+  echo "  Rebuild by running tg_mhd_verify.sub, or: cd $ROOT/GPU && cmake --build build$PREC --target tg_mhd -j8" >&2
+  exit 1
+fi
+
+case $NAME in
+  A) FLAGS="-vwall slip   -mwall cond -ic tgc" ;;
+  B) FLAGS="-vwall noslip -mwall cond -ic tgc" ;;
+esac
+
+# Probes as in round 2: every 0.05 on the small grids, 0.1 from N = 384.
+PROBE=0.05
+[ "$N" -ge 384 ] && PROBE=0.1
+
+OUT="$ROOT/runs/tg_mhd_budget/${NAME}_re${RE}_n${N}"
+mkdir -p "$OUT"
+echo "element $i: setup $NAME, Re $RE, N $N, FP$PREC -> $OUT"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+"$BIN" -n "$N" $FLAGS -re "$RE" -tmax 10 -probe "$PROBE" -out "$OUT" 2>&1 | tee "$OUT/log.txt"
+
+# The run must be round 2's run: compare every data row of series.dat.
+REF="$ROOT/results/P_tg_mhd/round2/${NAME}_re${RE}_n${N}/series.dat"
+if [ -f "$REF" ]; then
+  if cmp -s <(grep -v '^#' "$OUT/series.dat") <(grep -v '^#' "$REF"); then
+    echo "series.dat IDENTICAL to round 2's ($REF)" | tee -a "$OUT/log.txt"
+  else
+    echo "WARNING: series.dat DIFFERS from round 2's ($REF)" | tee -a "$OUT/log.txt"
+  fi
+else
+  echo "WARNING: no round-2 reference at $REF" | tee -a "$OUT/log.txt"
+fi

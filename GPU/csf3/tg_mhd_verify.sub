@@ -14,7 +14,9 @@
 #  writes profile.dat; the references were regenerated then -- every other
 #  column unchanged to the printed digit -- and the device is checked on both;
 #  since 2026-09-30 also on the profile's viscous and Ohmic parts
-#  (profile_visc.dat, profile_ohm.dat), against references made the same way.
+#  (profile_visc.dat, profile_ohm.dat), against references made the same way;
+#  and since 2026-10-02 on the energy budget against wall distance (budget.dat),
+#  whose host twins agree with each other to every printed digit after t = 0.
 #
 #  WHAT THIS JOB ADDS. The device build has never run: nvcc can reject what the
 #  host compiler accepted (this tree has a list), and a device run can differ
@@ -98,6 +100,34 @@ for w in ("slip", "noslip"):
         bad += 0 if pok else 1
         print(f"{w}: device vs Kokkos parent, wall-distance profile{part or ''} worst |share| {pw:.2e}"
               f"  {'PASS' if pok else 'FAIL'}")
+    # budget.dat (since 2026-10-02): the energy budget against wall distance, one row
+    # per (probe, term). Each term is judged against its own largest value over the
+    # run, because six of them vanish identically at t = 0 and print round-off there;
+    # values are printed to seven figures, so 1e-6 of the scale is print rounding.
+    def rows(p):
+        out = {}
+        for l in open(p):
+            if not l.startswith('#'):
+                q = l.split()
+                out[(q[0], q[1])] = [float(x) for x in q[2:]]
+        return out
+    bref = rows(f"{root}/results/P_tg_mhd/xcheck_n65_re200/{w}_src_kokkos_fp64_budget.dat")
+    bdev = rows(f"{out}/{w}_cuda_fp64/budget.dat")
+    if bref.keys() != bdev.keys():
+        print(f"{w}: budget.dat rows differ from the reference's -- FAIL"); bad += 1
+    else:
+        scale = {}
+        for (t, term), v in bref.items():
+            scale[term] = max(scale.get(term, 0.0), max(abs(x) for x in v))
+        bw, bt = 0.0, ""
+        for k, v in bref.items():
+            d = max(abs(x - y) for x, y in zip(v, bdev[k])) / max(scale[k[1]], 1e-300)
+            if d > bw:
+                bw, bt = d, k[1]
+        bok = bw < 1e-6
+        bad += 0 if bok else 1
+        print(f"{w}: device vs Kokkos parent, energy budget worst term {bt or '-'} {bw:.2e} of its scale"
+              f"  {'PASS' if bok else 'FAIL'}")
 sys.exit(1 if bad else 0)
 EOF
 
