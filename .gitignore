@@ -94,5 +94,8 @@ geom/
 results/P_tg_mhd/**/anim_frames/
 results/P_tg_mhd/**/vti/
 results/P_tg_mhd/**/raw/
+# tools/tg_mhd_slices.py's planes of those volumes, ~100 MB a run: regenerable
+# from raw/, and the figures made from them are tracked in results/P_tg_mhd/fig/.
+results/P_tg_mhd/**/slices/
 results/P_tg_mhd/**/png/
 results/P_tg_mhd/**/*.mp4

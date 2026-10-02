@@ -97,6 +97,7 @@ sbatch --array=0-1 --time=5:00:00 GPU/csf3/tg_mhd_mach.sub           # its Mach 
 sbatch --array=2-3 --time=2:30:00 GPU/csf3/tg_mhd_mach.sub
 sbatch --array=0-9   --time=5:00:00 GPU/csf3/tg_mhd_round2.sub     # round 2 (see below)
 sbatch --array=10-28 --time=2:00:00 GPU/csf3/tg_mhd_round2.sub
+sbatch --array=0-2 GPU/csf3/tg_mhd_snap.sub                         # the paper's snapshots
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -245,6 +246,18 @@ sbatch --dependency=afterok:$jid --array=10-28 --time=2:00:00 GPU/csf3/tg_mhd_ro
 
 and copy back `runs/tg_mhd_round2/` and `runs/tg_mhd_fp64check/` with the
 same rsync line as the ladder, adding `--include='profile_*.dat'`.
+
+**`tg_mhd_snap.sub`** is the paper's field snapshots: A, B and C at Re = 1000,
+N = 512, FP64, to t = 4.7 with full float32 dumps at t = 0, 2.3 and 4.6, then
+`tools/tg_mhd_slices.py` on the node cuts planes of the local viscous and Ohmic
+dissipation out of them -- with the drivers' own derivative rules, checked to
+reproduce `series.dat`'s eps to 1.7e-8. About 40 min a run; the 11 GB of raw
+dumps per run are kept unless `KEEP_RAW=0`. It needs no rebuild: the round-2
+`build64` is current. Copy back only the slices and the series:
+
+```
+rsync -av --include='*/' --include='series.dat' --include='profile*.dat' --include='log.txt' --include='slices/*' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_snap/ results/P_tg_mhd/snap/
+```
 
 ---
 

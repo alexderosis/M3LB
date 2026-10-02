@@ -1,0 +1,109 @@
+#!/bin/bash --login
+#==============================================================================
+#  Snapshots for the confined-MHD paper: where the dissipation sits, as fields.
+#
+#  WHY. The paper (paper/tg_mhd/) measures shares -- how much of the dissipation
+#  lies within delta = Re^-1/2 of the walls -- and its robust results are about
+#  WHERE: no-slip walls carry a viscous excess, their near-wall Ohmic dissipation
+#  is 40-45 % lower than at free-slip walls, and the hydrodynamic box puts 3.3x
+#  more of its dissipation next to the walls. Its discussion conjectures why the
+#  Ohmic part falls (current sheets touching a free-slip conducting wall, which
+#  a no-slip wall stops) and says the full fields would test it. The production
+#  runs wrote no fields. These do.
+#
+#  THE RUNS -- 3 array elements, one GPU each, at the paper's Re = 1000 grid
+#  (N = 512, FP64; the gate passes there at <= 0.7 %), to t = 4.7, with full
+#  float32 fields (-raw 2.3) at t = 0, 2.3 and 4.6:
+#
+#     0  A   free slip, conducting, TG-C
+#     1  B   no slip,   conducting, TG-C
+#     2  C   no slip,   no field
+#
+#  t = 2.3 is B's turbulent peak at Re = 1000 (t_p = 2.34) and 4.6 sits by the
+#  later maxima (A's at 4.06-4.45, B's at 4.53 at Re = 2000) -- the two times the
+#  paper's peak-switching section compares. Re = 1000 is the one rung where C is
+#  turbulent too (no turbulent peak below it, none reached by t = 10 above it),
+#  and the rung of the paper's Fig. 1(a).
+#
+#  THEN, ON THE NODE: tools/tg_mhd_slices.py cuts planes of the local viscous and
+#  Ohmic dissipation, |u| and |b| out of each dump, with the drivers' own
+#  derivative rules -- checked to reproduce series.dat's eps to <= 1.7e-8 on all
+#  three wall configurations (N = 65, 2026-10-02). Default planes at N = 512:
+#  the wall z0, z3 ~ delta/2, z5 ~ delta, z128 = pi/4, z256 ~ pi/2, and the
+#  vertical sections y64, y128, y256. ~4 MB a plane, ~100 MB a run.
+#
+#  COST: the Re = 1000 N = 512 FP64 production run took 76 min to t = 10, so
+#  ~36 min each here, plus three 3.8 GB dumps and a few minutes of slicing.
+#  The raw dumps are KEPT (11 GB a run, for 3-D renders later); set KEEP_RAW=0 to
+#  delete them once the slices are written.
+#
+#  SUBMIT from the repo root after a git pull. The build64 binary from round 2 is
+#  current -- nothing under GPU/src or GPU/include has changed since -- and the
+#  stale-binary check below refuses it if that stops being true:
+#
+#      sbatch --array=0-2 GPU/csf3/tg_mhd_snap.sub
+#
+#  COPY BACK the slices and the series (not the raw dumps), from the laptop's repo
+#  root:
+#
+#      rsync -av --include='*/' --include='series.dat' --include='profile*.dat' \
+#            --include='log.txt' --include='slices/*' --exclude='*' \
+#            csf3:scratch/M3LB/runs/tg_mhd_snap/ results/P_tg_mhd/snap/
+#
+#  then tools/plot_tg_mhd_snapshots.py makes the figure.
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-1:30
+#SBATCH -J tg_mhd_snap
+#SBATCH -o tg_mhd_snap-%A_%a.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+i=${SLURM_ARRAY_TASK_ID:?"submit as an array job; see the header"}
+
+NAMES=(A B C)
+if [ "$i" -lt 0 ] || [ "$i" -ge "${#NAMES[@]}" ]; then
+  echo "ERROR: element $i -- this job has elements 0-$(( ${#NAMES[@]} - 1 ))" >&2
+  exit 1
+fi
+NAME=${NAMES[$i]}; RE=1000; N=512
+
+BIN="$ROOT/GPU/build64/tg_mhd"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN -- run tg_mhd_verify.sub first, which builds it" >&2
+  exit 1
+fi
+STALE=$(find "$ROOT/GPU/src/tg_mhd.cu" "$ROOT/GPU/include" -newer "$BIN" -type f | head -3)
+if [ -n "$STALE" ]; then
+  echo "ERROR: $BIN is older than:" >&2
+  echo "$STALE" | sed 's/^/    /' >&2
+  echo "  Rebuild by running tg_mhd_verify.sub, or: cd $ROOT/GPU && cmake --build build64 --target tg_mhd -j8" >&2
+  exit 1
+fi
+
+case $NAME in
+  A) FLAGS="-vwall slip   -mwall cond -ic tgc" ;;
+  B) FLAGS="-vwall noslip -mwall cond -ic tgc" ;;
+  C) FLAGS="-vwall noslip -ic hydro" ;;
+esac
+
+OUT="$ROOT/runs/tg_mhd_snap/${NAME}_re${RE}_n${N}"
+mkdir -p "$OUT"
+echo "element $i: setup $NAME, Re $RE, N $N, FP64 -> $OUT"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+"$BIN" -n "$N" $FLAGS -re "$RE" -tmax 4.7 -probe 0.1 -raw 2.3 -out "$OUT" 2>&1 | tee "$OUT/log.txt"
+
+python3 "$ROOT/tools/tg_mhd_slices.py" "$OUT" --jobs "${SLURM_CPUS_PER_TASK:-4}" 2>&1 | tee -a "$OUT/log.txt"
+
+if [ "${KEEP_RAW:-1}" = "0" ]; then
+  rm -f "${OUT:?}"/raw/fields_*.raw
+  echo "raw dumps deleted (KEEP_RAW=0)" | tee -a "$OUT/log.txt"
+fi
