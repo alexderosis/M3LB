@@ -1,6 +1,7 @@
-# The confined-MHD paper.
+# The confined-MHD paper and its supplementary material.
 #
-#   make            tables from the committed results (numbers.py), then main.pdf
+#   make            tables from the committed results (numbers.py), then main.pdf and
+#                   supplementary.pdf
 #   make figs       the seven figures, PNG and PDF, into results/P_tg_mhd/fig/;
 #                   needs a python with numpy and matplotlib: make figs PY=/path/to/venv/bin/python.
 #                   The snapshots and the 3-D views also need the .f32 planes and volumes
@@ -9,9 +10,15 @@
 #                   how to copy them back).
 #   make clean      the LaTeX by-products
 #
-# numbers.py writes numbers.txt and the four tab_*.tex together, so numbers.txt
-# stands for all of them. It reads results/P_tg_mhd/, which make does not track:
-# after new runs, make -B.
+# numbers.py writes numbers.txt and every tab_*.tex together, so numbers.txt
+# stands for all of them. It reads results/P_tg_mhd/ and provenance/, which make
+# does not track: after new runs, make -B.
+#
+# The two documents cite each other's labels through xr-hyper (S-<label> in
+# main.tex, M-<label> in supplementary.tex), so each reads the other's .aux. One
+# recipe builds both, supplement first, paper, then supplement again; latexmk
+# reruns a document only when one of its inputs, the other's .aux included, has
+# changed, so the third call is cheap once the labels have settled.
 
 PY   ?= python3
 ROOT := ../..
@@ -19,8 +26,14 @@ ROOT := ../..
 # t = 2.3 (and printed), fixed so that t = 4.6 shares it and both rebuild exactly.
 RANGE3D := 0.172 51.7
 
-main.pdf: main.tex refs.bib numbers.txt
-	latexmk -pdf -interaction=nonstopmode -halt-on-error main.tex
+LATEXMK := latexmk -pdf -interaction=nonstopmode -halt-on-error
+
+all: main.pdf supplementary.pdf
+
+main.pdf supplementary.pdf: main.tex supplementary.tex refs.bib numbers.txt
+	$(LATEXMK) supplementary.tex
+	$(LATEXMK) main.tex
+	$(LATEXMK) supplementary.tex
 
 numbers.txt: numbers.py
 	python3 numbers.py > /dev/null
@@ -38,7 +51,7 @@ figs:
 	        --t $$t --range $(RANGE3D) -o results/P_tg_mhd/fig/tg_mhd_3d_t$$t --fmt png,pdf || exit 1; done
 
 clean:
-	latexmk -C main.tex
-	rm -f mainNotes.bib
+	latexmk -C main.tex supplementary.tex
+	rm -f mainNotes.bib supplementaryNotes.bib
 
-.PHONY: figs clean
+.PHONY: all figs clean

@@ -2,15 +2,18 @@
 %
 % Build: make (in this directory), or latexmk -pdf main.tex.
 % Every number below that comes from a run is printed by numbers.py, which also
-% writes the four tab_*.tex files; the figures are made by
-% tools/plot_tg_mhd_ladder.py (see the Makefile). Formatted for Physics of
-% Plasmas with REVTeX 4.2; the text is journal-neutral.
+% writes the tab_*.tex files; the figures are made by `make figs` (see the
+% Makefile). The supplementary material is supplementary.tex: each document reads
+% the other's labels through xr-hyper, as S-<label> here and M-<label> there, so
+% `make` builds both. Formatted for Physics of Plasmas with REVTeX 4.2; the text is
+% journal-neutral.
 \documentclass[aip,pop,reprint,amsmath,amssymb,superscriptaddress,floatfix]{revtex4-2}
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{graphicx}
 \usepackage{bm}
+\usepackage{xr-hyper}
 \usepackage[hidelinks]{hyperref}
 \graphicspath{{../../results/P_tg_mhd/fig/}}
 
@@ -18,6 +21,8 @@
 \newcommand{\vv}{\bm{v}}
 \newcommand{\BB}{\bm{B}}
 \newcommand{\eps}{\varepsilon}
+% after the macros: the other document's labels carry captions that use them
+\externaldocument[S-]{supplementary}
 
 \begin{document}
 
@@ -58,26 +63,45 @@ depends on when it is measured, while its sign does not.
 
 %===============================================================================
 \section{Introduction}
+\label{sec:intro}
 %===============================================================================
 
 Decaying magnetohydrodynamic (MHD) turbulence has been studied mostly in periodic
-boxes.\cite{mininni2006,lee2008,pouquet2010,mininni2009,linkmann2015} There the
+boxes.\cite{biskamp2003,mininni2006,lee2008,pouquet2010,mininni2009,linkmann2015} There the
 dissipation is made in current and vorticity sheets that the cascade forms in the
 bulk, and its rate tends to a value independent of the Reynolds number,
 $\Rey$,\cite{mininni2006,mininni2009,linkmann2015} the MHD counterpart of the finite
 dissipation of hydrodynamic turbulence.\cite{sreenivasan1998}
 
 The flows that motivate much of this work, in liquid metals and laboratory plasmas,
-are bounded, and walls add boundary layers that dissipate. Whether that dissipation
-survives as the viscosity vanishes is a question about the walls themselves. Kato
-showed that a Navier--Stokes flow in a bounded domain converges to its Euler limit if
-and only if the dissipation in a layer of thickness proportional to the viscosity
+are bounded. In liquid-metal channels and ducts the magnetic Reynolds number is small
+and the field is imposed. Walls normal to it carry Hartmann layers, whose thickness
+falls as the inverse of the field,\cite{sommeria1982,knaepen2008} and direct
+simulations have mapped the turbulence next to those walls and to the walls parallel
+to the field.\cite{boeck2007,krasnov2012,zikanov2014} In a dynamo the flow generates
+the field, and the walls matter in another way. The conducting or insulating
+condition on the field selects the fastest-growing mode of the TG
+dynamo,\cite{nore1997} the magnetic boundary conditions shift the threshold of von
+K\'arm\'an flows,\cite{gissinger2008} and soft-iron impellers select the mode of the
+von K\'arm\'an sodium dynamo,\cite{monchaux2007,giesecke2010} whose flow the TG vortex
+models.\cite{pouquet2010} Both literatures ask how walls shape a flow or a field.
+Neither follows the share of the dissipation that walls take from a turbulent flow
+with a dynamical field as the Reynolds number grows.
+
+Whether that share survives as the viscosity vanishes is a question about the walls
+themselves. For flows driven by moving walls, rigorous upper bounds on the
+dissipation do not depend on the viscosity at high Reynolds
+number;\cite{doering1992} they bound the total, not where it is made. Kato showed
+that a Navier--Stokes flow in a bounded domain converges to a smooth Euler solution
+if and only if the dissipation in a layer of thickness proportional to the viscosity
 vanishes.\cite{kato1984} In two-dimensional hydrodynamics, Nguyen van yen, Farge and
 Schneider found dissipating structures produced at no-slip walls whose dissipation
-appears to tend to a finite value as $\Rey$ grows.\cite{nguyen2011} Confined MHD
-turbulence has been simulated with volume penalisation in two\cite{neffaa2008} and
-three\cite{morales2014} dimensions. We are not aware of a comparison that changes only
-the wall condition and follows the answer as $\Rey$ increases.
+appears to tend to a finite value as $\Rey$ grows,\cite{nguyen2011} and later work
+traced it to a small-scale instability of the boundary layer that drives a wall
+vorticity flux of order $\Rey$.\cite{nguyen2018} Confined MHD turbulence has been simulated with volume
+penalisation in two\cite{neffaa2008} and three\cite{morales2014} dimensions. We are not
+aware of a comparison that changes only the wall condition and follows the answer as
+$\Rey$ increases.
 
 We therefore ask: in decaying three-dimensional MHD turbulence, does a no-slip wall
 take a share of the dissipation that holds as $\Rey$ grows (``walls''), or does that
@@ -209,21 +233,18 @@ compose and the signs multiply. A conducting wall thus flips only the normal
 component, and a pseudo-vacuum wall only the tangential ones. Dellar has given
 moment-based magnetic boundary conditions for the same
 distribution;\cite{dellar2013} Eq.~(\ref{eq:parity}) is a population-level mirror
-that imposes a parity on any combination of faces. Three tests in the repository
-check it. First, with free slip and either parity, the box of $N$ nodes reproduces
-the periodic $2\pi$ box of $2(N-1)$ nodes to $10^{-14}$, node for node and transient
-included. Second, $\BB\cdot\bm{n}$ on the wall nodes stays at $10^{-32}$. Third, in
-the no-slip box the exact decay of the conducting-wall eigenmode
-$\BB=B_0(\sin x\cos y,-\cos x\sin y,0)$, which leaves the fluid at rest, converges at
-second order (order $2.00$ over $N=17$, $33$, $65$).
+that imposes a parity on any combination of faces. With free slip and either parity,
+the box of $N$ nodes reproduces the periodic $2\pi$ box of $2(N-1)$ nodes to
+$10^{-14}$, node for node and transient included (supplementary material,
+Sec.~\ref{S-s:method}, gives this and two further tests).
 
 The method exists in two implementations that share no source code: one in C++20 on
 Kokkos,\cite{edwards2014,trott2022} one in CUDA. Their host builds agree to every
-printed digit over 815 steps at $N=65$, $\Rey=200$, with free and no slip. The CUDA
-build on the device agrees with the Kokkos reference to within $6\times10^{-16}$ of
-each diagnostic's scale. The production runs used NVIDIA A100 (80\,GB) GPUs: double
-precision up to $\Rey=1000$, and single precision at $\Rey=2000$, where $N=640$ fits
-in memory only in single precision. The runs reported here took 34 GPU-hours.
+printed digit, and the CUDA build on the device agrees with the Kokkos reference to
+within $5.5\times10^{-16}$ of each diagnostic's scale. The production runs used NVIDIA
+A100 (80\,GB) GPUs: double precision up to $\Rey=1000$, and single precision at
+$\Rey=2000$, where $N=640$ fits in memory only in single precision. They took $34$
+GPU-hours.
 
 \subsection{Diagnostics}
 
@@ -256,14 +277,10 @@ and it divides into a viscous and an Ohmic part, $f_m=f_m^{\nu}+f_m^{\eta}$, eac
 share of the total $\eps$. The dissipation density relative to the box mean is a
 layer's share of $\eps$ over its share of the volume.
 
-Counting whole node layers instead (every node with $kh<m\delta$) measures a layer of
-thickness $(\lceil m\delta/h\rceil-\tfrac12)h$ rather than $m\delta$: $0.91\delta$ at
-$N=384$ and $1.07\delta$ at $N=512$ for $\Rey=1000$. In our first set of ladder runs
-this made $f_1$ differ by 8--25\% between the two grids of a rung while $\eps$ agreed
-to 1\%. Swept across $N=33$ to $49$ at fixed physics, the count makes $f_4$ jump
-between $0.52$ and $0.60$ each time $4\delta/h$ crosses a node, while
-Eq.~(\ref{eq:within}) keeps it within $0.561$--$0.566$. Any layer, shell or threshold
-observable on a lattice can do this.
+Counting whole node layers instead, every node with $kh<m\delta$, measures a layer
+of thickness $(\lceil m\delta/h\rceil-\tfrac12)h$ rather than $m\delta$. Our first
+ladder did, and failed its resolution gate at every rung for that reason alone
+(Sec.~\ref{S-s:estimator}).
 
 We also use, after the fact (Sec.~\ref{sec:windows}), the time-integrated share over
 a window $[t_0,t_1]$,
@@ -279,15 +296,15 @@ edges.
 \subsection{The pre-registered protocol}
 \label{sec:protocol}
 
-The two outcomes of Sec.~I were stated, qualitatively, on 25 September 2026, before any
-production run. The following rules were committed with the job scripts before the runs
-they govern.
-The observable and the gate were committed with the ladder on 27 September 2026. The
-estimator of $f_m$ was corrected on 28 September, after the first ladder failed the
-gate for the reason given above; the observable it estimates and the gate did not
-change. The Mach control was fixed on 29 September, and the rule for the top rung on
-30 September. Both came after the lower rungs had been run and before the runs they
-judge.
+The two outcomes of Sec.~\ref{sec:intro} were stated, qualitatively, on 25 September
+2026, before any production run. The following rules were committed with the job
+scripts before the runs they govern: the observable and the gate on 27 September;
+the estimator of $f_m$, corrected after the first ladder failed the gate for the
+reason given above, on 28 September, with the observable it estimates and the gate
+unchanged; the Mach control on 29 September; and the decision rule and the
+precision control for the top rung on 30 September, after the lower rungs had been
+run. GitHub's record of when each
+commit reached it is kept with the data (Sec.~\ref{S-s:protocol}).
 \begin{enumerate}
 \item \emph{Observable}: B$-$A in $f_1$ at each run's turbulent dissipation peak. The
 peak is the maximum of $\eps$ after $\eps$ has first risen 5\% above its running
@@ -319,30 +336,23 @@ $E_M/E_V=0.3695$ and $0.3693$ at $N=384$ and $512$, reached at $t=7.3$, against
 their $0.35$. The first maximum of $\Omega_M/\Omega_V$ after its initial fall is
 $2.154$ and $2.159$, against their ``2.''. Here $\Omega_V$ and $\Omega_M$ are the
 kinetic and magnetic enstrophies. Our ratio is converged to four figures between the
-two grids and lies $5.5$\% above theirs, which is quoted to two figures. A run at
-$N=97$ gave $0.357$, closer to their value but at $t=9.8$ on an under-resolved grid.
+two grids and lies $5.5$\% above theirs, which is quoted to two figures. We attribute the gap to the resolution of
+C2, their coarsest run: its own resolution measure, $\delta k_{\max}=0.8$, falls
+below the $\delta k_{\max}\ge2$ by which they call their finer runs well resolved,
+and our coarser grids move the same way, to $0.357$ at $N=97$ and $0.329$ at $N=65$
+(Sec.~\ref{S-s:method}).
 
-Table~\ref{tab:verify} shows the resolution gate. Every rung of A and B with a
-turbulent peak passes it, the worst difference being $3.0$\% in $f_1$ of A at
-$\Rey=2000$. Without a turbulent peak by $t=10$ on either grid are B at $\Rey=125$ and
-C at $\Rey\le500$; C at $\Rey=2000$ is still rising at $t=10$. Halving $u_0$ moves B$-$A
+Every rung of A and B with a turbulent peak passes the resolution gate, the worst
+difference being $3.0$\% in $f_1$ of A at $\Rey=2000$ (Table~\ref{S-stab:verify}).
+Without a turbulent peak by $t=10$ on either grid are B at $\Rey=125$ and C at
+$\Rey\le500$; C at $\Rey=2000$ is still rising at $t=10$. Halving $u_0$ moves B$-$A
 by $-0.0014$ at $\Rey=500$ and by $-2\times10^{-5}$ at $\Rey=1000$, against bands of
 $0.0030$ and $0.0004$. Double precision at $\Rey=2000$ moves it by less than
 $10^{-5}$ against $0.0021$, although the two runs differ by up to $4\times10^{-5}$
 (relative) in their time series. All three controls pass. Over every run, the total
-mass drifts by at most $4.4\times10^{-5}$ (relative), and the r.m.s.\ of $\nabla\cdot\BB$ stays below $1$\% of the r.m.s.\ of
-$|\bm{j}|$. The largest lattice Mach number is $0.133$, in A at $\Rey=2000$
-(Table~\ref{tab:runs}).
-
-\begin{table*}
-\caption{\label{tab:verify}Resolution gate and controls. Relative differences of
-$f_1$, $f_2$ and $f_4$ at the turbulent peak between the two grids of each rung, the
-band of B$-$A (the two grid differences of $f_1$, added), and the shift of B$-$A in
-the control run: Mach, $u_0$ halved; FP64, double precision at $N=512$.}
-\begin{ruledtabular}
-\input{tab_verify}
-\end{ruledtabular}
-\end{table*}
+mass drifts by at most $4.4\times10^{-5}$ (relative), and the r.m.s.\ of
+$\nabla\cdot\BB$ stays below $1$\% of the r.m.s.\ of $|\bm{j}|$. The largest
+lattice Mach number is $0.133$, in A at $\Rey=2000$ (Table~\ref{tab:runs}).
 
 %===============================================================================
 \section{Results}
@@ -371,7 +381,7 @@ relative to the box mean against distance from the walls, $d/\delta$ with
 $\delta=\Rey^{-1/2}$, at $\Rey=1000$, integrated over $t=2$--$10$; the shaded layer is
 that of $f_1$. (b) The density at the walls against $\Rey$, over the same window.
 (c) The pre-registered observable: $f_1$ at each run's turbulent dissipation peak,
-with B$-$A at each rung. Each point is from the finer grid of its rung (Table~\ref{tab:verify}).}
+with B$-$A at each rung. Each point is from the finer grid of its rung (Table~\ref{tab:runs}).}
 \end{figure*}
 
 Figure~\ref{fig:ladder}(b) follows the density at the walls with $\Rey$. In B it rises
@@ -486,6 +496,12 @@ also gives ``cascade'', with B$-$A falling from $\Rey=1000$ to $2000$ by $0.0058
 against bands of $0.0017$. But the fall is 11\% rather than 42\%, and over $t=2$--$6$
 there is no fall at all.
 
+The thickness of the layer does not change this. Within $2\delta$ and $4\delta$ of
+the walls, B$-$A is positive in every reading at every rung, and its trend again
+depends on when it is read: from $\Rey=250$ to $2000$ it falls by $67$--$68$\% at the
+peak and by $12$--$42$\% over the windows that reach into the decay, and changes by
+$+2$\% and $-20$\% over $t=2$--$6$ (Table~\ref{S-stab:layers}).
+
 \begin{table*}
 \caption{\label{tab:windows}B$-$A in the share within $\delta$ of the walls: at the
 turbulent peak, integrated over fixed time windows, and integrated over windows
@@ -500,9 +516,10 @@ energy windows.}
 \subsection{What the fields show}
 \label{sec:fields}
 
-The shares above are integrals of local fields. Figures~\ref{fig:snap23}
-and~\ref{fig:snap46} show the fields themselves at $\Rey=1000$: at $t=2.3$, B's
-turbulent peak, and at $t=4.6$, by the later maxima. They come from reruns of the
+The shares above are integrals of local fields. Figure~\ref{fig:snap23} shows the
+fields themselves at $\Rey=1000$ and $t=2.3$, B's turbulent peak, and
+Sec.~\ref{S-s:fields46} repeats it at $t=4.6$, by the later maxima. They come from
+reruns of the
 production runs that also write the full fields, and the reruns reproduce the
 production time series exactly, at every one of the 48 probes to $t=4.7$. The local
 viscous and Ohmic dissipation is computed from the fields with the drivers' own
@@ -517,9 +534,8 @@ dissipation is broad and strong, $1.49$ of its box mean against A's $0.53$, and 
 Ohmic dissipation is weaker, $0.39$ against $0.61$. In absolute terms, B's viscous
 dissipation there is $3.5$ times A's and its Ohmic $0.79$ of A's. In A the plane is
 crossed by current sheets, and bright ones run along its edges, where it meets the
-vertical walls. By $t=4.6$ the bulk of both boxes is more finely structured and A's
-near-wall plane has quietened, but the contrast remains: B's viscous dissipation there
-is $6.8$ times A's and its Ohmic $0.68$ of A's. These are single planes at two
+vertical walls. At $t=4.6$ the contrast remains: B's viscous dissipation there is
+$6.8$ times A's and its Ohmic $0.68$ of A's. These are single planes at two
 instants, but they point the same way as the time-integrated profiles of
 Sec.~\ref{sec:excess}, in which B's near-wall Ohmic dissipation is $0.55$--$0.59$ of
 A's.
@@ -529,23 +545,21 @@ while its bulk is nearly uniform, and its near-wall plane dissipates at $6.7$ ti
 box mean at $t=2.3$ and $3.3$ times at $t=4.6$, about $3.5$ and $3.2$ times B's
 relative level.
 
-The near-wall planes show the bottom wall. By the symmetries of the TG flow the six
-walls fall into two classes, the two horizontal walls and the four vertical ones, and
-these planes show only the first; the sections cross both.
+By the symmetries of the TG flow the six walls fall into two classes, the two
+horizontal walls and the four vertical ones. The near-wall planes show the bottom
+wall, of the first class; the sections cross both.
 
-Figures~\ref{fig:vol23} and~\ref{fig:vol46} show the same fields in three dimensions.
-A sheet is a surface, and a plane shows it only where the plane cuts it. These views
-project the whole box instead: each pixel shows the largest local dissipation along
-its line of sight (a maximum-intensity projection), and the far half of the box is
-dimmed, so that nearer structures read as nearer. They are computed from the dumps
-with the same derivatives as the planes and reduced to $256^3$ by the maximum over
-blocks of $2^3$ nodes, and every plane of Figs.~\ref{fig:snap23} and~\ref{fig:snap46}
-lies inside its volume exactly. A projection of the maximum shows where the sheets
-are, not how much they dissipate; the shares are those of Sec.~\ref{sec:excess}.
+Figure~\ref{fig:vol23} shows the same fields in three dimensions.
+A plane shows a sheet only where it cuts it; these views project the whole box, each
+pixel showing the largest local dissipation along its line of sight. They are computed
+from the dumps with the same derivatives as the planes, and every plane of the
+snapshots lies inside its volume exactly. A projection of the maximum shows where the
+sheets are, not how much they dissipate; the shares are those of
+Sec.~\ref{sec:excess}.
 
 The views confirm the planes and add to them. The current sheets fill the bulk of
 both MHD boxes alike, at both times, and by $t=4.6$ both have broken up into finer
-sheets. The viscous dissipation of the no-slip box lines its walls, all of them and
+sheets (Fig.~\ref{S-sfig:vol46}). The viscous dissipation of the no-slip box lines its walls, all of them and
 not only the bottom one of the planes, and by $t=4.6$ it forms ring-like patterns on
 its faces; the free-slip box has no such lining. The box without a field is dominated
 by its walls and edges, as its sections were.
@@ -562,12 +576,6 @@ box's mean dissipation at that time; each panel gives its plane's mean.}
 \end{figure*}
 
 \begin{figure*}
-\includegraphics[width=\textwidth]{tg_mhd_snap_t4.6.pdf}
-\caption{\label{fig:snap46}As Fig.~\ref{fig:snap23}, at $t=4.6$, by the later
-maxima of the dissipation.}
-\end{figure*}
-
-\begin{figure*}
 \includegraphics[width=\textwidth]{tg_mhd_3d_t2.3.pdf}
 \caption{\label{fig:vol23}Three-dimensional views of the local dissipation at
 $\Rey=1000$ and $t=2.3$, on the finer grid. Columns: the boxes A, B and C; rows: the
@@ -575,23 +583,8 @@ viscous and Ohmic dissipation. Each pixel is the largest value along an oblique 
 of sight (maximum-intensity projection) through the volume, reduced to $256^3$ by the
 maximum over $2^3$ blocks, relative to the box mean. The far half is dimmed as a
 depth cue, which must not be read as an intensity; hidden edges of the box are
-dashed. One logarithmic colour scale, shared with Fig.~\ref{fig:vol46}.}
+dashed. One logarithmic colour scale, shared with Fig.~\ref{S-sfig:vol46}.}
 \end{figure*}
-
-\begin{figure*}
-\includegraphics[width=\textwidth]{tg_mhd_3d_t4.6.pdf}
-\caption{\label{fig:vol46}As Fig.~\ref{fig:vol23}, at $t=4.6$, on the same colour
-scale.}
-\end{figure*}
-
-\subsection{Insulating walls}
-
-The pair A$'$, B$'$ was meant to show whether the result needs a conducting wall. It
-cannot. A$'$ passes the gate (worst $0.8$\%), and $88$\% of the dissipation within
-$\delta$ of its walls is Ohmic ($F_1=0.31$ and $0.27$ at $\Rey=500$ and $1000$). B$'$
-has no turbulent peak by $t=10$ at either $\Rey$. So B$'-$A$'$ ($+0.32$ and $+0.42$
-over $t=2$--$10$) compares a box that has not become turbulent with one that has, and
-under a different initial field from B$-$A. We draw no conclusion from it.
 
 %===============================================================================
 \section{Discussion}
@@ -601,7 +594,8 @@ under a different initial field from B$-$A. We draw no conclusion from it.
 \emph{What the data settle.} Every measure we tried agrees on four statements. First,
 a no-slip wall takes more of the dissipation next to it than a free-slip one. B$-$A is
 positive and far outside its band at every $\Rey$: at the peak, at every probe from
-$t=1.5$ to $10$ (where it is at least $0.019$), and over every time and energy window. Second, the excess is viscous,
+$t=1.5$ to $10$ (where it is at least $0.019$), over every time and energy window, and
+within $2\delta$ and $4\delta$ as within $\delta$. Second, the excess is viscous,
 and the near-wall Ohmic dissipation is lower, not higher, than at a free-slip
 conducting wall, by 40--45\% in absolute terms. Third, the no-slip wall layer
 intensifies with $\Rey$: B's wall dissipation density rises monotonically in every
@@ -622,11 +616,27 @@ the phase of the decay. We therefore claim neither outcome. The cascade verdict 
 as the result of the test we registered, and we record that equally reasonable
 readings would not have produced it.
 
-The layer we measure has the Prandtl thickness $\delta\propto\Rey^{-1/2}$, not Kato's
-$\propto\Rey^{-1}$.\cite{kato1984} Over $t=2$--$10$, B's share within $\delta$ falls
-as $\Rey^{-0.19}$ and A's as $\Rey^{-0.29}$, both more slowly than the volume of the
-layer, which falls as $\Rey^{-1/2}$. Whether a finite part of the dissipation remains
-at the walls as $\Rey\to\infty$ cannot be decided from these data.
+\emph{Scalings.} Two limits frame the exponents. A laminar Prandtl layer beside a bulk
+whose dissipation does not depend on $\Rey$ keeps a dissipation density, relative to
+the mean, that does not grow with $\Rey$, so its share falls with its volume, as
+$\Rey^{-1/2}$ ($\Rey^{-0.49}$ for our box). For the share to hold as $\Rey\to\infty$,
+the density must rise as $\Rey^{1/2}$ instead. Over $t=2$--$10$, B's share falls as
+$\Rey^{-0.19}$, and its density at the wall rises as $\Rey^{0.25}$ to $\Rey^{0.44}$
+depending on the window: between the two limits, and a factor of eight in $\Rey$ does
+not show which, if either, it approaches.
+
+Kato's layer, of thickness $\nu=\delta^2$, is $0.32h$ at $\Rey=250$ and $0.10h$ at
+$\Rey=2000$, so these data cannot resolve it. They bound it from above, since the
+share within $\delta$ contains it; and since his theorem concerns convergence to a
+smooth Euler solution,\cite{kato1984} which a turbulent TG flow is not known to have,
+we use his layer as a scale and not his theorem as a test. MHD has a layer of that
+thickness of its own. Where a field crosses a no-slip wall, a Hartmann
+layer,\cite{sommeria1982,knaepen2008} $\sqrt{\nu\eta}/|B_n|$ thick, or $1/(\Rey|B_n|)$
+at $\mathrm{Pm}=1$, dissipates per unit area an amount that does not vanish with the
+viscosity at fixed $\mathrm{Pm}$ (Sec.~\ref{S-s:insul}). Our conducting walls, with
+$\BB\cdot\bm{n}=0$, carry none; those of B$'$ would, $0.14h$ thick at $\Rey=1000$, and
+we have not resolved them. Whether a finite part of the dissipation remains at the
+walls of A and B as $\Rey\to\infty$ cannot be decided from these data.
 
 \emph{A conjecture for the Ohmic deficit.} At a free-slip conducting wall the
 tangential flow reaches the wall, and with $\BB\cdot\bm{n}=0$ and
@@ -657,7 +667,10 @@ resolving $\delta$ with about $4.5$ spacings makes $N$ grow as $\Rey^{1/2}$. The
 is weakly compressible. The Mach control bounds its effect at $\Rey\le1000$, but it was
 not repeated at $\Rey=2000$, where the lattice Mach number is largest ($0.133$). The
 regularized edges and corners do not conserve mass exactly, though the drift stays
-below $4.4\times10^{-5}$. A forced, statistically stationary box would remove the
+below $4.4\times10^{-5}$. Only conducting walls are tested: the insulating pair A$'$,
+B$'$ cannot show whether the result needs a conducting wall, since B$'$ has not
+become turbulent by $t=10$ (Sec.~\ref{S-s:insul}). A forced, statistically
+stationary box would remove the
 ambiguity of ``when'' altogether, since the share would become a time average with a
 standard error. It is the natural next experiment, with its own decision rule fixed
 before it runs.
@@ -692,14 +705,23 @@ Manchester.
 \subsection*{Conflict of interest}
 The author has no conflicts to disclose.
 
+\section*{Supplementary material}
+The supplementary material gives the tests of the method and the comparison with
+run C2 in full, the record of when each rule of the protocol was fixed, the failure of
+the first estimator of $f_m$, the resolution gate and controls rung by rung, the
+readings within $2\delta$ and $4\delta$, the insulating pair, and the fields at
+$t=4.6$.
+
 \section*{Data availability}
 The code (both implementations), the job scripts with the decision rules fixed before
 the runs, the time series and wall-distance profiles of every run, the plane means of
-the field snapshots, the analysis tools, and the script that produces every number in
-this paper are in the M3LB repository, \url{https://github.com/alexderosis/M3LB}. The
-field dumps behind Figs.~\ref{fig:snap23}--\ref{fig:vol46} (11\,GB per run) are
-available from the author.
-% TODO(author): confirm the repository is public, and cite a tagged release or DOI.
+the field snapshots, the analysis tools, the script that produces every number in
+this paper, and GitHub's record of when the protocol's commits were pushed are in the
+public M3LB repository, \url{https://github.com/alexderosis/M3LB}. The field dumps
+behind Figs.~\ref{fig:snap23} and~\ref{fig:vol23} and Figs.~\ref{S-sfig:snap46}
+and~\ref{S-sfig:vol46} (11\,GB per run) are available from the author.
+% TODO(author): cite the archived release (Zenodo DOI; ARCHIVING.md says how), and
+% say where the field dumps are kept once they are off CSF3 scratch.
 
 \bibliography{refs}
 

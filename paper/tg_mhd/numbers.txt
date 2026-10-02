@@ -4,10 +4,14 @@ II. PARAMETERS (u0 = 0.05, t = 0..10)
   Re   500  N 256/384  delta/h 3.63/5.45  tau-1/2 (fluid) 0.0244/0.0366  (magnetic, D3Q7 cs2=1/4) 0.0488  steps 24383  peak Ma 0.109  FP64
   Re  1000  N 384/512  delta/h 3.86/5.14  tau-1/2 (fluid) 0.0183/0.0244  (magnetic, D3Q7 cs2=1/4) 0.0325  steps 32531  peak Ma 0.117  FP64
   Re  2000  N 512/640  delta/h 3.64/4.55  tau-1/2 (fluid) 0.0122/0.0153  (magnetic, D3Q7 cs2=1/4) 0.0203  steps 40680  peak Ma 0.133  FP32
+  GPU time (each log.txt's wall clock): ladder 7.8 + Mach 6.4 + round 2 16.6 + FP64 3.2 = 34.1 h; snapshot reruns 1.5 h; the first, node-counting ladder 8.2 h
 
 III. VERIFICATION
   C2 (A, Re 1000, N 384): min E_M/E_V 0.3695 at t = 7.31; first max Om_M/Om_V after its fall 2.154
   C2 (A, Re 1000, N 512): min E_M/E_V 0.3693 at t = 7.29; first max Om_M/Om_V after its fall 2.159
+  C2 under-resolved (A, Re 1000, N 65): min E_M/E_V 0.3292 at t = 10.00 (the last probe: still falling)
+  C2 under-resolved (A, Re 1000, N 97): min E_M/E_V 0.3573 at t = 9.79
+  REFERENCE: C2 of Pouquet et al. 2010 is pseudo-spectral on an equivalent 128^3 over 2 pi (64 points across [0, pi]); Table 1: E_M/E_V min 0.35, Om_M/Om_V first max 2., delta k_max 0.8 (I1 1.9, A2 2.1 at 128^3; their 2048^3 runs 2.2-3, 'well resolved ... since delta k_max >= 2'; an ideal run 'has to be stopped once delta ~ 3/N', i.e. delta k_max ~ 1, k_max = N/3)
   A at Re 2000: min E_M/E_V 0.410
   gate B Re 125: no turbulent peak (no turbulent peak by t = 10.0)
   gate: worst 3.0 % (A Re 2000)
@@ -15,6 +19,9 @@ III. VERIFICATION
   Mach halving, Re 1000 N 512: B-A +0.0626 -> +0.0626, shift -0.00002; A's peak at halved Mach t = 4.04
   FP32 vs FP64, Re 2000 N 512: B-A +0.0372 vs +0.0372, shift -0.00000; series differ up to 4e-05 relative
   over every run: |mass drift| <= 4.4e-05, divb/|j| <= 9.8e-03
+  device against the Kokkos parent (GPU/csf3/tg_mhd_verify.sub): 4 jobs, 8 checks, 8 PASS; worst column 5.5e-16 of its scale
+  RECORDED: validation/mhd_parity_wall.cpp -- the box against the periodic box it mirrors, both parities, 1e-14 node for node with the transient; B.n on the wall nodes 1e-32; the conducting-wall eigenmode decays at order 2.00 and 2.00 over N = 17, 33, 65
+  RECORDED: results/P_tg_mhd/xcheck_n65_re200 -- the CUDA host build against the Kokkos driver, FP64, free and no slip, N = 65, 815 steps: every printed digit
 
 IV.A WHERE IT DISSIPATES (integrated over t = 2-10)
   Re 1000 C: density at the wall 8.50 x mean
@@ -67,23 +74,59 @@ IV.D THE PEAK SWITCHES
   equal-time B-A at t =  8.0: +0.1068  +0.0758  +0.0518  +0.0460
   equal-time B-A at t = 10.0: +0.0791  +0.0781  +0.0458  +0.0397
   B's fw1 at t = 1.5 and 3.7, Re 2000: 0.319, 0.063
+  A's turbulent peak at Re 1000 on N = 384 / 512: t = 4.05 / 4.06
 
 IV.E THE WINDOWS
-  t = 2-6: 0.0490 / 0.0477 / 0.0506 / 0.0476  (250 -> 2000 -3 %; steps -0.0013 (in), +0.0029 (out), -0.0030 (out); largest band 0.0010)
-  t = 2-10: 0.0588 / 0.0551 / 0.0539 / 0.0481  (250 -> 2000 -18 %; steps -0.0037 (out), -0.0013 (in), -0.0058 (out); largest band 0.0009)
-  t = 3-10: 0.0656 / 0.0589 / 0.0550 / 0.0465  (250 -> 2000 -29 %; steps -0.0067 (out), -0.0039 (out), -0.0085 (out); largest band 0.0009)
-  t = 4-10: 0.0821 / 0.0716 / 0.0636 / 0.0504  (250 -> 2000 -39 %; steps -0.0105 (out), -0.0080 (out), -0.0132 (out); largest band 0.0009)
-  t = 5-10: 0.0949 / 0.0855 / 0.0716 / 0.0537  (250 -> 2000 -43 %; steps -0.0094 (out), -0.0138 (out), -0.0180 (out); largest band 0.0010)
+  t = 2-6: 0.0490 / 0.0477 / 0.0506 / 0.0476  (250 -> 2000 -3 %; steps -0.0013 vs 0.0017 (in), +0.0029 vs 0.0018 (out), -0.0030 vs 0.0018 (out); largest band 0.0010)
+  t = 2-10: 0.0588 / 0.0551 / 0.0539 / 0.0481  (250 -> 2000 -18 %; steps -0.0037 vs 0.0013 (out), -0.0013 vs 0.0016 (in), -0.0058 vs 0.0017 (out); largest band 0.0009)
+  t = 3-10: 0.0656 / 0.0589 / 0.0550 / 0.0465  (250 -> 2000 -29 %; steps -0.0067 vs 0.0011 (out), -0.0039 vs 0.0016 (out), -0.0085 vs 0.0017 (out); largest band 0.0009)
+  t = 4-10: 0.0821 / 0.0716 / 0.0636 / 0.0504  (250 -> 2000 -39 %; steps -0.0105 vs 0.0013 (out), -0.0080 vs 0.0017 (out), -0.0132 vs 0.0018 (out); largest band 0.0009)
+  t = 5-10: 0.0949 / 0.0855 / 0.0716 / 0.0537  (250 -> 2000 -43 %; steps -0.0094 vs 0.0016 (out), -0.0138 vs 0.0018 (out), -0.0180 vs 0.0018 (out); largest band 0.0010)
   E_T/E_T(0) 0.9 -> 0.5: 0.1662 / 0.1126 / 0.0710 / 0.0478  (largest band 0.0027)
   E_T/E_T(0) 0.8 -> 0.5: 0.1076 / 0.0611 / 0.0357 / 0.0328  (largest band 0.0014)
   E_T/E_T(0) 0.7 -> 0.4: 0.0625 / 0.0364 / 0.0327 / 0.0400  (largest band 0.0011)
   E_T/E_T(0) 0.6 -> 0.4: 0.0478 / 0.0288 / 0.0335 / 0.0528  (largest band 0.0013)
+
+IV.E' THE LAYER: B-A within m delta, m = 1, 2, 4 (band: both grid differences, added)
+  at the peak  m = 1: +0.0732 / +0.0648 / +0.0626 / +0.0361  (250 -> 2000 -51 %; largest band 0.0030)
+  at the peak  m = 2: +0.0748 / +0.0756 / +0.0651 / +0.0236  (250 -> 2000 -68 %; largest band 0.0037)
+  at the peak  m = 4: +0.0575 / +0.0500 / +0.0641 / +0.0189  (250 -> 2000 -67 %; largest band 0.0056)
+  t = 2-6      m = 1: +0.0490 / +0.0477 / +0.0506 / +0.0476  (250 -> 2000 -3 %; largest band 0.0010)
+  t = 2-6      m = 2: +0.0469 / +0.0445 / +0.0506 / +0.0480  (250 -> 2000 +2 %; largest band 0.0013)
+  t = 2-6      m = 4: +0.0603 / +0.0491 / +0.0497 / +0.0480  (250 -> 2000 -20 %; largest band 0.0011)
+  t = 2-10     m = 1: +0.0588 / +0.0551 / +0.0539 / +0.0481  (250 -> 2000 -18 %; largest band 0.0009)
+  t = 2-10     m = 2: +0.0552 / +0.0559 / +0.0573 / +0.0485  (250 -> 2000 -12 %; largest band 0.0010)
+  t = 2-10     m = 4: +0.0628 / +0.0606 / +0.0590 / +0.0486  (250 -> 2000 -23 %; largest band 0.0010)
+  t = 3-10     m = 1: +0.0656 / +0.0589 / +0.0550 / +0.0465  (250 -> 2000 -29 %; largest band 0.0009)
+  t = 3-10     m = 2: +0.0659 / +0.0620 / +0.0577 / +0.0438  (250 -> 2000 -34 %; largest band 0.0010)
+  t = 3-10     m = 4: +0.0658 / +0.0698 / +0.0634 / +0.0444  (250 -> 2000 -32 %; largest band 0.0011)
+  t = 4-10     m = 1: +0.0821 / +0.0716 / +0.0636 / +0.0504  (250 -> 2000 -39 %; largest band 0.0009)
+  t = 4-10     m = 2: +0.0840 / +0.0796 / +0.0701 / +0.0487  (250 -> 2000 -42 %; largest band 0.0015)
+  t = 4-10     m = 4: +0.0776 / +0.0884 / +0.0770 / +0.0505  (250 -> 2000 -35 %; largest band 0.0014)
+  t = 5-10     m = 1: +0.0949 / +0.0855 / +0.0716 / +0.0537  (250 -> 2000 -43 %; largest band 0.0010)
+  t = 5-10     m = 2: +0.0930 / +0.1000 / +0.0842 / +0.0556  (250 -> 2000 -40 %; largest band 0.0016)
+  t = 5-10     m = 4: +0.0868 / +0.1148 / +0.0975 / +0.0611  (250 -> 2000 -30 %; largest band 0.0014)
+  every reading: B-A in [+0.0189, +0.1148]
 
 IV.G THE INSULATING PAIR
   A' Re  500 N 384: F1 0.3097 (visc 0.0372, ohm 0.2725, Ohmic 88 %); peak: t 3.24
   B' Re  500 N 384: F1 0.6257 (visc 0.3701, ohm 0.2556, Ohmic 41 %); peak: no turbulent peak by t = 10.0
   A' Re 1000 N 512: F1 0.2700 (visc 0.0312, ohm 0.2387, Ohmic 88 %); peak: t 3.31
   B' Re 1000 N 512: F1 0.6895 (visc 0.4441, ohm 0.2454, Ohmic 36 %); peak: no turbulent peak by t = 10.0
+  B' - A' in F1, Re  500: +0.3160
+  B' - A' in F1, Re 1000: +0.4195
+  A' gate, Re 500 and 1000: worst 0.84 %
+  B' Re  500: F1 0.6168 / 0.6257 on N = 256 / 384, 1.4 % apart
+  B' Re 1000: F1 0.6781 / 0.6895 on N = 384 / 512, 1.7 % apart
+
+V. SCALES (finer grid of each rung; h = pi/(N-1))
+  Re  250: Kato's layer 1/Re = 0.0040 = 0.32 h = 0.063 delta
+  Re  500: Kato's layer 1/Re = 0.0020 = 0.24 h = 0.045 delta
+  Re 1000: Kato's layer 1/Re = 0.0010 = 0.16 h = 0.032 delta
+  Re 2000: Kato's layer 1/Re = 0.0005 = 0.10 h = 0.022 delta
+  B' Re  500, t = 0: Hartmann layer 1/(Re |B_n|) = 0.21 h on the z faces (|B_n| <= 2 b0 = 1.155), 0.42 h on the x, y faces (b0)
+  B' Re 1000, t = 0: Hartmann layer 1/(Re |B_n|) = 0.14 h on the z faces (|B_n| <= 2 b0 = 1.155), 0.28 h on the x, y faces (b0)
+  volume within delta of the walls: 0.1160 / 0.0830 / 0.0592 / 0.0421 of the box; slope -0.487 over Re 250 -> 2000
 
 IV.F THE FIELDS (results/P_tg_mhd/snap, Re 1000, N 512)
   A: the snapshot run against the production run, 48 probe rows to t = 4.7: worst 0.0e+00
@@ -111,3 +154,24 @@ IV.F THE 3-D VIEWS (results/P_tg_mhd/snap/*/vol, block maximum over 2^3 -> 256^3
   RECORDED: tools/tg_mhd_slices.py --check, N = 65 Re = 200, A B C at t = 0 and 2: box mean against series eps <= 1.7e-8 relative
   RECORDED: tools/tg_mhd_vol.cpp, the same six dumps (each on a probe): <= 3.3e-9 relative, gated
   RECORDED: the 256^3 volumes against the slice planes, 80 (volume, plane) pairs at t = 2.3 and 4.6: no plane's 2x2 block maximum exceeds its volume's, and they are equal bit for bit where the plane holds it
+
+S3. THE FIRST LADDER, COUNTING NODE LAYERS (results/P_tg_mhd/ladder_count, raw columns)
+  A Re  125: f1/f2/f4 6.0/7.9/1.2 % apart; eps at the peak 0.76 %
+  A Re  250: f1/f2/f4 20.0/5.7/0.9 % apart; eps at the peak 0.59 %
+  A Re  500: f1/f2/f4 6.6/7.3/0.5 % apart; eps at the peak 0.99 %
+  A Re 1000: f1/f2/f4 24.6/6.5/0.5 % apart; eps at the peak 0.97 %
+  B Re  250: f1/f2/f4 10.8/3.0/1.1 % apart; eps at the peak 0.59 %
+  B Re  500: f1/f2/f4 1.3/6.5/1.8 % apart; eps at the peak 0.90 %
+  B Re 1000: f1/f2/f4 12.0/3.3/0.8 % apart; eps at the peak 0.75 %
+  C Re 1000: f1/f2/f4 8.0/1.4/0.1 % apart; eps at the peak 0.14 %
+  Re 1000, N 384: counting the nodes with k h < delta measures (ceil(delta/h) - 1/2) h = 0.91 delta
+  Re 1000, N 512: counting the nodes with k h < delta measures (ceil(delta/h) - 1/2) h = 1.07 delta
+  8 of 8 (box, Re) fail the 5 % gate; worst of the three 6.5-24.6 %, f1 1.3-24.6 %, eps at the peak <= 1.0 %
+  the same series moved to the exact band (tg_mhd_ladder.band_corrected): worst of the three 2.9 %, so all 8 pass
+  RECORDED: the sweep N = 33..49 at Re = 100 (2026-09-28): f4 by the count jumps 0.52 -> 0.60 each time 4 delta/h crosses a node; by Eq. (within) 0.561-0.566
+
+S2. THE PROTOCOL'S RECORD (git log; GitHub's push log, provenance/github_activity_2026-10-02.json)
+  663929c observable, peak rule, gate            committed 2026-09-27 11:57:38 UTC, pushed 2026-09-27 11:58:24 UTC (+46 s)
+  9f65706 estimator of f_m corrected             committed 2026-09-28 11:55:32 UTC, pushed 2026-09-28 11:56:52 UTC (+80 s)
+  cd07f45 Mach control                           committed 2026-09-29 06:22:12 UTC, pushed 2026-09-29 06:22:15 UTC (+3 s)
+  d061ee8 decision rule, FP64 control (Re 2000)  committed 2026-09-30 20:03:29 UTC, pushed 2026-09-30 20:03:34 UTC (+5 s)

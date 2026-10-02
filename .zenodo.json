@@ -1,0 +1,21 @@
+{
+  "title": "M3LB: a lattice Boltzmann solver in two independent implementations, with the code, data and analysis of \"Walls or cascade? A pre-registered test of wall dissipation in decaying magnetohydrodynamic turbulence\"",
+  "upload_type": "software",
+  "description": "M3LB is a lattice Boltzmann solver in C++20 on Kokkos (src/, validation/, demonstrator/) with a second, independent implementation in CUDA (GPU/). This archive is the release cited by the paper in paper/tg_mhd/: its source, its supplementary material, the job scripts with the pre-registered decision rules (GPU/csf3/), the time series and wall-distance profiles of every run (results/P_tg_mhd/), the analysis tools (tools/tg_mhd_*.py), the script that prints every number in the paper (paper/tg_mhd/numbers.py), and GitHub's server-side record of when the protocol's commits were pushed (paper/tg_mhd/provenance/).",
+  "creators": [
+    {
+      "name": "De Rosis, Alessandro",
+      "affiliation": "The University of Manchester"
+    }
+  ],
+  "keywords": [
+    "lattice Boltzmann",
+    "magnetohydrodynamics",
+    "turbulence",
+    "Taylor-Green vortex",
+    "wall-bounded flow",
+    "pre-registration",
+    "Kokkos",
+    "CUDA"
+  ]
+}

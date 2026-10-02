@@ -7,14 +7,17 @@ Reads results/P_tg_mhd/{round2,ladder,mach,fp64check} through
 tools/tg_mhd_ladder.py and tools/plot_tg_mhd_ladder.py -- so the peak, f_w and
 the integrated share are exactly those of the figures -- prints the quantities
 the text cites, section by section, and writes tab_runs.tex, tab_verify.tex,
-tab_results.tex and tab_windows.tex beside this file for main.tex to \\input.
+tab_results.tex, tab_windows.tex, tab_layers.tex and tab_protocol.tex beside this
+file for main.tex and supplementary.tex to \\input.
 A number in the text that this script does not print is a number to distrust.
 Pure stdlib, like the tools it imports.
 """
+import datetime
 import glob
 import json
 import math
 import os
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -108,6 +111,19 @@ def main():
                                              4 * nu_lat[1], steps, ma, prec))
         rows.append("%d & %d, %d & %.2f, %.2f & %.4f, %.4f & %d & %.3f & %s \\\\" % (
             Re, nc, nf, dh[0], dh[1], 3 * nu_lat[0], 3 * nu_lat[1], steps, ma, prec))
+    hours = {}
+    for d in ("ladder", "mach", "round2", "fp64check", "snap", "ladder_count"):
+        tot = 0.0
+        for lt in glob.glob(os.path.join(res(d), "*", "log.txt")):
+            with open(lt) as f:
+                got = [float(x.split()[0]) for x in f if x.strip().endswith("probes included)")]
+            tot += got[-1]
+        hours[d] = tot / 3600
+    say("  GPU time (each log.txt's wall clock): ladder %.1f + Mach %.1f + round 2 %.1f + FP64 %.1f = %.1f h; "
+        "snapshot reruns %.1f h; the first, node-counting ladder %.1f h" % (
+            hours["ladder"], hours["mach"], hours["round2"], hours["fp64check"],
+            hours["ladder"] + hours["mach"] + hours["round2"] + hours["fp64check"], hours["snap"],
+            hours["ladder_count"]))
     write("tab_runs.tex", "\\begin{tabular}{rcccccc}\n"
           "$\\mathrm{Re}$ & $N$ & $\\delta/h$ & $\\tau-\\tfrac12$ & steps & $\\mathrm{Ma}_{\\max}$ & bits \\\\\n"
           "\\hline\n" + "\n".join(rows) + "\n\\end{tabular}\n")
@@ -121,6 +137,17 @@ def main():
         k = min(range(1, len(em)), key=lambda i: em[i])
         say("  C2 (A, Re 1000, N %d): min E_M/E_V %.4f at t = %.2f; first max Om_M/Om_V after its fall %.3f"
             % (N, em[k], t[k], first_max_after_fall(T.col(r, "OmM/OmV"))))
+    for N in (65, 97):
+        r = T.load(res("tgc_slip_cond_n%d_re1000/series.dat" % N))
+        em, t = T.col(r, "EM/EV"), T.col(r, "t")
+        k = min(range(1, len(em)), key=lambda i: em[i])
+        say("  C2 under-resolved (A, Re 1000, N %d): min E_M/E_V %.4f at t = %.2f%s"
+            % (N, em[k], t[k], " (the last probe: still falling)" if k == len(em) - 1 else ""))
+    # Pouquet et al. (2010), Table 1 and Sec. 4.3, read from the paper on 2026-10-02.
+    say("  REFERENCE: C2 of Pouquet et al. 2010 is pseudo-spectral on an equivalent 128^3 over 2 pi "
+        "(64 points across [0, pi]); Table 1: E_M/E_V min 0.35, Om_M/Om_V first max 2., delta k_max 0.8 "
+        "(I1 1.9, A2 2.1 at 128^3; their 2048^3 runs 2.2-3, 'well resolved ... since delta k_max >= 2'; "
+        "an ideal run 'has to be stopped once delta ~ 3/N', i.e. delta k_max ~ 1, k_max = N/3)")
     r = fine("A", 2000)
     say("  A at Re 2000: min E_M/E_V %.3f" % min(x for x in T.col(r, "EM/EV")[1:] if x > 0))
     gate, worst = {}, (0.0, "")
@@ -161,6 +188,18 @@ def main():
     mass = max(abs(x) for by_n in RUNS.values() for r in by_n.values() for x in T.col(r, "mass_drift"))
     divb = max(max(T.col(r, "divb/j")[1:]) for by_n in RUNS.values() for r in by_n.values())
     say("  over every run: |mass drift| <= %.1e, divb/|j| <= %.1e" % (mass, divb))
+    dev, jobs = [], glob.glob(os.path.join(res("ladder"), "tg_mhd_verify-*.log"))
+    for lg in jobs:
+        with open(lg) as f:
+            dev += [(float(x.split("divb/j")[1].split()[0]), x.rstrip().endswith("PASS")) for x in f
+                    if "worst column" in x]
+    say("  device against the Kokkos parent (GPU/csf3/tg_mhd_verify.sub): %d jobs, %d checks, %d PASS; "
+        "worst column %.1e of its scale" % (len(jobs), len(dev), sum(ok for _, ok in dev), max(v for v, _ in dev)))
+    say("  RECORDED: validation/mhd_parity_wall.cpp -- the box against the periodic box it mirrors, both parities, "
+        "1e-14 node for node with the transient; B.n on the wall nodes 1e-32; the conducting-wall eigenmode decays at "
+        "order 2.00 and 2.00 over N = 17, 33, 65")
+    say("  RECORDED: results/P_tg_mhd/xcheck_n65_re200 -- the CUDA host build against the Kokkos driver, FP64, "
+        "free and no slip, N = 65, 815 steps: every printed digit")
     rows = []
     for Re in RUNGS:
         (da, ba), (db, bb) = gate[("A", Re)], gate[("B", Re)]
@@ -249,6 +288,9 @@ def main():
             "%+.4f" % (T.fw_at(fine("B", Re), min(tt, T.col(fine("B", Re), "t")[-1]))[0]
                        - T.fw_at(fine("A", Re), min(tt, T.col(fine("A", Re), "t")[-1]))[0]) for Re in RUNGS)))
     say("  B's fw1 at t = 1.5 and 3.7, Re 2000: %.3f, %.3f" % tuple(T.fw_at(fine("B", 2000), x)[0] for x in (1.5, 3.7)))
+    say("  A's turbulent peak at Re 1000 on N = %s: t = %s" % (
+        " / ".join(str(n) for n in sorted(RUNS[("A", 1000)])),
+        " / ".join("%.2f" % T.turbulent_peak(RUNS[("A", 1000)][n])[0] for n in sorted(RUNS[("A", 1000)]))))
 
     say()
     say("IV.E THE WINDOWS")
@@ -261,7 +303,8 @@ def main():
         for Re in RUNGS:
             a, b = P.integrated_fine(RUNS, ("A", Re), *w), P.integrated_fine(RUNS, ("B", Re), *w)
             d.append(b[0][0] - a[0][0]); bands.append(a[2] + b[2])
-        steps = ["%+.4f (%s)" % (d[i + 1] - d[i], "out" if abs(d[i + 1] - d[i]) > bands[i] + bands[i + 1] else "in")
+        steps = ["%+.4f vs %.4f (%s)" % (d[i + 1] - d[i], bands[i] + bands[i + 1],
+                                         "out" if abs(d[i + 1] - d[i]) > bands[i] + bands[i + 1] else "in")
                  for i in range(len(d) - 1)]
         say("  t = %g-%g: %s  (250 -> 2000 %+.0f %%; steps %s; largest band %.4f)" % (
             w[0], w[1], " / ".join("%.4f" % x for x in d), 100 * (d[-1] - d[0]) / d[0], ", ".join(steps), max(bands)))
@@ -288,6 +331,43 @@ def main():
           "B$-$A in the share within $\\delta$ & 250 & 500 & 1000 & 2000 & change (\\%) \\\\\n\\hline\n"
           + "\n".join(rows) + "\n\\end{tabular}\n")
 
+    # The same readings for the layers 2 delta and 4 delta thick. A band here is the
+    # two grid differences of that layer's share, added, as for delta.
+    say()
+    say("IV.E' THE LAYER: B-A within m delta, m = 1, 2, 4 (band: both grid differences, added)")
+    rows, signs = [], []
+
+    def ba_peak(Re):
+        got = []
+        for n in sorted(RUNS[("A", Re)])[-2:]:
+            fa, fb = peak_fw(RUNS[("A", Re)][n])[1], peak_fw(RUNS[("B", Re)][n])[1]
+            got.append(([y - x for x, y in zip(fa, fb)], fa, fb))
+        (_, fa0, fb0), (d, fa1, fb1) = got
+        return d, [abs(a1 - a0) + abs(b1 - b0) for a0, a1, b0, b1 in zip(fa0, fa1, fb0, fb1)]
+
+    def ba_window(Re, w):
+        a, b = P.integrated_fine(RUNS, ("A", Re), *w), P.integrated_fine(RUNS, ("B", Re), *w)
+        ga = [T.integrated(RUNS[("A", Re)][n], *w)[0] for n in sorted(RUNS[("A", Re)])[-2:]]
+        gb = [T.integrated(RUNS[("B", Re)][n], *w)[0] for n in sorted(RUNS[("B", Re)])[-2:]]
+        return ([y - x for x, y in zip(a[0], b[0])],
+                [abs(ga[1][m] - ga[0][m]) + abs(gb[1][m] - gb[0][m]) for m in range(3)])
+
+    for label, tex, get in [("at the peak", "at the peak (pre-registered)", ba_peak)] + [
+            ("t = %g-%g" % w, "integrated, $t=%g$--$%g$" % w, (lambda Re, w=w: ba_window(Re, w))) for w in WINDOWS]:
+        got = [get(Re) for Re in RUNGS]
+        for m, mm in enumerate((1, 2, 4)):
+            d = [g[0][m] for g in got]
+            bands = [g[1][m] for g in got]
+            signs.extend(d)
+            say("  %-12s m = %d: %s  (250 -> 2000 %+.0f %%; largest band %.4f)" % (
+                label, mm, " / ".join("%+.4f" % x for x in d), 100 * (d[-1] - d[0]) / d[0], max(bands)))
+            rows.append("%s & %d & %s & $%+.0f$ \\\\" % (tex if m == 0 else "", mm, " & ".join(
+                "%.3f" % x for x in d), 100 * (d[-1] - d[0]) / d[0]))
+    say("  every reading: B-A in [%+.4f, %+.4f]" % (min(signs), max(signs)))
+    write("tab_layers.tex", "\\begin{tabular}{lcccccc}\n"
+          "reading & $m$ & 250 & 500 & 1000 & 2000 & change (\\%) \\\\\n\\hline\n"
+          + "\n".join(rows) + "\n\\end{tabular}\n")
+
     say()
     say("IV.G THE INSULATING PAIR")
     pv = {}                    # plot_tg_mhd_ladder.load_all keeps A, B and C only
@@ -306,6 +386,40 @@ def main():
             say("  %s Re %4d N %d: F1 %.4f (visc %.4f, ohm %.4f, Ohmic %.0f %%); peak: %s" % (
                 s, Re, r["N"], F[0], sp[0], sp[1], 100 * sp[1] / F[0],
                 "t %.2f" % pk[0] if isinstance(pk, tuple) else pk))
+
+    for Re in (500, 1000):
+        f = {x: T.integrated(pv[(x, Re)][max(pv[(x, Re)])], *DEFAULT)[0][0] for x in ("A'", "B'")}
+        say("  B' - A' in F1, Re %4d: %+.4f" % (Re, f["B'"] - f["A'"]))
+    gw = 0.0
+    for Re in (500, 1000):
+        by_n = pv[("A'", Re)]
+        (pc, fc), (pf, ff) = (peak_fw(by_n[n]) for n in sorted(by_n))
+        gw = max([gw] + [pct(a, b) for a, b in zip(fc, ff)])
+    say("  A' gate, Re 500 and 1000: worst %.2f %%" % gw)
+    for Re in (500, 1000):
+        by_n = pv.get(("B'", Re), {})
+        if len(by_n) == 2:
+            f = [T.integrated(by_n[n], *DEFAULT)[0][0] for n in sorted(by_n)]
+            say("  B' Re %4d: F1 %.4f / %.4f on N = %d / %d, %.1f %% apart" % (
+                Re, f[0], f[1], sorted(by_n)[0], sorted(by_n)[1], pct(f[0], f[1])))
+
+    # ---- Sec. V: the scales the discussion compares ---------------------------------
+    # Kato's layer is nu = 1/Re thick; a Hartmann layer is sqrt(nu eta)/|B_n| = 1/(Re |B_n|)
+    # at Pm = 1. B_I is normal to every face at t = 0, with |B_n| at most 2 b0 on the
+    # z faces and b0 on the x and y faces (Eq. bi); B_C has B.n = 0 on every face.
+    say()
+    say("V. SCALES (finer grid of each rung; h = pi/(N-1))")
+    for Re in RUNGS:
+        h = math.pi / (GRIDS[Re][1] - 1)
+        say("  Re %4d: Kato's layer 1/Re = %.4f = %.2f h = %.3f delta" % (Re, 1 / Re, 1 / (Re * h), 1 / math.sqrt(Re)))
+    b0 = 1 / math.sqrt(3)
+    for Re in (500, 1000):
+        h = math.pi / (GRIDS[Re][1] - 1)
+        say("  B' Re %4d, t = 0: Hartmann layer 1/(Re |B_n|) = %.2f h on the z faces (|B_n| <= 2 b0 = %.3f), "
+            "%.2f h on the x, y faces (b0)" % (Re, 1 / (Re * 2 * b0 * h), 2 * b0, 1 / (Re * b0 * h)))
+    vol = [1 - (1 - 2 / (math.sqrt(Re) * math.pi)) ** 3 for Re in RUNGS]
+    say("  volume within delta of the walls: %s of the box; slope %+.3f over Re 250 -> 2000"
+        % (" / ".join("%.4f" % v for v in vol), math.log(vol[-1] / vol[0]) / math.log(8)))
 
     # ---- Sec. IV.F: the field snapshots (GPU/csf3/tg_mhd_snap.sub) -----------------
     # The plane means come from slices/index.json, which is tracked; the .f32 planes
@@ -369,6 +483,69 @@ def main():
     say("  RECORDED: tools/tg_mhd_vol.cpp, the same six dumps (each on a probe): <= 3.3e-9 relative, gated")
     say("  RECORDED: the 256^3 volumes against the slice planes, 80 (volume, plane) pairs at t = 2.3 and 4.6: "
         "no plane's 2x2 block maximum exceeds its volume's, and they are equal bit for bit where the plane holds it")
+    # ---- Supplementary S3: the first ladder, which counted whole node layers -----------
+    # results/P_tg_mhd/ladder_count keeps those series. tg_mhd_ladder.py moves a counted
+    # series to the exact band before using it (band_corrected); the gate as it failed
+    # read the columns as written, which is what is computed here.
+    say()
+    say("S3. THE FIRST LADDER, COUNTING NODE LAYERS (results/P_tg_mhd/ladder_count, raw columns)")
+    cnt = {}
+    for p in sorted(glob.glob(os.path.join(res("ladder_count"), "*", "series.dat"))):
+        r = T.load(p)
+        cnt.setdefault((r["setup"], r["Re"]), {})[r["N"]] = r
+
+    def raw_fw(run, t):
+        return T.lerp([(x[0], [x[T.IX[m]] for m in T.FW]) for x in run["rows"]], t)
+    worst, f1, ep, nfail, fixed = [], [], [], 0, []
+    for (s_, Re), by_n in sorted(cnt.items()):
+        nc, nf = sorted(by_n)
+        pc, pf = T.turbulent_peak(by_n[nc]), T.turbulent_peak(by_n[nf])
+        if not (isinstance(pc, tuple) and isinstance(pf, tuple)):
+            continue
+        d = [pct(a, b) for a, b in zip(raw_fw(by_n[nc], pc[0]), raw_fw(by_n[nf], pf[0]))]
+        worst.append(max(d)); f1.append(d[0]); ep.append(pct(pc[1], pf[1])); nfail += max(d) > 5
+        fixed.append(max(pct(a, b) for a, b in zip(T.fw_at(by_n[nc], pc[0]), T.fw_at(by_n[nf], pf[0]))))
+        say("  %s Re %4d: f1/f2/f4 %.1f/%.1f/%.1f %% apart; eps at the peak %.2f %%" % (s_, Re, d[0], d[1], d[2], ep[-1]))
+    for N in GRIDS[1000]:
+        r = (N - 1) / (math.pi * math.sqrt(1000))
+        say("  Re 1000, N %d: counting the nodes with k h < delta measures (ceil(delta/h) - 1/2) h = %.2f delta"
+            % (N, (math.ceil(r) - 0.5) / r))
+    say("  %d of %d (box, Re) fail the 5 %% gate; worst of the three %.1f-%.1f %%, f1 %.1f-%.1f %%, eps at the peak <= %.1f %%"
+        % (nfail, len(worst), min(worst), max(worst), min(f1), max(f1), max(ep)))
+    say("  the same series moved to the exact band (tg_mhd_ladder.band_corrected): worst of the three %.1f %%, "
+        "so all %d pass" % (max(fixed), len(fixed)))
+    say("  RECORDED: the sweep N = 33..49 at Re = 100 (2026-09-28): f4 by the count jumps 0.52 -> 0.60 each time "
+        "4 delta/h crosses a node; by Eq. (within) 0.561-0.566")
+
+    # ---- Supplementary S2: when each rule reached GitHub ------------------------------
+    # The commit time is the author's clock; the push time is GitHub's, from the
+    # server-side log captured in provenance/ (its README says how and when).
+    say()
+    say("S2. THE PROTOCOL'S RECORD (git log; GitHub's push log, provenance/github_activity_2026-10-02.json)")
+    with open(os.path.join(HERE, "provenance", "github_activity_2026-10-02.json")) as f:
+        log = json.load(f)
+
+    def utc(iso):
+        return datetime.datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(datetime.timezone.utc)
+
+    rows = []
+    for sha, plain, tex in (("663929c", "observable, peak rule, gate", "observable, peak rule, gate"),
+                            ("9f65706", "estimator of f_m corrected", "estimator of $f_m$ corrected"),
+                            ("cd07f45", "Mach control", "Mach control"),
+                            ("d061ee8", "decision rule, FP64 control (Re 2000)", "decision rule, FP64 control ($\\Rey=2000$)")):
+        got = subprocess.run(["git", "-C", ROOT, "log", "-1", "--format=%cI", sha],
+                             capture_output=True, text=True)
+        committed = utc(got.stdout.strip())
+        pushed = min(utc(a["timestamp"]) for a in log if a["after"].startswith(sha))
+        lag = (pushed - committed).total_seconds()
+        say("  %s %-38s committed %s UTC, pushed %s UTC (%+.0f s)" % (
+            sha, plain, committed.strftime("%Y-%m-%d %H:%M:%S"), pushed.strftime("%Y-%m-%d %H:%M:%S"), lag))
+        rows.append("%s & \\texttt{%s} & %s & %s & %.0f \\\\" % (
+            tex, sha, committed.strftime("%d %b, %H:%M:%S"), pushed.strftime("%H:%M:%S"), lag))
+    write("tab_protocol.tex", "\\begin{tabular}{lcccc}\n"
+          "rule & commit & committed (UTC) & pushed (UTC) & lag (s) \\\\\n\\hline\n"
+          + "\n".join(rows) + "\n\\end{tabular}\n")
+
     write("numbers.txt", "\n".join(out) + "\n")
     return 0
 

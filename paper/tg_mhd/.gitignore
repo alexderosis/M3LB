@@ -1,4 +1,4 @@
-# LaTeX by-products; main.aux and main.log are caught by the top-level rules.
+# LaTeX by-products; the .aux and .log files are caught by the top-level rules.
 # numbers.txt and tab_*.tex are generated too, but tracked: they are the record
 # of every number in the paper, and main.tex compiles from them without python.
 main.bbl
@@ -7,3 +7,9 @@ main.fdb_latexmk
 main.fls
 main.out
 mainNotes.bib
+supplementary.bbl
+supplementary.blg
+supplementary.fdb_latexmk
+supplementary.fls
+supplementary.out
+supplementaryNotes.bib

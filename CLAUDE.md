@@ -1412,21 +1412,37 @@ the same few mistakes, so they are worth naming.
 ## Papers (`paper/`)
 
 `paper/tg_mhd/` is the confined-MHD paper, "Walls or cascade? A pre-registered
-test of wall dissipation in decaying magnetohydrodynamic turbulence": 9 pages in
-REVTeX 4.2 for Physics of Plasmas, tracked with its PDF (5ee9407, 2026-10-02).
-`make -C paper/tg_mhd` rebuilds it; `make -C paper/tg_mhd figs PY=<a python with
-numpy and matplotlib>` remakes its three figures into `results/P_tg_mhd/fig/`,
-byte-identical when the data have not changed. After new runs, `make -B`: make
-does not track `results/`. `jfm.cls` is not installed here, and the text is
-journal-neutral, so moving to JFM is a class swap.
+test of wall dissipation in decaying magnetohydrodynamic turbulence": 11 pages in
+REVTeX 4.2 for Physics of Plasmas, plus 5 of supplementary material
+(`supplementary.tex`), both tracked with their PDFs. `make -C paper/tg_mhd`
+rebuilds both: each reads the other's labels through `xr-hyper` (`S-<label>` in
+`main.tex`, `M-<label>` in the supplement), so the Makefile runs supplement,
+paper, supplement, and the macros must be defined BEFORE `\externaldocument` --
+the other document's labels carry captions that use `\Rey`, and the build dies
+on an undefined control sequence otherwise. `make -C paper/tg_mhd figs PY=<a
+python with numpy and matplotlib>` remakes the figures into
+`results/P_tg_mhd/fig/`, byte-identical when the data have not changed. After new
+runs, `make -B`: make does not track `results/`. `jfm.cls` is not installed
+here, and the text is journal-neutral, so moving to JFM is a class swap.
+**`numbers.py` shadows the standard library's `numbers`**: any other python run
+with `paper/tg_mhd` as its working directory and importing `fractions` (PIL
+does) fails on it. Run such scripts from elsewhere.
 
 - **EVERY NUMBER IN THE TEXT COMES FROM `numbers.py`.** It reads
   `results/P_tg_mhd/` through `tools/tg_mhd_ladder.py` and
   `tools/plot_tg_mhd_ladder.py` -- the same peak, f_w and integrated share as the
   figures -- prints every quoted number, section by section, into `numbers.txt`,
-  and writes the four `tab_*.tex`. A number in `main.tex` that `numbers.txt` does
-  not contain is a number to distrust. To change a number, change the script and
-  regenerate; never type one in.
+  and writes every `tab_*.tex`, the supplement's included. A number in either
+  document that `numbers.txt` does not contain is a number to distrust. To change
+  a number, change the script and regenerate; never type one in. What no tracked
+  file can regenerate (the parity-wall tests, the N = 33..49 sweep) is printed as
+  a `RECORDED:` line with its source, and the comparison paper's values as
+  `REFERENCE:`. **The rule caught a wrong number on 2026-10-02**: the text said
+  counting node layers made f_1 differ "by 8-25 %" between grids; recomputed from
+  `results/P_tg_mhd/ladder_count` with today's peak rule it is 1.3-24.6 % for f_1
+  and 6.5-24.6 % for the worst of the three shares, all eight rungs failing. Use
+  the raw columns for that: `tg_mhd_ladder.py` band-corrects a counted series
+  before using it, which makes the failed ladder look as if it had passed.
 - **WHAT THE PAPER CLAIMS IS FIXED BY WHAT SURVIVED, NOT BY WHAT WAS HOPED.** It
   reports the pre-registered verdict, "cascade", as the result of the registered
   test, and says why it is fragile. It claims only what held under every
@@ -1445,15 +1461,31 @@ journal-neutral, so moving to JFM is a class swap.
   A' boxes drift as much); and "about 40 %" for a deficit of 41-45 %. Words like
   every, mostly, about and monotonically are claims too.
 - **A REFERENCE WRITTEN FROM MEMORY IS UNVERIFIED UNTIL IT IS CHECKED.** All 21
-  entries of `refs.bib` were checked on 2026-10-02 against the paper itself
-  (`SomeRefs/`) or its publisher or index record, and the file's header says so.
-  The nine first written from memory and kept were all right this time, which
-  is not a reason to skip the check next time. A new entry goes in the same way.
-- **THE PROTOCOL SECTION IS DATED FROM `git log`**, including the correction of
-  the f_w estimator after the first ladder failed its gate. One date -- 25
-  September, for the two qualitative outcomes -- comes from the plan artifact,
-  which is not in the repository.
-- **THE FIELD SNAPSHOTS (Figs. 4 and 5) COME FROM `GPU/csf3/tg_mhd_snap.sub`**: A,
+  original entries of `refs.bib` were checked on 2026-10-02 against the paper
+  itself (`SomeRefs/`) or its publisher or index record, and the file's header
+  says so. The nine first written from memory and kept were all right this time,
+  which is not a reason to skip the check next time. The twelve added the same
+  day for context (wall-bounded MHD, Taylor-Green and VKS dynamos, dissipation
+  bounds) were each looked up on Crossref (`api.crossref.org/works/<doi>`), and
+  the CLAIM each carries in the text was checked against its abstract -- two of
+  the DOIs first guessed from memory were wrong, and both resolved to unrelated
+  papers. Cite a paper for what its abstract or text says, not for what it is
+  remembered to have shown.
+- **THE PROTOCOL SECTION IS DATED FROM `git log` AND FROM GITHUB'S PUSH LOG.**
+  A commit date is the author's clock; `paper/tg_mhd/provenance/` keeps GitHub's
+  server-side record of the pushes (the public `/activity` API, captured
+  2026-10-02), and `numbers.py` turns it into Table S1: each rule was on GitHub
+  within 80 s of its commit. The API forgets after about 90 days, so the capture,
+  deposited with a dated archive (`paper/tg_mhd/ARCHIVING.md`), is the lasting
+  record; the cluster's `sacct` submit times, which close the other end, are not
+  captured yet (its README says how). **The 27 September commit fixed the
+  observable, the peak rule and the gate, NOT the decision rule** -- that came
+  with round 2 on 30 September, after the lower rungs had been seen, and the
+  27 September script had asked only for B - A beyond its band and monotonic over
+  three rungs. A first draft of the condensed protocol said otherwise; the
+  supplement now states both. One date -- 25 September, for the two qualitative
+  outcomes -- comes from the plan artifact, which is not in the repository.
+- **THE FIELD SNAPSHOTS (Fig. 4, and Fig. S1 at t = 4.6) COME FROM `GPU/csf3/tg_mhd_snap.sub`**: A,
   B and C rerun at Re = 1000, N = 512 with full dumps at t = 0, 2.3 and 4.6 --
   reproducing the production series exactly, all 48 probes to t = 4.7 -- and cut
   into planes by `tools/tg_mhd_slices.py`, which uses the drivers' own wall
@@ -1464,7 +1496,7 @@ journal-neutral, so moving to JFM is a class swap.
   symmetry classes, two horizontal and four vertical, so a near-wall plane shows
   one class, and the text must say which. The raw dumps (11 GB a run) are on CSF3
   scratch, which is not permanent.
-- **THE 3-D VIEWS (Figs. 6 and 7) COME FROM `GPU/csf3/tg_mhd_vol.sub`**, which
+- **THE 3-D VIEWS (Fig. 5, and Fig. S2 at t = 4.6) COME FROM `GPU/csf3/tg_mhd_vol.sub`**, which
   builds `tools/tg_mhd_vol.cpp` on the node and reduces the same dumps to 256^3
   volumes by the block MAXIMUM, so only 768 MB travel; `tools/plot_tg_mhd_3d.py`
   renders them as maximum-intensity projections. Checked: the tool's box means
@@ -1473,9 +1505,24 @@ journal-neutral, so moving to JFM is a class swap.
   how much they dissipate, and its depth cue is not an intensity -- the text says
   so, and the shares stay the quantitative claim. Both figures share one colour
   range, fixed in the Makefile (`RANGE3D`), so `make figs` rebuilds them exactly.
-- Left for the author as TODOs in `main.tex`: the department, funding, the
-  AI-use disclosure AIP asks for, and whether the repository is public (with a
-  DOI).
+- **WHAT IS IN THE SUPPLEMENT, AND WHY.** The tests of the method and C2 in
+  full, the protocol record, the failed estimator, the gate table, the layers
+  2 delta and 4 delta (Table S3: B - A positive in every reading, the trend as
+  window-dependent as within delta), the insulating pair, and the t = 4.6
+  figures. C2's 5.5 % is attributed to C2's resolution -- its own Table 1 gives
+  delta k_max = 0.8, below the >= 2 the authors call well resolved -- and our
+  coarser grids move the same way (0.357 at N = 97, 0.329 at N = 65). B' is the
+  one box whose field crosses a no-slip wall, i.e. where Hartmann layers form,
+  1/(Re |B_n|) thick at Pm = 1: 0.14 h at Re = 1000 from the t = 0 field, an
+  estimate, not a measurement. The 8-page main text the plan aimed at would need
+  about three more pages cut -- a figure moved or the discussion halved -- which
+  is the author's call.
+- Left for the author: in `main.tex` the department, funding, the AI-use
+  disclosure AIP asks for, and the DOI; in `ARCHIVING.md` a LICENSE (the
+  repository has none, so the code is readable but not reusable, and Zenodo will
+  ask), the Zenodo release, `sacct`, and copying the 34 GB of field dumps off
+  CSF3 scratch with their checksums. The repository is public (checked
+  2026-10-02 through the API).
 
 ---
 
