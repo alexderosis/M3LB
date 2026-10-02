@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tabulate the confined-MHD Reynolds ladder and apply the plan's Stage 3 gate.
 
-    tg_mhd_ladder.py RUNS_DIR [--tol 0.05] [--half 1.0]
+    tg_mhd_ladder.py RUNS_DIR [--tol 0.05] [--half 1.0] [--window 2 10]
 
 Reads every RUNS_DIR/*/series.dat written by demonstrator/tg_mhd or
 GPU/src/tg_mhd.cu (GPU/csf3/tg_mhd_ladder.sub puts them in
@@ -58,6 +58,36 @@ which is strict on A, whose fw1 is a few 1e-2. THE HEADLINE is, per Re, B - A
 resolution band -- the two setups' fw1 differences between grids, added -- and
 marked when it clears the band. The PRL claim needs B - A outside the band and
 monotonic over at least three rungs; that is checked too.
+
+POST HOC, NOT PRE-REGISTERED: THE TIME-INTEGRATED SHARE (added 2026-10-02, after
+round 2). The peak reading turned out to be fragile. The turbulent peak is not one
+feature moving smoothly with Re: A's dissipation has an early maximum near t = 2.2
+and a later one at t = 3.6-4.4, and the later one wins from Re = 1000 (t_peak
+2.23 -> 4.06); B's moves the same way between Re = 1000 and 2000 (2.34 -> 4.53).
+fw1 moves fast through both -- A's oscillates with a period near 1.3, between
+0.022 and 0.060 at Re = 2000, and B's falls from 0.32 to 0.06 over t = 1.5..3.7 --
+so at Re = 1000 the headline compares B at t = 2.34 with A at 4.06, and its fall
+from 0.063 to 0.036 at Re = 2000 is the reading moving from a time when B - A is
+near 0.06 at both Re to one when it is near 0.03 at both. So the tool also prints,
+never affecting the exit status,
+    F = int fw eps dt / int eps dt     over t in --window (default 2..10),
+the share of ALL the dissipation in the window that happened within m delta of the
+walls, which has no maximum to pick. Trapezoidal over the probes, with every
+integrand interpolated to the window's edges: probes fall every whole number of
+steps, so two grids' probe times differ, and without the interpolation a tenth of
+a time unit of window edge went into the band. Bands, pairs and the rung-to-rung
+steps are formed as the headline's are.
+WHAT IT SETTLES, AND WHAT IT DOES NOT, on round 2. B - A is positive and clears its
+band at every rung in every window tried, and it is VISCOUS: +0.059 to +0.073 in
+the default window, against an Ohmic part of -0.011 to -0.014. Its TREND in Re is
+not robust: from Re = 250 to 2000 it is flat within 6 % on [2, 6] (0.049, 0.048,
+0.051, 0.048), falls 18 % on [2, 10] and 43 % on [5, 10]. A fixed window compares
+different phases, since the evolution slows as Re rises (A's peak moves from t = 2.0
+to 4.4) -- but aligning the window on each run's own energy does not settle it
+either: from E_T/E_0 = 0.9 to 0.5 B - A falls at every step (0.166 -> 0.048), from
+0.6 to 0.4 it falls and then RISES (0.048, 0.029, 0.034, 0.053). A factor of 8 in
+Re does not separate a trend from the phase dependence of fw1. Quote the sign; do
+not quote a trend read through one window.
 
 Pure stdlib -- it runs on a CSF3 login node with no numpy.
 """
@@ -147,13 +177,17 @@ def fw_rows(run):
     return out
 
 
-def fw_at(run, t):
-    rows = fw_rows(run)
-    for (ta, fa), (tb, fb) in zip(rows, rows[1:]):
+def lerp(pts, t):
+    """Linear interpolation in [(t, [values])] at a t inside its range, else None."""
+    for (ta, a), (tb, b) in zip(pts, pts[1:]):
         if ta <= t <= tb:
             w = 0.0 if tb == ta else (t - ta) / (tb - ta)
-            return [(1 - w) * a + w * b for a, b in zip(fa, fb)]
+            return [(1 - w) * x + w * y for x, y in zip(a, b)]
     return None
+
+
+def fw_at(run, t):
+    return lerp(fw_rows(run), t)
 
 
 def interp(run, name, t):
@@ -219,31 +253,72 @@ def within_cells(e, r):
     return c + e[k] * (r - (k - 0.5)) if k < len(e) else c
 
 
-def split_fw1(run, pk):
-    """[viscous, Ohmic] parts of fw1 at the peak, from the run's profile_visc.dat and
-    profile_ohm.dat (each a share of the TOTAL eps, so they add up to fw1), or None
-    for a run that did not write them."""
-    if pk is None:
-        return None
-    out = []
+def profile_parts(run):
+    """[(t, [viscous, Ohmic])] -- fw1's two parts at every probe, from the run's
+    profile_visc.dat and profile_ohm.dat (each a share of the TOTAL eps, so the two
+    add up to fw1) -- or None for a run that did not write them."""
+    cols = []
     for name in ("profile_visc.dat", "profile_ohm.dat"):
         p = os.path.join(os.path.dirname(run["path"]), name)
         if not os.path.exists(p):
             return None
         with open(p) as f:
             lines = f.read().splitlines()
-        m = re.search(r"delta/h=([0-9.eE+-]+)", lines[0])
-        rows = [[float(x) for x in l.split()] for l in lines if l and not l.startswith("#")]
-        e = None
-        for a, b in zip(rows, rows[1:]):
-            if a[0] <= pk[0] <= b[0]:
-                w = 0.0 if b[0] == a[0] else (pk[0] - a[0]) / (b[0] - a[0])
-                e = [(1 - w) * x + w * y for x, y in zip(a[1:], b[1:])]
-                break
-        if m is None or e is None:
+        m = re.search(r"delta/h=([0-9.eE+-]+)", lines[0]) if lines else None
+        if m is None:
             return None
-        out.append(within_cells(e, float(m.group(1))))
-    return out
+        rows = []
+        for l in lines:
+            if l and not l.startswith("#"):
+                try:
+                    rows.append([float(x) for x in l.split()])
+                except ValueError:
+                    pass                      # a torn last line of a live run
+        if not rows:
+            return None
+        rows = [r for r in rows if len(r) == len(rows[0])]
+        cols.append([(r[0], within_cells(r[1:], float(m.group(1)))) for r in rows])
+    return [(t, [v, o]) for (t, v), (_, o) in zip(*cols)] or None
+
+
+def split_fw1(run, pk):
+    """[viscous, Ohmic] parts of fw1 at the peak, or None for a run that did not
+    write them. within_cells is linear in the profile, so interpolating its result
+    in time is interpolating the profile."""
+    parts = profile_parts(run) if pk is not None else None
+    return lerp(parts, pk[0]) if parts else None
+
+
+def integrated(run, t0, t1):
+    """POST HOC (see the module docstring): ([F1, F2, F4], [viscous, Ohmic] or None)
+    over [t0, t1], F = int fw eps dt / int eps dt -- the share of ALL the dissipation
+    in the window that happened within 1, 2, 4 delta of the walls, and F1's two parts
+    where the run wrote them -- or the reason there is none. Trapezoidal over the
+    probes, with every integrand interpolated to the window's edges: probes fall
+    every whole number of steps, so two grids' probe times differ and would
+    otherwise integrate different intervals."""
+    if run["diverged"]:
+        return "DIVERGED"
+    fw, eps = fw_rows(run), col(run, "eps")
+    ts = [t for t, _ in fw]
+    if ts[0] > t0 + 1e-2 or ts[-1] < t1 - 1e-2:
+        return "run covers t = %.2f..%.2f only" % (ts[0], ts[-1])
+    a, b = max(t0, ts[0]), min(t1, ts[-1])
+    parts = profile_parts(run)
+    if parts is not None and (len(parts) != len(ts) or
+                              any(abs(p[0] - t) > 1e-6 for p, t in zip(parts, ts))):
+        parts = None          # the drivers write both at every probe; anything else is not trusted
+    q = [(t, [e] + [x * e for x in f] + ([x * e for x in parts[i][1]] if parts else []))
+         for i, ((t, f), e) in enumerate(zip(fw, eps))]
+    seg = [(a, lerp(q, a))] + [p for p in q if a < p[0] < b] + [(b, lerp(q, b))]
+    tot = [0.0] * len(q[0][1])
+    for (ta, va), (tb, vb) in zip(seg, seg[1:]):
+        for k in range(len(tot)):
+            tot[k] += 0.5 * (va[k] + vb[k]) * (tb - ta)
+    if not all(math.isfinite(x) for x in tot) or tot[0] <= 0:
+        return "no finite dissipation in the window"
+    F = [x / tot[0] for x in tot[1:]]
+    return F[:3], (F[3:] if parts else None)
 
 
 def fmt(v, spec="%.4f", width=7):
@@ -255,7 +330,11 @@ def main(argv):
     ap.add_argument("runs_dir")
     ap.add_argument("--tol", type=float, default=0.05, help="resolution gate on f_w (default 0.05)")
     ap.add_argument("--half", type=float, default=1.0, help="half-width of the fw1 window")
+    ap.add_argument("--window", type=float, nargs=2, default=[2.0, 10.0], metavar=("T0", "T1"),
+                    help="the post-hoc time-integrated share's window (default 2 10)")
     args = ap.parse_args(argv)
+    if not args.window[0] < args.window[1]:
+        ap.error("--window needs T0 < T1")
 
     paths = sorted(glob.glob(os.path.join(args.runs_dir, "*", "series.dat")))
     runs = [r for r in (load(p) for p in paths) if r is not None]
@@ -379,6 +458,64 @@ def main(argv):
         print("\nSPLIT of fw1 at the peak into its viscous (nu w^2) and Ohmic (eta j^2) parts,"
               " finer grid of each; the two add up to fw1")
         print("\n".join(lines))
+
+    # POST HOC: the time-integrated share (the docstring says why). It is not the
+    # plan's observable, so nothing below changes the exit status.
+    t0, t1 = args.window
+    print("\nPOST HOC, NOT PRE-REGISTERED: F = int fw eps dt / int eps dt over t = %g..%g, the share"
+          " of ALL the dissipation in the window that happened within m delta of the walls;"
+          " finer grid of each, the coarser one's F1 in brackets" % (t0, t1))
+    print("  %-6s %-2s %4s %4s | %7s %8s | %7s %7s | %-15s | %7s %7s" % (
+        "Re", "S", "N", "N'", "F1", "[N']", "F2", "F4", "grids differ", "F1 visc", "F1 ohm"))
+    integ = {}
+    for (Re, setup), lst in sorted(res.items()):
+        if setup == "P":
+            continue
+        by_n = {}
+        for x in sorted(lst, key=lambda x: x[0]):
+            by_n[x[0]] = x[3]                 # the last run at each N, as the gate takes it
+        Ns = sorted(by_n)[-2:]
+        got = [integrated(by_n[n], t0, t1) for n in Ns]
+        if isinstance(got[-1], str):
+            print("  %-6g %-2s %4d      | (%s)" % (Re, setup, Ns[-1], got[-1]))
+            continue
+        (F, sp), co = got[-1], (got[0] if len(Ns) == 2 and not isinstance(got[0], str) else None)
+        pk = turbulent_peak(by_n[Ns[-1]])
+        why = "" if isinstance(pk, tuple) else pk
+        integ[(Re, setup)] = (F, sp, abs(F[0] - co[0][0]) if co else None, why)
+        print(("  %-6g %-2s %4d %4s | %7.4f %8s | %7.4f %7.4f | %-15s | %s %s  %s%s" % (
+            Re, setup, Ns[-1], Ns[0] if co else "--", F[0], "[%.4f]" % co[0][0] if co else "--",
+            F[1], F[2],
+            "%.1f/%.1f/%.1f %%" % tuple(100 * abs(x - y) / max(abs(x), abs(y))
+                                       for x, y in zip(F, co[0])) if co else "--",
+            fmt(sp[0] if sp else None), fmt(sp[1] if sp else None),
+            "(%s)" % why if why else "", "  *" if by_n[Ns[-1]]["fwdef"] == "count" else "")).rstrip())
+    print("  pairs on the finer grids; band = the two setups' F1 differences between grids, added")
+    steps = []
+    for Re in sorted({k[0] for k in integ}):
+        for hi, lo, what in pairs:
+            if (Re, hi) not in integ or (Re, lo) not in integ:
+                continue
+            (Fh, sh, bh, wh), (Fl, sl, bl, wl) = integ[(Re, hi)], integ[(Re, lo)]
+            d = Fh[0] - Fl[0]
+            verdict = ("band unknown" if bh is None or bl is None else
+                       ("clears %.4f" if abs(d) > bh + bl else "inside %.4f") % (bh + bl))
+            split = " | visc %+.4f ohm %+.4f" % (sh[0] - sl[0], sh[1] - sl[1]) if sh and sl else ""
+            unlike = "; ".join("%s %s" % (s_, w_) for s_, w_ in ((hi, wh), (lo, wl)) if w_)
+            print("  Re %-6g  %-2s - %-2s (%-16s) %+.4f  %s%s%s" % (
+                Re, hi, lo, what, d, verdict, split,
+                "  -- NOT like for like: %s" % unlike if unlike else ""))
+            if (hi, lo) == ("B", "A"):
+                steps.append((Re, d, None if bh is None or bl is None else bh + bl))
+    if len(steps) >= 2:
+        print("  B - A from rung to rung, against the two rungs' bands added (round 2's 'walls hold'"
+              " test, here applied post hoc to F1):")
+        for (r0, d0, b0), (r1, d1, b1) in zip(steps, steps[1:]):
+            bb = None if b0 is None or b1 is None else b0 + b1
+            print("    Re %g -> %g: %+.4f (%+.0f %%)  %s" % (
+                r0, r1, d1 - d0, 100 * (d1 - d0) / abs(d0) if d0 else float("nan"),
+                "band unknown" if bb is None else
+                ("outside %.4f" if abs(d1 - d0) > bb else "inside %.4f") % bb))
     return 1 if failed else 0
 
 

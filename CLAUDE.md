@@ -1133,7 +1133,22 @@ Do not spend time on these without saying so first; several are deliberate.
   viscous and Ohmic parts of the profile, each a share of the TOTAL eps -- and
   `GPU/csf3/tg_mhd_round2.sub` holds the Re = 2000 rung (FP32, N = 640 vs 512,
   with an FP64 control), the insulating pair A' / B' (pseudo-vacuum walls need
-  the TG-I field; the driver refuses them with TG-C) and the split reruns. The free-slip
+  the TG-I field; the driver refuses them with TG-C) and the split reruns.
+  **ROUND 2 RAN ON 2026-10-01** (all 29 elements; `results/P_tg_mhd/round2/` and
+  `fp64check/`). Its three pre-registered verdicts: the gate passes at Re = 2000
+  too (worst 3.0 %); FP32 there passes against FP64 (B - A moves < 1e-4 against a
+  band of 0.0021); and B - A at the peak falls to **0.036**, ten times the bands
+  below Re = 1000's 0.063 -- by the plan, the CASCADE outcome. **THAT VERDICT RESTS
+  ON THE PEAK SWITCHING BETWEEN RUNGS, AND SO DID THE 500 -> 1000 PLATEAU ABOVE**
+  (the measurement-discipline entry on reading at a peak). The time-integrated
+  share -- `tg_mhd_ladder.py`'s POST HOC section -- keeps B - A positive and beyond
+  its band at every rung, VISCOUS (+0.059 to +0.073 over t = 2..10) with a
+  NEGATIVE Ohmic part (-0.011 to -0.014), and leaves its Re trend undecided.
+  **The insulating pair is not the control it was meant to be**: B' never becomes
+  turbulent by t = 10 at Re = 500 or 1000, so B' - A' (+0.32 and +0.42,
+  integrated) compares a laminar box with a turbulent one, and under TG-I rather
+  than TG-C; A''s near-wall share is 88 % Ohmic. C at Re = 2000 has not peaked by
+  t = 10, and the free-slip box there reaches min E_M/E_V = 0.410. The free-slip
   box at Re = 1000 is Pouquet et al.'s C2 and is converged there at
   min E_M/E_V = 0.369, 5.5 % above their 0.35 -- N = 97's 0.357 was
   under-resolution, not agreement. Until 2026-09-29 the drivers' "probe share"
@@ -1357,6 +1372,27 @@ the same few mistakes, so they are worth naming.
   (order 1.59, and 7.1 % against 2.7 % on a localised bump) with more relaxation
   times elapsed, because ω = 1 is where an LBM boundary sits where it claims to.
   Spend a free parameter on accuracy, not on wall clock.
+- **A QUANTITY READ "AT THE PEAK" OF A TRANSIENT CAN CHANGE PEAKS AS THE PARAMETER
+  MOVES, AND ITS TREND THEN MEASURES THE CHANGE.** The confined-MHD ladder
+  pre-registered B - A in fw1 "at the dissipation peak", and read 0.073 / 0.065 /
+  0.063 / 0.036 at Re = 250 / 500 / 1000 / 2000. But A's dissipation has two
+  maxima, 5 % apart at Re = 500, and the later one wins from Re = 1000 (t_peak
+  2.23 -> 4.06); B's switches between Re = 1000 and 2000 (2.34 -> 4.53); and fw1
+  moves by a factor of two within about a time unit of both. So at Re = 1000 the
+  reading compares B at t = 2.34 with A at 4.06, and the drop to 0.036 is the
+  reading moving from a time when B - A is near 0.06 at both Re to one when it is
+  near 0.03 at both. **No check in the plan could see it**: the resolution gate
+  and the Mach and FP64 controls compare runs at ONE Re, whose peaks switch
+  together (t_peak 4.05 and 4.06 on the two grids at Re = 1000). **And a window is
+  not the cure it looks like.** The time-integrated share has no maximum to pick,
+  but from Re = 250 to 2000 its B - A is flat within 6 % over t = 2..6, falls 18 %
+  over 2..10 and 43 % over 5..10 -- a fixed window compares different phases,
+  since the evolution slows as Re rises -- and aligning each run's window on its
+  own energy instead makes it fall, level off or rise with the fractions chosen.
+  What survived every definition was the SIGN: B - A positive, beyond its band,
+  viscous. Before quoting a trend read at one instant of an unsteady flow, plot
+  the observable against time at every rung, and try more than one definition of
+  "when".
 - **Agreement between a port and its host reference proves the port, not the
   physics.** Both run the same arithmetic. When a port sits several times worse
   than the code it came from, that gap is a defect until shown otherwise — do not
