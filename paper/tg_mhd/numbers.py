@@ -196,13 +196,30 @@ def main():
         with open(lg) as f:
             for x in f:
                 if "worst column" in x:
-                    dev.append((float(x.split("divb/j")[1].split()[0]), x.rstrip().endswith("PASS")))
+                    # "worst column <name> <value> of its scale": the name varies (w_max
+                    # for a box without a field), so read the value after it.
+                    dev.append((float(x.split("worst column")[1].split()[1]), x.rstrip().endswith("PASS")))
                 elif "energy budget worst term" in x:
                     bdev.append((float(x.split("worst term")[1].split()[1]), x.rstrip().endswith("PASS")))
     say("  device against the Kokkos parent (GPU/csf3/tg_mhd_verify.sub): %d jobs, %d checks, %d PASS; "
         "worst column %.1e of its scale" % (len(jobs), len(dev), sum(ok for _, ok in dev), max(v for v, _ in dev)))
     say("  the device's energy budget against the host's (since 2026-10-02): %d checks, %d PASS; worst term"
         " %.1e of its scale" % (len(bdev), sum(ok for _, ok in bdev), max(v for v, _ in bdev)))
+    # Phase 2's two options on the device (since 2026-10-03): the smooth start runs on
+    # the per-node wall velocity, whose device half no host build compiles.
+    opt = {}
+    for lg in jobs:
+        with open(lg) as f:
+            for x in f:
+                for case in ("noslip_ramp0.2", "hydro_va1.41421"):
+                    if x.startswith(case + ":") and ("worst column" in x or "energy budget" in x):
+                        key = (case, "budget" if "energy budget" in x else "column")
+                        v = float(x.split("worst column")[1].split()[1]) if key[1] == "column" else \
+                            float(x.split("worst term")[1].split()[1])
+                        opt.setdefault(key, []).append((v, x.rstrip().endswith("PASS")))
+    say("  Phase 2's options on the device: %s" % "; ".join(
+        "%s %s %.1e (%d/%d PASS)" % (c, k, max(v for v, _ in opt[(c, k)]), sum(ok for _, ok in opt[(c, k)]),
+                                     len(opt[(c, k)])) for c, k in sorted(opt)))
     say("  RECORDED: validation/mhd_parity_wall.cpp -- the box against the periodic box it mirrors, both parities, "
         "1e-14 node for node with the transient; B.n on the wall nodes 1e-32; the conducting-wall eigenmode decays at "
         "order 2.00 and 2.00 over N = 17, 33, 65")

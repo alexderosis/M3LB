@@ -61,8 +61,9 @@ fluid at rest, converges at second order (order $2.00$ over $N=17$, $33$, $65$).
 \emph{The two implementations.} The C++20/Kokkos code and the CUDA code share no
 source. Their host builds agree to every printed digit over 815 steps at $N=65$,
 $\Rey=200$, with free and no slip, and the CUDA build on the device agrees with the
-Kokkos reference to within $5.5\times10^{-16}$ of each diagnostic's scale, in five
-verification jobs, each with free and no slip. The runs behind the paper's numbers
+Kokkos reference to within $5.5\times10^{-16}$ of each diagnostic's scale, in six
+verification jobs, each with free and no slip, the last also with the smooth start
+and the energy-matched box of Sec.~\ref{s:controls}. The runs behind the paper's numbers
 took $34.1$ GPU-hours: the ladder, its two controls, and a second round with the top
 rung, the insulating pair, and reruns of the lower rungs that also write the viscous
 and Ohmic parts of the profile. The reruns that wrote the fields of
@@ -315,8 +316,12 @@ cannot hold. The largest lattice Mach number falls from $0.133$ to $0.107$.
 $N=384$ and $512$, and with $\mathrm{Pm}=2$ on $N=512$ and $640$ in single precision,
 like the $\Rey=2000$ rung, whose magnetic relaxation parameters these reproduce. The
 bands of B$-$A are $0.0003$ and $0.0008$, and of $\phi$ $0.017$ and $0.031$.
-% TODO: quote the device check of -ramp and -vamp from this job's verification log
-% (tg_mhd_verify.sub, runs noslip_ramp0.2 and hydro_va1.41421), once it is copied.
+
+\emph{On the device.} The per-node wall velocity has a half that only the GPU
+compiler sees, so the verification job that preceded these runs ran a smooth start
+and the energy-matched box on the device against host references: they agree to
+$5.5\times10^{-16}$ of each diagnostic's scale, and their budgets to
+$1.7\times10^{-15}$.
 
 \begin{table*}
 \caption{\label{stab:controls}The four controls of Sec.~\ref{M-sec:controls}, over

@@ -1,0 +1,66 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB, 595.71.05
+
+[ 50%] Building CUDA object CMakeFiles/tg_mhd.dir/src/tg_mhd.cu.o
+~/scratch/M3LB/GPU/include/lbm/core.cuh(176): warning #20013-D: calling a constexpr __host__ function("make_dir_table") from a __host__ __device__ function("pi") is not allowed. The experimental flag '--expt-relaxed-constexpr' can be used to allow this.
+    constexpr DirTable t = make_dir_table();
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+[100%] Linking CUDA executable tg_mhd
+[100%] Built target tg_mhd
+  1.5 s   162.37 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 21 probes, 0.9 s = 59 % of the run on 4 thread(s); 398.38 MLUPS without them
+  peak dissipation eps = 4.3755e-02 at t = 1.912 (past any impulsive start); skewness there 0.315, max 0.428
+  min E_M/E_V = 0.633   first max of Omega_M/Omega_V after its initial fall = not reached
+  1.2 s   206.30 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 21 probes, 0.9 s = 77 % of the run on 4 thread(s); 899.07 MLUPS without them
+  peak dissipation eps = 4.9713e-02 at t = 1.711 (past any impulsive start); skewness there 0.312, max 0.397
+  min E_M/E_V = 0.940   first max of Omega_M/Omega_V after its initial fall = 1.359957
+  1.2 s   211.39 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 21 probes, 0.9 s = 76 % of the run on 4 thread(s); 868.05 MLUPS without them
+  peak dissipation eps = 6.8320e-02 at t = 0.201 (past any impulsive start); skewness there 0.036, max 0.384
+  min E_M/E_V = 0.927   first max of Omega_M/Omega_V after its initial fall = not reached
+
+  0.7 s   356.23 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 21 probes, 0.5 s = 72 % of the run on 4 thread(s); 1292.77 MLUPS without them
+  no dissipation peak: eps fell throughout the run; skewness max 0.808
+slip: device vs Kokkos parent, worst column divb/j 5.06e-16 of its scale  PASS
+slip: device vs Kokkos parent, wall-distance profile worst |share| 3.67e-33  PASS
+slip: device vs Kokkos parent, wall-distance profile_visc worst |share| 3.66e-33  PASS
+slip: device vs Kokkos parent, wall-distance profile_ohm worst |share| 7.75e-35  PASS
+slip: device vs Kokkos parent, energy budget worst term pres 1.63e-15 of its scale  PASS
+noslip: device vs Kokkos parent, worst column divb/j 5.54e-16 of its scale  PASS
+noslip: device vs Kokkos parent, wall-distance profile worst |share| 1.20e-33  PASS
+noslip: device vs Kokkos parent, wall-distance profile_visc worst |share| 1.21e-33  PASS
+noslip: device vs Kokkos parent, wall-distance profile_ohm worst |share| 4.15e-35  PASS
+noslip: device vs Kokkos parent, energy budget worst term pres 1.59e-15 of its scale  PASS
+noslip_ramp0.2: device vs Kokkos parent, worst column divb/j 5.49e-16 of its scale  PASS
+noslip_ramp0.2: device vs Kokkos parent, wall-distance profile worst |share| 1.02e-33  PASS
+noslip_ramp0.2: device vs Kokkos parent, wall-distance profile_visc worst |share| 1.04e-33  PASS
+noslip_ramp0.2: device vs Kokkos parent, wall-distance profile_ohm worst |share| 3.69e-35  PASS
+noslip_ramp0.2: device vs Kokkos parent, energy budget worst term pres 1.72e-15 of its scale  PASS
+hydro_va1.41421: device vs Kokkos parent, worst column w_max 0.00e+00 of its scale  PASS
+hydro_va1.41421: device vs Kokkos parent, wall-distance profile worst |share| 1.80e-33  PASS
+hydro_va1.41421: device vs Kokkos parent, wall-distance profile_visc worst |share| 1.80e-33  PASS
+hydro_va1.41421: device vs Kokkos parent, wall-distance profile_ohm worst |share| 0.00e+00  PASS
+hydro_va1.41421: device vs Kokkos parent, energy budget worst term pres 5.38e-16 of its scale  PASS
+[ 50%] Building CUDA object CMakeFiles/tg_mhd.dir/src/tg_mhd.cu.o
+~/scratch/M3LB/GPU/include/lbm/core.cuh(176): warning #20013-D: calling a constexpr __host__ function("make_dir_table") from a __host__ __device__ function("pi") is not allowed. The experimental flag '--expt-relaxed-constexpr' can be used to allow this.
+    constexpr DirTable t = make_dir_table();
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+[100%] Linking CUDA executable tg_mhd
+[100%] Built target tg_mhd
+
+  40.1 s   706.55 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 6 probes, 16.9 s = 42 % of the run on 4 thread(s); 1221.10 MLUPS without them
+  dissipation peak not reached: eps = 1.3986e-02 still rising at t = 1.000; skewness max 0.407
+  min E_M/E_V = 0.979   first max of Omega_M/Omega_V after its initial fall = not reached
+
+  29.7 s   954.91 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 6 probes, 16.5 s = 56 % of the run on 4 thread(s); 2159.14 MLUPS without them
+  dissipation peak not reached: eps = 2.7322e-02 still rising at t = 1.000; skewness max 0.378
+  min E_M/E_V = 1.089   first max of Omega_M/Omega_V after its initial fall = not reached

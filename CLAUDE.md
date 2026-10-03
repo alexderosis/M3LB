@@ -1598,8 +1598,11 @@ does) fails on it. Run such scripts from elsewhere.
   0.060 / 0.052 (0.054 at Pm = 1), viscous, Ohmic negative; phi 2.01 / 1.22
   (1.47 at Pm = 1). In the paper: Sec. IV I, Table S5, Sec. S9; the abstract
   says the gentler start enlarges the excess by up to 20 % at Re = 500 rather
-  than "all controls passed". This job's verify log (the device check of
-  -ramp/-vamp) is still to be copied; S9 has a TODO for it.
+  than "all controls passed". The job's verify log (21890230) passes all 20
+  checks on the A100, the first device runs of the per-node wall velocity among
+  them: the smooth start to 5.5e-16 of each diagnostic's scale, its budget to
+  1.7e-15. A verify log's worst column is not always divb/j -- a box without a
+  field reports w_max -- so numbers.py reads the value after whatever name.
 - Left for the author: in `main.tex` the department, funding, the AI-use
   disclosure AIP asks for, and the DOI; in `ARCHIVING.md` a LICENSE (the
   repository has none, so the code is readable but not reusable, and Zenodo will
