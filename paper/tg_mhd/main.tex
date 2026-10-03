@@ -52,7 +52,8 @@ number and under every definition we tried. The excess is viscous: the near-wall
 Ohmic dissipation is 40--45\% lower than with free-slip walls. A second
 pre-registered test, on the energy budget, attributes that deficit to the stretching
 of the field by the flow, which the no-slip wall removes and, within $\Rey^{-1/2}$ of
-it, reverses. Snapshots and
+it, reverses. Four controls fixed in advance leave these findings standing, though
+one, a gentler start, enlarges the excess by up to 20\% at $\Rey=500$. Snapshots and
 three-dimensional views of the local dissipation show current sheets crossing the
 near-wall layer of the free-slip box and a broad viscous layer at the no-slip walls. The pre-registered
 reading, the excess at the dissipation peak, falls from $0.063$ to $0.036$ between
@@ -346,7 +347,8 @@ The time-integrated share~(\ref{eq:F}) was not part of the protocol; we introduc
 in Sec.~\ref{sec:windows} because of what Sec.~\ref{sec:switch} found. A second test,
 of what causes the near-wall Ohmic deficit, was fixed in the same way on 2 October
 2026, with the job script that ran it, and is stated where it is applied
-(Sec.~\ref{sec:budget}).
+(Sec.~\ref{sec:budget}); so were four controls, on 3 October
+(Sec.~\ref{sec:controls}).
 
 %===============================================================================
 \section{Verification}
@@ -665,6 +667,35 @@ $\frac12$; the transport and storage shares are its complements, the three addin
 one. (c) What supplies B's viscous dissipation within $\delta$, as shares of it.}
 \end{figure*}
 
+\subsection{Four controls}
+\label{sec:controls}
+
+Four controls, each with its rule fixed before its runs (Sec.~\ref{S-s:controls}),
+test what these results might owe to the way they were made.
+
+\emph{The start.} With the walls of B brought to rest over $0.2$ or $1.0$ time units
+instead of at once, B$-$A over $t=2$--$10$ changes by $-0.2$\% and $+2.2$\% at
+$\Rey=2000$, and by $+5.0$\% and $+20.3$\% at $\Rey=500$. The rule allowed $10$\%,
+so by it the start is a factor of the excess at the lower rung. A gentler start makes
+the excess larger, not smaller, and its effect falls with $\Rey$.
+
+\emph{The field at matched energy.} Started with B's initial energy,
+$E_V(0)=\frac14$, the box without a field puts $2.3$--$2.6$ times B's share of its
+dissipation within $\delta$ of the walls, at every rung ($0.21$--$0.29$ against
+$0.086$--$0.13$), and it now has a turbulent peak at $\Rey=500$, $1000$ and $2000$.
+The field moves dissipation away from the walls at matched energy too.
+
+\emph{The Mach number at the top rung.} Lowering $u_0$ to $0.04$ at $\Rey=2000$,
+which takes the largest lattice Mach number from $0.133$ to $0.107$, moves B$-$A by
+$7\times10^{-5}$ against a band of $9\times10^{-4}$, and $\phi$ by $0.003$ against
+$0.052$.
+
+\emph{The magnetic Prandtl number.} At $\mathrm{Pm}=0.5$ and $2$ ($\Rey=1000$), B$-$A
+is $0.060$ and $0.052$, against $0.054$ at $\mathrm{Pm}=1$; it is viscous, with a
+negative Ohmic part, and $\phi$ is $2.01$ and $1.22$, against $1.47$. The mechanism
+of Sec.~\ref{sec:budget} holds at both, the stretching deficit coming closer to the
+Ohmic deficit as Pm grows.
+
 %===============================================================================
 \section{Discussion}
 \label{sec:discussion}
@@ -682,7 +713,10 @@ window, while A's stays near $0.4$ of the mean. Fourth, at the one rung where th
 hydrodynamic box is turbulent, the field moves dissipation away from the walls: the
 box without a field dissipates $33$\% of its energy within $\delta$ of the walls, the
 box with one $9.9$\%. A fifth statement comes from the second test: the Ohmic deficit
-is the stretching that the no-slip wall removes (Sec.~\ref{sec:budget}).
+is the stretching that the no-slip wall removes (Sec.~\ref{sec:budget}). All five
+survive the controls of Sec.~\ref{sec:controls}: a smooth start, matched initial
+energy, a lower Mach number at the top rung, and $\mathrm{Pm}=0.5$ and $2$; the start
+changes the size of the excess, by up to $20$\% at $\Rey=500$, but not its sign.
 
 \emph{What they do not settle.} The question that motivated the work was whether the
 wall share holds as $\Rey$ grows, and it has a registered answer: ``cascade''. That
@@ -745,11 +779,12 @@ collision,\cite{lee2008,pouquet2010} are such flows. Before reading a trend from
 instant of a transient, the time series at every parameter value should be inspected,
 and more than one definition of ``when'' should be tried.
 
-\emph{Limitations.} One initial condition, of high symmetry, in one realization; unit
-magnetic Prandtl number; and $\Rey\le2000$, set by the memory of one GPU, since
-resolving $\delta$ with about $4.5$ spacings makes $N$ grow as $\Rey^{1/2}$. The method
-is weakly compressible. The Mach control bounds its effect at $\Rey\le1000$, but it was
-not repeated at $\Rey=2000$, where the lattice Mach number is largest ($0.133$). The
+\emph{Limitations.} One initial condition, of high symmetry, in one realization;
+$\mathrm{Pm}=1$ on the ladder, with checks at $0.5$ and $2$ at one rung only; and
+$\Rey\le2000$, set by the memory of one GPU, since resolving $\delta$ with about $4.5$
+spacings makes $N$ grow as $\Rey^{1/2}$. The method is weakly compressible. The Mach
+controls bound its effect, but at $\Rey=2000$ only for a $20$\% lower Mach number,
+which is as far as the wall's stability floor allows on one GPU. The
 regularized edges and corners do not conserve mass exactly, though the drift stays
 below $4.4\times10^{-5}$. Only conducting walls are tested: the insulating pair A$'$,
 B$'$ cannot show whether the result needs a conducting wall, since B$'$ has not
@@ -772,7 +807,9 @@ dissipation at the wall, and the wall layer intensifies as $\Rey$ grows. A budge
 the field's energy, tested against a second rule fixed before its runs, attributes the
 Ohmic deficit to the stretching that the no-slip wall removes: within $\delta$ of a
 free-slip wall the flow feeds the field, and within $\delta$ of a no-slip wall the
-field does work on the flow. Snapshots
+field does work on the flow. A smooth start, matched initial energy, a lower Mach
+number and $\mathrm{Pm}=0.5$ and $2$ leave these findings standing, the start changing
+the size of the excess by up to $20$\% at $\Rey=500$. Snapshots
 of the local dissipation show the same contrast in space: current sheets cross the
 near-wall layer of the free-slip box, and a broad viscous layer, with weaker currents,
 lines the no-slip walls. The pre-registered reading, the excess at the dissipation peak, falls between $\Rey=1000$
@@ -798,7 +835,8 @@ The supplementary material gives the tests of the method and the comparison with
 run C2 in full, the record of when each rule of the protocol was fixed, the failure of
 the first estimator of $f_m$, the resolution gate and controls rung by rung, the
 readings within $2\delta$ and $4\delta$, the insulating pair, the fields at
-$t=4.6$, and the energy budget's terms, checks and results rung by rung.
+$t=4.6$, the energy budget's terms, checks and results rung by rung, and the four
+controls.
 
 \section*{Data availability}
 The code (both implementations), the job scripts with the decision rules fixed before

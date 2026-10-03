@@ -27,6 +27,7 @@ import tg_mhd_ladder as T          # noqa: E402
 import plot_tg_mhd_ladder as P     # noqa: E402  (matplotlib is imported only by its main)
 import tg_mhd_budget as BU         # noqa: E402
 import plot_tg_mhd_budget as PB    # noqa: E402  (likewise)
+import tg_mhd_controls as CT       # noqa: E402
 
 U0, TMAX = 0.05, 10.0
 GRIDS = {125: (128, 192), 250: (192, 256), 500: (256, 384), 1000: (384, 512), 2000: (512, 640)}
@@ -508,6 +509,72 @@ def main():
           "$\\Rey$ & $N$ & $\\phi$ & $\\phi_{\\mathrm{coarse}}$ & band & transport & storage"
           " & $S_A/\\Omega_A$ & $S_B/\\Omega_B$ & closure (\\%) \\\\\n\\hline\n" + "\n".join(rows) + "\n\\end{tabular}\n")
 
+    # ---- Sec. III': the controls (GPU/csf3/tg_mhd_controls.sub, Phase 2) -----------
+    # Each control is judged by the rule fixed in that job's header; the numbers are
+    # tools/tg_mhd_controls.py's, read here through its own helpers.
+    say()
+    say("III'. THE CONTROLS (results/P_tg_mhd/controls; within delta, t = %g-%g)" % DEFAULT)
+    ctl = lambda s_, Re, N, lab: CT.run_at(res("controls/%s_re%d_n%d_%s" % (s_, Re, N, lab)))
+    r2 = lambda s_, Re, N: CT.run_at(res("round2/%s_re%d_n%d" % (s_, Re, N)))
+    bd = lambda s_, Re, N: CT.run_at(res("budget/%s_re%d_n%d" % (s_, Re, N)))
+    F1 = lambda r: CT.F(r, DEFAULT)[0]
+    def band2(Re):
+        nc, nf = GRIDS[Re]
+        return abs(F1(r2("A", Re, nf)) - F1(r2("A", Re, nc))) + abs(F1(r2("B", Re, nf)) - F1(r2("B", Re, nc)))
+    trows, c1 = [], []
+    for Re in (500, 2000):
+        nf = GRIDS[Re][1]
+        fa = F1(r2("A", Re, nf))
+        d0 = F1(r2("B", Re, nf)) - fa
+        for lab in ("ramp0.2", "ramp1.0"):
+            d = F1(ctl("B", Re, nf, lab)) - fa
+            c1.append(abs(d - d0) / d0 < 0.10 and d > band2(Re))
+            say("  C1 start, Re %4d %s: B - A %.4f against %.4f impulsive, change %+.1f %%" % (
+                Re, lab, d, d0, 100 * (d - d0) / d0))
+            trows.append("C1, start & %d & %s & B$-$A & %.4f & %.4f & $%+.1f$\\%% \\\\" % (
+                Re, lab.replace("ramp", "ramp "), d0, d, 100 * (d - d0) / d0))
+    say("  C1 verdict: %s" % ("not an imprint of the start" if all(c1) else "the start is a factor"))
+    c2 = []
+    for Re in RUNGS:
+        nc, nf = GRIDS[Re]
+        fc, fcc = F1(ctl("C", Re, nf, "vamp")), F1(ctl("C", Re, nc, "vamp"))
+        fb, fbc = F1(r2("B", Re, nf)), F1(r2("B", Re, nc))
+        band = abs(fc - fcc) + abs(fb - fbc)
+        c2.append(fc - fb > band)
+        pk = T.turbulent_peak(ctl("C", Re, nf, "vamp"))
+        say("  C2 field at matched energy, Re %4d: F1(C) %.4f, F1(B) %.4f, ratio %.2f, C - B %.4f (bands %.4f);"
+            " turbulent peak %s" % (Re, fc, fb, fc / fb, fc - fb, band, "t %.2f" % pk[0] if isinstance(pk, tuple)
+                                     else "none"))
+        trows.append("C2, field & %d & C at $E_V(0)=\\frac14$ & $F_1$ of B, of C & %.4f & %.4f & \\\\" % (Re, fb, fc))
+    say("  C2 verdict: %s" % ("holds at every rung" if all(c2) else "not at every rung"))
+    a0, b0 = r2("A", 2000, 640), r2("B", 2000, 640)
+    a1, b1 = ctl("A", 2000, 640, "u0p04"), ctl("B", 2000, 640, "u0p04")
+    d0, d1 = F1(b0) - F1(a0), F1(b1) - F1(a1)
+    p0 = CT.phi(bd("A", 2000, 640), bd("B", 2000, 640), DEFAULT)
+    p0c = CT.phi(bd("A", 2000, 512), bd("B", 2000, 512), DEFAULT)
+    p1 = CT.phi(a1, b1, DEFAULT)
+    say("  C3 Mach, Re 2000 N 640, u0 0.05 -> 0.04: B - A %.4f -> %.4f (shift %+.5f, band %.4f); phi %.3f -> %.3f"
+        " (shift %+.3f, band %.3f); peak Ma %.3f -> %.3f" % (
+            d0, d1, d1 - d0, band2(2000), p0, p1, p1 - p0, abs(p0 - p0c),
+            max(max(T.col(r, "umax_lat")) for r in (a0, b0)) * math.sqrt(3.0),
+            max(max(T.col(r, "umax_lat")) for r in (a1, b1)) * math.sqrt(3.0)))
+    trows.append("C3, Mach & 2000 & $u_0=0.04$ & B$-$A & %.4f & %.4f & $%+.5f$ \\\\" % (d0, d1, d1 - d0))
+    trows.append("C3, Mach & 2000 & $u_0=0.04$ & $\\phi$ & %.3f & %.3f & $%+.3f$ \\\\" % (p0, p1, p1 - p0))
+    for pm, (nc, nf) in (("pm0.5", (384, 512)), ("pm2", (512, 640))):
+        a, ac, b, bc = ctl("A", 1000, nf, pm), ctl("A", 1000, nc, pm), ctl("B", 1000, nf, pm), ctl("B", 1000, nc, pm)
+        (fa, pa), (fb, pb) = CT.F(a, DEFAULT), CT.F(b, DEFAULT)
+        band = abs(fa - F1(ac)) + abs(fb - F1(bc))
+        ph, phc = CT.phi(a, b, DEFAULT), CT.phi(ac, bc, DEFAULT)
+        say("  C4 %s, Re 1000 N %d/%d: B - A %.4f (band %.4f), viscous %+.4f, Ohmic %+.4f; phi %.3f (band %.3f)" % (
+            pm, nc, nf, fb - fa, band, pb[0] - pa[0], pb[1] - pa[1], ph, abs(ph - phc)))
+        trows.append("C4, Pm & 1000 & Pm $=%s$ & B$-$A & %.4f & %.4f & \\\\" % (
+            pm[2:], F1(r2("B", 1000, 512)) - F1(r2("A", 1000, 512)), fb - fa))
+        trows.append("C4, Pm & 1000 & Pm $=%s$ & $\\phi$ & %.3f & %.3f & \\\\" % (
+            pm[2:], CT.phi(bd("A", 1000, 512), bd("B", 1000, 512), DEFAULT), ph))
+    write("tab_controls.tex", "\\begin{tabular}{lcccccc}\n"
+          "control & $\\Rey$ & change & quantity & reference & control & shift \\\\\n\\hline\n"
+          + "\n".join(trows) + "\n\\end{tabular}\n")
+
     # ---- Sec. IV.F: the field snapshots (GPU/csf3/tg_mhd_snap.sub) -----------------
     # The plane means come from slices/index.json, which is tracked; the .f32 planes
     # themselves are not, and are needed only to redraw the figures.
@@ -622,7 +689,8 @@ def main():
                             ("9f65706", "estimator of f_m corrected", "estimator of $f_m$ corrected"),
                             ("cd07f45", "Mach control", "Mach control"),
                             ("d061ee8", "decision rule, FP64 control (Re 2000)", "decision rule, FP64 control ($\\Rey=2000$)"),
-                            ("8376e66", "the budget test (phi)", "the budget test, $\\phi$")):
+                            ("8376e66", "the budget test (phi)", "the budget test, $\\phi$"),
+                            ("f7f55ba", "the four controls (Phase 2)", "the four controls")):
         got = subprocess.run(["git", "-C", ROOT, "log", "-1", "--format=%cI", sha],
                              capture_output=True, text=True)
         committed = utc(got.stdout.strip())

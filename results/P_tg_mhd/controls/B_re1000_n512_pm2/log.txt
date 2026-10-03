@@ -1,0 +1,26 @@
+  [reg] 8 of 6128 corner(s) have no straight-wall stencil and fall back to rho = 1
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP32
+  walls: velocity NO-SLIP (RegWall), field CONDUCTING parity
+  ic tgc   N = 512 (512^3 nodes)   Re = 1000   Pm = 2   u0 = 0.05 (Ma 0.087)
+  nu_lat = 8.1328e-03  tau_f = 0.52440   eta_lat = 4.0664e-03  tau_m = 0.51627
+  dt = 3.0740e-04  ->  32531 steps to t = 10   ->  ~/scratch/M3LB/runs/tg_mhd_controls/B_re1000_n512_pm2
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 1.24023e-01 1.25000e-01    1.0079    0.0210 1.441e-01     3.464  1.67e-06  +0.0e+00     0.9850
+    0.999 1.07189e-01 1.22674e-01    1.1445    0.7564 1.528e-02    16.079  7.02e-04  -7.9e-06     0.5108
+    1.998 1.05910e-01 1.03172e-01    0.9741    2.1022 2.923e-02    50.458  3.99e-03  -1.2e-05     0.1707
+    2.997 1.01543e-01 7.31871e-02    0.7207    1.9957 3.482e-02    53.135  5.23e-03  -1.6e-05     0.0738
+    3.996 8.80643e-02 5.15032e-02    0.5848    1.8225 3.363e-02    57.561  7.61e-03  -1.9e-05     0.0748
+    4.995 6.71120e-02 3.88135e-02    0.5783    1.8403 3.124e-02    60.937  8.04e-03  -2.1e-05     0.1415
+    5.994 4.91557e-02 3.03783e-02    0.6180    1.6983 2.153e-02    49.432  5.01e-03  -2.5e-05     0.1485
+    6.993 3.78052e-02 2.31336e-02    0.6119    1.8338 1.572e-02    25.811  4.13e-03  -2.5e-05     0.1316
+    7.992 2.98615e-02 1.75296e-02    0.5870    1.9570 1.117e-02    22.002  3.62e-03  -2.7e-05     0.1013
+    8.991 2.40914e-02 1.37107e-02    0.5691    2.0076 8.134e-03    16.793  3.10e-03  -2.9e-05     0.0944
+    9.990 1.98828e-02 1.07280e-02    0.5396    1.9337 6.161e-03    14.068  2.81e-03  -2.8e-05     0.0976
+   10.000 1.98517e-02 1.07013e-02    0.5391    1.9313 6.143e-03    14.016  2.81e-03  -2.8e-05     0.0977
+
+  4768.0 s   926.50 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 102 probes, 2860.9 s = 60 % of the run on 4 thread(s); 2316.37 MLUPS without them
+  peak dissipation eps = 3.4972e-02 at t = 3.197 (past any impulsive start); skewness there 0.330, max 0.532
+  min E_M/E_V = 0.539   first max of Omega_M/Omega_V after its initial fall = 2.567058
+  Pouquet et al. (2010) C2, nu = eta = 1e-3: min E_M/E_V = 0.35, first max Omega_M/Omega_V = 2

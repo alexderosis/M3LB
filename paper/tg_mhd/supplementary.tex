@@ -282,6 +282,53 @@ and the magnetic budget's closure within $\delta$ in A and B on the finer grid.}
 \end{table*}
 
 %===============================================================================
+\section{The controls}
+\label{s:controls}
+%===============================================================================
+
+The four controls of Sec.~\ref{M-sec:controls} were fixed, with their rules, in the
+job script that ran them, committed and pushed before the runs
+(Table~\ref{stab:protocol}); Table~\ref{stab:controls} gives every number. All 22
+runs reached $t=10$.
+
+\emph{The start.} B with its walls moving with the flow at $t=0$ and brought to rest
+along half a cosine over $T=0.2$ or $1.0$, at $\Rey=500$ ($N=384$) and $2000$
+($N=640$), against round 2's A on the same grid. The rule allowed B$-$A to change by
+less than $10$\% of its value, about five times its band at these rungs, and required
+it to stay above its band. A smooth start needs a wall velocity that differs at
+every wall node, which the regularized wall's table of wall states could not hold;
+both implementations now store one per node, and every earlier reference is
+reproduced byte for byte. At $t=0$ a smooth start is A exactly.
+
+\emph{The field at matched energy.} C with an initial velocity amplitude of
+$\sqrt2\,v_0$, so $E_V(0)=\frac14$, on both grids of every rung. The rule required
+$F_1$ of C to exceed $F_1$ of B by more than both bands at every rung. This C has a
+turbulent peak at $\Rey=500$, $1000$ and $2000$ ($t=2.10$, $2.39$ and $7.10$) and none
+at $250$.
+
+\emph{The Mach number.} A and B at $\Rey=2000$, $N=640$, $u_0=0.04$, where
+$\tau-\frac12=0.0122$ sits on the regularized wall's stability floor, as the
+$\Rey=1000$ Mach run did; halving $u_0$ would need $N\approx1024$, which one GPU
+cannot hold. The largest lattice Mach number falls from $0.133$ to $0.107$.
+
+\emph{The magnetic Prandtl number.} A and B at $\Rey=1000$ with $\mathrm{Pm}=0.5$ on
+$N=384$ and $512$, and with $\mathrm{Pm}=2$ on $N=512$ and $640$ in single precision,
+like the $\Rey=2000$ rung, whose magnetic relaxation parameters these reproduce. The
+bands of B$-$A are $0.0003$ and $0.0008$, and of $\phi$ $0.017$ and $0.031$.
+% TODO: quote the device check of -ramp and -vamp from this job's verification log
+% (tg_mhd_verify.sub, runs noslip_ramp0.2 and hydro_va1.41421), once it is copied.
+
+\begin{table*}
+\caption{\label{stab:controls}The four controls of Sec.~\ref{M-sec:controls}, over
+$t=2$--$10$ within $\delta$ of the walls, on the finer grid: each quantity in the
+reference run (round 2, impulsive start, $u_0=0.05$, $\mathrm{Pm}=1$) and in the
+control. For C2 the two values are $F_1$ of B and $F_1$ of C at B's initial energy.}
+\begin{ruledtabular}
+\input{tab_controls}
+\end{ruledtabular}
+\end{table*}
+
+%===============================================================================
 \section{The fields at a later time}
 \label{s:fields46}
 %===============================================================================

@@ -148,6 +148,21 @@ IV.H THE BUDGET (results/P_tg_mhd/budget; within delta, t = 2-10)
   RECORDED: previews at Re = 200 (laptop, 2026-10-02, not rungs), magnetic closure within delta over t = 2-10: A 14.7 % (N 65) -> 3.1 % (N 129), B 11.1 % -> 1.7 %; the N 65 preview's phi 2.47
   box over the window, every run: magnetic closure <= 1.6 %, kinetic <= 1.2 %, |<S> + <lor>| <= 0.9 % of int eps
 
+III'. THE CONTROLS (results/P_tg_mhd/controls; within delta, t = 2-10)
+  C1 start, Re  500 ramp0.2: B - A 0.0579 against 0.0551 impulsive, change +5.0 %
+  C1 start, Re  500 ramp1.0: B - A 0.0663 against 0.0551 impulsive, change +20.3 %
+  C1 start, Re 2000 ramp0.2: B - A 0.0480 against 0.0481 impulsive, change -0.2 %
+  C1 start, Re 2000 ramp1.0: B - A 0.0491 against 0.0481 impulsive, change +2.2 %
+  C1 verdict: the start is a factor
+  C2 field at matched energy, Re  250: F1(C) 0.2889, F1(B) 0.1278, ratio 2.26, C - B 0.1611 (bands 0.0009); turbulent peak none
+  C2 field at matched energy, Re  500: F1(C) 0.2770, F1(B) 0.1108, ratio 2.50, C - B 0.1662 (bands 0.0006); turbulent peak t 2.10
+  C2 field at matched energy, Re 1000: F1(C) 0.2613, F1(B) 0.0994, ratio 2.63, C - B 0.1619 (bands 0.0004); turbulent peak t 2.39
+  C2 field at matched energy, Re 2000: F1(C) 0.2083, F1(B) 0.0861, ratio 2.42, C - B 0.1222 (bands 0.0007); turbulent peak t 7.10
+  C2 verdict: holds at every rung
+  C3 Mach, Re 2000 N 640, u0 0.05 -> 0.04: B - A 0.0481 -> 0.0480 (shift -0.00007, band 0.0009); phi 1.839 -> 1.835 (shift -0.003, band 0.052); peak Ma 0.133 -> 0.107
+  C4 pm0.5, Re 1000 N 384/512: B - A 0.0597 (band 0.0003), viscous +0.0695, Ohmic -0.0098; phi 2.010 (band 0.017)
+  C4 pm2, Re 1000 N 512/640: B - A 0.0519 (band 0.0008), viscous +0.0668, Ohmic -0.0148; phi 1.221 (band 0.031)
+
 IV.F THE FIELDS (results/P_tg_mhd/snap, Re 1000, N 512)
   A: the snapshot run against the production run, 48 probe rows to t = 4.7: worst 0.0e+00
   B: the snapshot run against the production run, 48 probe rows to t = 4.7: worst 0.0e+00
@@ -196,3 +211,4 @@ S2. THE PROTOCOL'S RECORD (git log; GitHub's push log, every provenance/github_a
   cd07f45 Mach control                           committed 2026-09-29 06:22:12 UTC, pushed 2026-09-29 06:22:15 UTC (+3 s)
   d061ee8 decision rule, FP64 control (Re 2000)  committed 2026-09-30 20:03:29 UTC, pushed 2026-09-30 20:03:34 UTC (+5 s)
   8376e66 the budget test (phi)                  committed 2026-10-02 12:00:24 UTC, pushed 2026-10-02 12:00:26 UTC (+2 s)
+  f7f55ba the four controls (Phase 2)            committed 2026-10-03 04:19:57 UTC, pushed 2026-10-03 04:19:59 UTC (+2 s)

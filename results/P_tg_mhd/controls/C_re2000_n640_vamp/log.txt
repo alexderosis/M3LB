@@ -1,0 +1,24 @@
+  [reg] 8 of 7664 corner(s) have no straight-wall stencil and fall back to rho = 1
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP32
+  walls: velocity NO-SLIP (RegWall), field none (B = 0)
+  ic hydro   N = 640 (640^3 nodes)   Re = 2000   Pm = 1   u0 = 0.05 (Ma 0.087)
+  nu_lat = 5.0850e-03  tau_f = 0.51526   eta_lat = 5.0850e-03  tau_m = 0.52034
+  dt = 2.4582e-04  ->  40680 steps to t = 10   ->  ~/scratch/M3LB/runs/tg_mhd_controls/C_re2000_n640_vamp
+  initial velocity amplitude 1.41421 v0 (E_V(0) = 0.25)
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 2.48438e-01 0.00000e+00    0.0000    0.0000 1.782e-01     0.000  0.00e+00  +0.0e+00     0.9959
+    1.000 2.25482e-01 0.00000e+00    0.0000    0.0000 1.429e-02     0.000  0.00e+00  +7.4e-06     0.6684
+    2.001 2.10508e-01 0.00000e+00    0.0000    0.0000 1.652e-02     0.000  0.00e+00  +6.6e-06     0.5890
+    3.001 1.92267e-01 0.00000e+00    0.0000    0.0000 1.896e-02     0.000  0.00e+00  -2.1e-06     0.4498
+    4.002 1.73056e-01 0.00000e+00    0.0000    0.0000 1.944e-02     0.000  0.00e+00  +3.5e-06     0.2968
+    5.002 1.52085e-01 0.00000e+00    0.0000    0.0000 2.178e-02     0.000  0.00e+00  +3.2e-06     0.2096
+    6.003 1.29917e-01 0.00000e+00    0.0000    0.0000 2.234e-02     0.000  0.00e+00  -4.3e-06     0.1441
+    7.003 1.05818e-01 0.00000e+00    0.0000    0.0000 2.525e-02     0.000  0.00e+00  -3.0e-07     0.0696
+    8.004 8.21064e-02 0.00000e+00    0.0000    0.0000 1.977e-02     0.000  0.00e+00  -3.4e-07     0.0734
+    9.004 6.49427e-02 0.00000e+00    0.0000    0.0000 1.448e-02     0.000  0.00e+00  -6.7e-06     0.1168
+   10.000 5.24402e-02 0.00000e+00    0.0000    0.0000 1.071e-02     0.000  0.00e+00  -3.2e-06     0.1127
+
+  4300.5 s   2503.01 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 101 probes, 1728.7 s = 40 % of the run on 4 thread(s); 4185.39 MLUPS without them
+  peak dissipation eps = 2.5550e-02 at t = 7.103 (past any impulsive start); skewness there 1.031, max 1.031

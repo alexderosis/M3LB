@@ -1587,6 +1587,19 @@ does) fails on it. Run such scripts from elsewhere.
   compiles. **Flags in a zsh variable do not split, and the runs silently fall
   back to the defaults** -- it happened again here; the job script reads its
   per-element options into a bash array.
+  **THE VERDICTS (CSF3, 2026-10-03; `results/P_tg_mhd/controls/`, all 22 runs to
+  t = 10, none diverged -- B at the tau floor included).** C1 the start: by its
+  rule "the start is a factor" -- B - A changes by -0.2 / +2.2 % at Re = 2000
+  (ramp 0.2 / 1.0) but +5.0 / +20.3 % at Re = 500, and in the direction that
+  ENLARGES the excess. C2: holds at every rung -- C at E_V(0) = 1/4 puts 2.3-2.6x
+  B's share within delta (0.21-0.29 vs 0.086-0.13) and now has turbulent peaks
+  at Re = 500, 1000, 2000. C3: passes -- B - A moves 7e-5 (band 9e-4), phi 0.003
+  (band 0.052), peak Ma 0.133 -> 0.107. C4: holds at Pm = 0.5 and 2 -- B - A
+  0.060 / 0.052 (0.054 at Pm = 1), viscous, Ohmic negative; phi 2.01 / 1.22
+  (1.47 at Pm = 1). In the paper: Sec. IV I, Table S5, Sec. S9; the abstract
+  says the gentler start enlarges the excess by up to 20 % at Re = 500 rather
+  than "all controls passed". This job's verify log (the device check of
+  -ramp/-vamp) is still to be copied; S9 has a TODO for it.
 - Left for the author: in `main.tex` the department, funding, the AI-use
   disclosure AIP asks for, and the DOI; in `ARCHIVING.md` a LICENSE (the
   repository has none, so the code is readable but not reusable, and Zenodo will
