@@ -97,10 +97,21 @@
 //  rho = 1 and the box loses a few 1e-4 of its mass under a field in the first
 //  hundreds of steps; series.dat carries the drift so it is never hidden.
 //
+//  TWO OPTIONS FOR THE PAPER'S CONTROLS (Phase 2, 2026-10-03), off by default:
+//     -vamp A   the initial velocity times A, in units of v0 -- A = sqrt 2 gives
+//               the box without a field (C) B's initial energy, E_V(0) = 1/4;
+//     -ramp T   a SMOOTH START for a no-slip box: its walls move with the flow at
+//               t = 0 and come to rest over T along half a cosine (ramp_scale),
+//               instead of all at once. Built on FluidSolver's per-node wall
+//               velocity, since the walls of a Taylor-Green box carry ~N^2
+//               distinct velocities.
+//  Either marks the tag (_va..., _ramp...), and neither changes a run without it.
+//
 //    usage: tg_mhd [-n N] [-geom box|periodic] [-vwall noslip|slip]
 //                  [-mwall cond|pv] [-ic tgc|tgi|tga|hydro] [-re R] [-pm P]
 //                  [-u0 U] [-tmax T] [-probe dt] [-vti dt] [-dump dt]
 //                  [-dumpvol] [-volstride S] [-raw dt] [-out DIR] [-force]
+//                  [-vamp A] [-ramp T]
 //==============================================================================
 #include "Campaign.hpp"
 #include "boundary/Specular.hpp"
@@ -110,6 +121,7 @@
 #include "solver/MagneticSolver.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -150,11 +162,21 @@ struct Opts {
   ICKind ic = ICKind::TGC;
   double re = 500.0, pm = 1.0, u0 = 0.05, tmax = 10.0;
   double probe = 0.05, vti = 0.0, dump = 0.0, raw = 0.0;
+  double vamp = 1.0;            // the initial velocity's amplitude, in v0 (-vamp)
+  double ramp = 0.0;            // no-slip walls brought to rest over this time (-ramp)
   bool dumpvol = false;
   int volstride = 1;
   int threads = 0;              // host diagnostics; 0 = SLURM allocation or machine
   std::string out;
 };
+
+// THE SMOOTH START'S RAMP: the walls' velocity, as a fraction of the flow's at
+// t = 0, half a cosine from 1 to 0 over the ramp time and zero after it --
+// smooth at both ends, so neither the start nor the stop is impulsive.
+// GPU/src/tg_mhd.cu uses the same function.
+double ramp_scale(double t, double ramp) {
+  return t >= ramp ? 0.0 : 0.5 * (1.0 + std::cos(PI * t / ramp));
+}
 
 // The initial state at interior node (x, y, z). Device-callable: it seeds the
 // populations and the field on whatever backend the solvers run.
@@ -470,6 +492,8 @@ int main(int argc, char** argv) {
       else if (a == "-out")      o.out = next();
       else if (a == "-force")    o.force = true;
       else if (a == "-threads")  o.threads = std::atoi(next());
+      else if (a == "-vamp")     o.vamp = std::atof(next());
+      else if (a == "-ramp")     o.ramp = std::atof(next());
     }
 
     const bool hydro = (o.ic == ICKind::Hydro);
@@ -487,6 +511,12 @@ int main(int argc, char** argv) {
       return 2;
     }
 
+    // A smooth start moves no-slip walls; anything else has none to move.
+    if (o.ramp > 0 && (o.periodic || !o.noslip)) {
+      std::fprintf(stderr, "tg_mhd: -ramp brings NO-SLIP walls to rest; this box has none.\n");
+      Kokkos::finalize();
+      return 2;
+    }
     const Index N = o.N;
     const Index L = o.periodic ? 2 * (N - 1) : N;
     const double h = PI / double(N - 1);
@@ -504,6 +534,10 @@ int main(int argc, char** argv) {
     else
       std::snprintf(tag, sizeof tag, "%s_%s_%s_n%lld_re%g", icn, o.noslip ? "noslip" : "slip",
                     hydro ? "nofield" : (o.conducting ? "cond" : "pv"), (long long)N, o.re);
+    // The two Phase 2 options mark the tag, so a run with them never takes the
+    // name -- or, in the tools, the place -- of one without.
+    if (o.vamp != 1.0) std::snprintf(tag + std::strlen(tag), sizeof tag - std::strlen(tag), "_va%g", o.vamp);
+    if (o.ramp > 0)    std::snprintf(tag + std::strlen(tag), sizeof tag - std::strlen(tag), "_ramp%g", o.ramp);
     if (o.out.empty()) o.out = std::string("results/P_tg_mhd/") + tag;
     std::error_code ec;
     std::filesystem::create_directories(o.out, ec);
@@ -524,6 +558,11 @@ int main(int argc, char** argv) {
     std::printf("  nu_lat = %.4e  tau_f = %.5f   eta_lat = %.4e  tau_m = %.5f\n",
                 nu_lat, tauf, eta_lat, taum);
     std::printf("  dt = %.4e  ->  %zu steps to t = %g   ->  %s\n", dt, T, o.tmax, o.out.c_str());
+    if (o.vamp != 1.0)
+      std::printf("  initial velocity amplitude %g v0 (E_V(0) = %g)\n", o.vamp, 0.125 * o.vamp * o.vamp);
+    if (o.ramp > 0)
+      std::printf("  SMOOTH START: the walls move with the flow at t = 0 and come to rest over"
+                  " t = %g (cosine ramp)\n", o.ramp);
     if (tauf - 0.5 < 0.002)
       std::printf("  NOTE: tau_f - 1/2 = %.2e is below the 2e-3 every established MHD run in "
                   "this tree sat at.\n", tauf - 0.5);
@@ -562,7 +601,15 @@ int main(int argc, char** argv) {
                              o.conducting ? MagParity::Conducting : MagParity::PseudoVacuum);
     }
 
-    const Init init{o.ic, h, o.u0, o.u0 * b0_tg, o.noslip && !o.periodic, N};
+    // A smooth start seeds the wall nodes moving, like the interior; the walls
+    // then carry that velocity, scaled down by ramp_scale.
+    const Init init{o.ic, h, o.vamp * o.u0, o.u0 * b0_tg, o.noslip && !o.periodic && !(o.ramp > 0), N};
+    if (o.ramp > 0)
+      fl.set_wall_velocity_field([&](Index x, Index y, Index z) {
+        double u[3], b[3];
+        init.at(x, y, z, u, b);
+        return std::array<Real, 3>{Real(u[0]), Real(u[1]), Real(u[2])};
+      });
     fl.initialize_field(KOKKOS_LAMBDA(Index n) {
       Index px, py, pz; d.coords(n, px, py, pz);
       double u[3], b[3];
@@ -991,6 +1038,7 @@ int main(int argc, char** argv) {
     int ommv_phase = 0, nprobe = 0;
     double t_diag = 0.0;             // wall time in the host copies, probes and writers
     for (std::size_t k = 0; k <= T; ++k) {
+      if (o.ramp > 0) fl.set_wall_velocity_field_scale(Real(ramp_scale(double(k) * dt, o.ramp)));
       const bool probe = kp && (k % kp == 0 || k == T);
       const bool outp = (kv && k % kv == 0) || (kd && k % kd == 0) || (kr && k % kr == 0);
       if (probe || outp) {

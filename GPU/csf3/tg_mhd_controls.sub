@@ -1,0 +1,181 @@
+#!/bin/bash --login
+#==============================================================================
+#  Phase 2 of the confined-MHD paper (paper/tg_mhd/): the four controls a referee
+#  will ask for, each with its rule FIXED HERE BEFORE THE RUNS (2026-10-03).
+#  tools/tg_mhd_controls.py applies all four. Every observable is the paper's:
+#  over t = 2..10 and within delta = Re^-1/2 of the walls, the time-integrated
+#  share F1 of the dissipation (tg_mhd_ladder.integrated) and its viscous and
+#  Ohmic parts, and phi, the budget test of Sec. IV H (tg_mhd_budget). "Round 2"
+#  means the runs in results/P_tg_mhd/round2/ and, for phi, budget/ -- the same
+#  runs. A BAND is the difference between the two grids of a rung, as in the
+#  paper; where a control has one grid, it is judged against round 2's band.
+#
+#  C1  THE START. A no-slip box starts impulsively: the Taylor-Green velocity
+#      does not vanish on the walls, so at t = 0 a vortex sheet sits on every
+#      one of them. Is the no-slip excess B - A an imprint of that?
+#      Runs: B with a SMOOTH START, -ramp 0.2 and -ramp 1.0 -- the walls move
+#      with the flow at t = 0 and come to rest along half a cosine over that
+#      time -- at Re = 500 (N = 384) and 2000 (N = 640), each against round 2's
+#      A on the same grid. Rule: the excess is NOT an imprint of the start if,
+#      for both ramps at both rungs, B - A changes from its round-2 value by
+#      less than 10 % of that value and stays above round 2's band; otherwise
+#      the start is a factor of the excess, and the paper says by how much. The
+#      10 % is about five times round 2's band of B - A at these rungs
+#      (0.0008-0.0009 against 0.048-0.055).
+#
+#  C2  THE FIELD AT MATCHED ENERGY. The box without a field puts a larger share
+#      of its dissipation near the walls than B (Sec. IV A: 0.33 against 0.099
+#      at Re = 1000), but it starts with half B's energy, E_V(0) = 1/8 against
+#      E_V + E_M = 1/4. Runs: C at B's initial energy, -vamp sqrt 2, on both
+#      grids of every rung. Rule: "the field moves dissipation away from the
+#      walls" holds at matched energy if F1(C) - F1(B) exceeds their two bands,
+#      added, at every rung; where it does not, the statement is limited to the
+#      rungs where it holds. Reported beside it: at which rungs this C has a
+#      turbulent peak (tg_mhd_ladder.turbulent_peak) -- the paper's C has one
+#      at Re = 1000 only.
+#
+#  C3  THE MACH NUMBER AT THE TOP RUNG. The Mach control of the ladder halved u0
+#      at Re = 500 and 1000; at Re = 2000, where the lattice Mach number is
+#      largest (0.133), halving it needs N ~ 1024 to keep tau - 1/2 above
+#      RegWall's floor (0.0122), which one GPU cannot hold. Runs: A and B at
+#      Re = 2000, N = 640, u0 = 0.04 -- tau - 1/2 = 0.0122, at the floor, as the
+#      Re = 1000 Mach run was -- so Ma falls by 20 % and Ma^2 by 36 %. Rule: the
+#      top rung is Mach-adequate if B - A moves by less than round 2's band at
+#      Re = 2000 (0.0009), and phi by less than its band there (0.052).
+#
+#  C4  THE MAGNETIC PRANDTL NUMBER. Every run so far has Pm = 1. Runs: A and B
+#      at Re = 1000 with Pm = 0.5 (N = 384 and 512, FP64) and Pm = 2 (N = 512
+#      and 640, FP32: Rm = 2000 needs the Re = 2000 grids, whose magnetic
+#      tau - 1/2 these reproduce exactly). Rule, per Pm: the paper's robust
+#      statements hold if B - A exceeds its band, its viscous part is positive
+#      and its Ohmic part negative; the mechanism holds if phi - band > 1/2.
+#      A failure at either Pm limits the statement to Pm = 1, and says so.
+#
+#  A RUN THAT DIVERGES, or does not reach t = 10, gives its control no verdict,
+#  and the paper says which and why; C3's B sits at RegWall's tau floor, where
+#  the Re = 1000 Mach run survived. Memory: a smooth start at N = 640 adds one
+#  velocity per node (3.2 GB in FP32) to ~61 GB.
+#
+#  NOT TESTED HERE, and the paper says so: the insulating walls (B' is not
+#  turbulent by t = 10; supplementary material, Sec. S6), and a forced,
+#  statistically stationary box, which is Phase 3.
+#
+#  ALREADY ESTABLISHED WITHOUT A GPU (2026-10-03). Both drivers take -vamp and
+#  -ramp; the smooth start rests on a per-node wall velocity added to both
+#  codes' regularised wall (FluidSolver::set_wall_velocity_field, Solver's
+#  twin), opt-in, so every existing reference -- series, profiles and budget,
+#  free and no slip -- is reproduced byte for byte. With them the two host
+#  builds agree to every printed digit but round-off on quantities that vanish
+#  (N = 65, Re = 200, t = 0..2; references in results/P_tg_mhd/xcheck_n65_re200/,
+#  which tg_mhd_verify.sub now also checks the DEVICE against, since the
+#  device half of the wall velocity is code no host build compiles). A smooth
+#  start reproduces A at t = 0 exactly (E_V, eps and f_w), and the wall nodes'
+#  kinetic energy follows the ramp.
+#
+#  THE RUNS -- 22 elements, three groups by wallclock:
+#
+#   el  setup  Re    N    FP  options          control
+#    0  B      2000  640  32  -ramp 0.2        C1
+#    1  B      2000  640  32  -ramp 1.0        C1
+#    2  A      2000  640  32  -u0 0.04         C3
+#    3  B      2000  640  32  -u0 0.04         C3
+#    4  A      1000  640  32  -pm 2            C4
+#    5  B      1000  640  32  -pm 2            C4
+#    6  A      1000  512  32  -pm 2            C4
+#    7  B      1000  512  32  -pm 2            C4
+#    8  A      1000  512  64  -pm 0.5          C4
+#    9  B      1000  512  64  -pm 0.5          C4
+#   10  C      2000  640  32  -vamp sqrt2      C2
+#   11  C      1000  512  64  -vamp sqrt2      C2
+#   12  C      2000  512  32  -vamp sqrt2      C2
+#   13  A      1000  384  64  -pm 0.5          C4
+#   14  B      1000  384  64  -pm 0.5          C4
+#   15  B       500  384  64  -ramp 0.2        C1
+#   16  B       500  384  64  -ramp 1.0        C1
+#   17  C      1000  384  64  -vamp sqrt2      C2
+#   18  C       500  384  64  -vamp sqrt2      C2
+#   19  C       500  256  64  -vamp sqrt2      C2
+#   20  C       250  256  64  -vamp sqrt2      C2
+#   21  C       250  192  64  -vamp sqrt2      C2
+#
+#  COST, from round 2's and the ladder's logs for the same grids, times 1.4 for
+#  the budget's probes (the Phase 1 job measured 15.1 against 10.8 GPU-hours)
+#  and 1.25 for C3's smaller u0: about 30 GPU-hours, the longest element ~3.8 h.
+#
+#  SUBMIT from the repo root, after git pull, chained on the verify job, which
+#  rebuilds build64 and build32 from the new source and checks the device on
+#  both new options before anything here starts:
+#
+#      jid=$(sbatch --parsable GPU/csf3/tg_mhd_verify.sub)
+#      sbatch --dependency=afterok:$jid --array=0-5   --time=5:00:00 GPU/csf3/tg_mhd_controls.sub
+#      sbatch --dependency=afterok:$jid --array=6-12  --time=3:00:00 GPU/csf3/tg_mhd_controls.sub
+#      sbatch --dependency=afterok:$jid --array=13-21 --time=1:30:00 GPU/csf3/tg_mhd_controls.sub
+#
+#  OUTPUT: runs/tg_mhd_controls/<setup>_re<Re>_n<N>_<option>/ with series.dat,
+#  profile*.dat, budget.dat and log.txt. Then (pure stdlib, on the login node):
+#      python3 tools/tg_mhd_controls.py runs/tg_mhd_controls
+#  and copy back, from the laptop's repo root:
+#      rsync -av --include='*/' --include='series.dat' --include='profile*.dat' \
+#            --include='budget.dat' --include='log.txt' --exclude='*' \
+#            csf3:scratch/M3LB/runs/tg_mhd_controls/ results/P_tg_mhd/controls/
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-5:00               # elements 0-5; see the header for 6-12 and 13-21
+#SBATCH -J tg_mhd_controls
+#SBATCH -o tg_mhd_controls-%A_%a.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+i=${SLURM_ARRAY_TASK_ID:?"submit as an array job; see the header"}
+
+S2=1.4142135623730951
+#        0         1         2         3         4      5      6      7      8        9        10         11         12         13       14       15        16        17         18         19         20         21
+NAMES=(  B         B         A         B         A      B      A      B      A        B        C          C          C          A        B        B         B         C          C          C          C          C         )
+RES=(    2000      2000      2000      2000      1000   1000   1000   1000   1000     1000     2000       1000       2000       1000     1000     500       500       1000       500        500        250        250       )
+NS=(     640       640       640       640       640    640    512    512    512      512      640        512        512        384      384      384       384       384        384        256        256        192       )
+PRECS=(  32        32        32        32        32     32     32     32     64       64       32         64         32         64       64       64        64        64         64         64         64         64        )
+OPTS=(   "-ramp 0.2" "-ramp 1.0" "-u0 0.04" "-u0 0.04" "-pm 2" "-pm 2" "-pm 2" "-pm 2" "-pm 0.5" "-pm 0.5" "-vamp $S2" "-vamp $S2" "-vamp $S2" "-pm 0.5" "-pm 0.5" "-ramp 0.2" "-ramp 1.0" "-vamp $S2" "-vamp $S2" "-vamp $S2" "-vamp $S2" "-vamp $S2" )
+LABELS=( ramp0.2   ramp1.0   u0p04     u0p04     pm2    pm2    pm2    pm2    pm0.5    pm0.5    vamp       vamp       vamp       pm0.5    pm0.5    ramp0.2   ramp1.0   vamp       vamp       vamp       vamp       vamp      )
+if [ "$i" -lt 0 ] || [ "$i" -ge "${#NAMES[@]}" ]; then
+  echo "ERROR: element $i -- this job has elements 0-$(( ${#NAMES[@]} - 1 )) (see the header)" >&2
+  exit 1
+fi
+NAME=${NAMES[$i]}; RE=${RES[$i]}; N=${NS[$i]}; PREC=${PRECS[$i]}; LABEL=${LABELS[$i]}
+read -r -a OPT <<< "${OPTS[$i]}"      # an array, so the flags split into words in any shell
+
+BIN="$ROOT/GPU/build$PREC/tg_mhd"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN -- run tg_mhd_verify.sub first, which builds it" >&2
+  exit 1
+fi
+STALE=$(find "$ROOT/GPU/src/tg_mhd.cu" "$ROOT/GPU/include" -newer "$BIN" -type f | head -3)
+if [ -n "$STALE" ]; then
+  echo "ERROR: $BIN is older than:" >&2
+  echo "$STALE" | sed 's/^/    /' >&2
+  echo "  Rebuild by running tg_mhd_verify.sub, or: cd $ROOT/GPU && cmake --build build$PREC --target tg_mhd -j8" >&2
+  exit 1
+fi
+
+case $NAME in
+  A) FLAGS=(-vwall slip   -mwall cond -ic tgc) ;;
+  B) FLAGS=(-vwall noslip -mwall cond -ic tgc) ;;
+  C) FLAGS=(-vwall noslip -ic hydro) ;;
+esac
+
+PROBE=0.05
+[ "$N" -ge 384 ] && PROBE=0.1
+
+OUT="$ROOT/runs/tg_mhd_controls/${NAME}_re${RE}_n${N}_${LABEL}"
+mkdir -p "$OUT"
+echo "element $i: setup $NAME, Re $RE, N $N, FP$PREC, ${OPTS[$i]} -> $OUT"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+"$BIN" -n "$N" "${FLAGS[@]}" "${OPT[@]}" -re "$RE" -tmax 10 -probe "$PROBE" -out "$OUT" 2>&1 \
+  | tee "$OUT/log.txt"

@@ -37,10 +37,15 @@
 //  can cost more than the steps between probes. Use a coarse -probe on large
 //  grids; the time series needs tens of rows, not thousands.
 //
+//  -vamp A and -ramp T, the paper's Phase 2 controls, are the parent's: the
+//  initial velocity times A, and a no-slip box's walls brought to rest over T
+//  instead of at t = 0 (Solver::set_wall_velocity_field). Off by default.
+//
 //    usage: tg_mhd [-n N] [-geom box|periodic] [-vwall noslip|slip]
 //                  [-mwall cond|pv] [-ic tgc|tgi|tga|hydro] [-re R] [-pm P]
 //                  [-u0 U] [-tmax T] [-probe dt] [-vti dt] [-dump dt]
 //                  [-dumpvol] [-volstride S] [-raw dt] [-out DIR] [-force]
+//                  [-vamp A] [-ramp T]
 //==============================================================================
 #include "lbm/backend.cuh"
 #include "lbm/vti.cuh"
@@ -51,6 +56,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <thread>
@@ -73,6 +79,8 @@ struct Opts {
   int ic = TGC;
   double re = 500.0, pm = 1.0, u0 = 0.05, tmax = 10.0;
   double probe = 0.05, vti = 0.0, dump = 0.0, raw = 0.0;
+  double vamp = 1.0;            // the initial velocity's amplitude, in v0 (-vamp)
+  double ramp = 0.0;            // no-slip walls brought to rest over this time (-ramp)
   bool dumpvol = false;
   int volstride = 1;
   int threads = 0;              // host diagnostics; 0 = SLURM allocation or machine
@@ -146,6 +154,12 @@ struct TGPopulations {
     for (int i = 0; i < 27; ++i) f[i] += maxwell(i, br);
   }
 };
+
+// The smooth start's ramp, the parent's ramp_scale: the walls' velocity as a
+// fraction of the flow's at t = 0, half a cosine from 1 to 0, zero after.
+double ramp_scale(double t, double ramp) {
+  return t >= ramp ? 0.0 : 0.5 * (1.0 + std::cos(PI * t / ramp));
+}
 
 std::uint8_t box_faces(int x, int y, int z, int N) {
   std::uint8_t m = SpecNone;
@@ -410,6 +424,8 @@ int main(int argc, char** argv) {
     else if (a == "-out")       o.out = next();
     else if (a == "-force")     o.force = true;
     else if (a == "-threads")   o.threads = std::atoi(next());
+    else if (a == "-vamp")      o.vamp = std::atof(next());
+    else if (a == "-ramp")      o.ramp = std::atof(next());
   }
 
   const bool hydro = (o.ic == Hydro);
@@ -422,6 +438,10 @@ int main(int argc, char** argv) {
     return 2;
   }
 
+  if (o.ramp > 0 && (o.periodic || !o.noslip)) {
+    std::fprintf(stderr, "tg_mhd: -ramp brings NO-SLIP walls to rest; this box has none.\n");
+    return 2;
+  }
   const int N = o.N;
   const int L = o.periodic ? 2 * (N - 1) : N;
   const long NP = long(L) * L * L;
@@ -448,6 +468,8 @@ int main(int argc, char** argv) {
   else
     std::snprintf(tag, sizeof tag, "%s_%s_%s_n%d_re%g", icn, o.noslip ? "noslip" : "slip",
                   hydro ? "nofield" : (o.conducting ? "cond" : "pv"), N, o.re);
+  if (o.vamp != 1.0) std::snprintf(tag + std::strlen(tag), sizeof tag - std::strlen(tag), "_va%g", o.vamp);
+  if (o.ramp > 0)    std::snprintf(tag + std::strlen(tag), sizeof tag - std::strlen(tag), "_ramp%g", o.ramp);
   if (o.out.empty()) o.out = std::string("tg_mhd_") + tag + (backend::on_device ? "_cuda" : "_host");
   if (!mkdir_p(o.out)) { std::fprintf(stderr, "tg_mhd: cannot create %s\n", o.out.c_str()); return 2; }
 
@@ -464,6 +486,11 @@ int main(int argc, char** argv) {
   std::printf("  nu_lat = %.4e  tau_f = %.5f   eta_lat = %.4e  tau_m = %.5f\n",
               nu_lat, tauf, eta_lat, taum);
   std::printf("  dt = %.4e  ->  %zu steps to t = %g   ->  %s\n", dt, T, o.tmax, o.out.c_str());
+  if (o.vamp != 1.0)
+    std::printf("  initial velocity amplitude %g v0 (E_V(0) = %g)\n", o.vamp, 0.125 * o.vamp * o.vamp);
+  if (o.ramp > 0)
+    std::printf("  SMOOTH START: the walls move with the flow at t = 0 and come to rest over"
+                " t = %g (cosine ramp)\n", o.ramp);
   if (o.noslip && !o.periodic && tauf - 0.5 < 0.012)
     std::printf("  NOTE: tau_f - 1/2 = %.2e is at RegWall's measured floor; expect trouble at "
                 "the wall.\n", tauf - 0.5);
@@ -501,7 +528,21 @@ int main(int argc, char** argv) {
     fl.couple_magnetic(mag.Bx_device(), mag.By_device(), mag.Bz_device());
     mag.advect_with(fl.ux_device(), fl.uy_device(), fl.uz_device());
   }
-  const TGState st{o.ic, h, o.u0, o.u0 * b0_tg, o.noslip && !o.periodic, N, pad};
+  // A smooth start seeds the wall nodes moving, like the interior; the walls
+  // then carry that velocity, scaled down by ramp_scale -- the parent's way.
+  const TGState st{o.ic, h, o.vamp * o.u0, o.u0 * b0_tg, o.noslip && !o.periodic && !(o.ramp > 0), N, pad};
+  if (o.ramp > 0) {
+    std::vector<Real> uw(static_cast<std::size_t>(3 * NS), Real(0));
+    for (int z = 0; z < L; ++z)
+      for (int y = 0; y < L; ++y)
+        for (int x = 0; x < L; ++x) {
+          const std::size_t n = std::size_t(node_id(x + pad, y + pad, z + pad, LS, LS));
+          double u[3], b[3];
+          st.at(x, y, z, u, b);
+          uw[3 * n] = Real(u[0]);  uw[3 * n + 1] = Real(u[1]);  uw[3 * n + 2] = Real(u[2]);
+        }
+    fl.set_wall_velocity_field(uw);
+  }
   mag.initialise_with(TGField{st}, TGVelocity{st});
   fl.seed_populations_with(TGPopulations{st});
 
@@ -861,6 +902,7 @@ int main(int argc, char** argv) {
   int ommv_phase = 0, rc = 0, nprobe = 0;
   double t_diag = 0.0;               // wall time in the host copies, probes and writers
   for (std::size_t k = 0; k <= T; ++k) {
+    if (o.ramp > 0) fl.set_wall_velocity_field_scale(Real(ramp_scale(double(k) * dt, o.ramp)));
     const bool probe = kp && (k % kp == 0 || k == T);
     const bool outp = (kv && k % kv == 0) || (kd && k % kd == 0) || (kr && k % kr == 0);
     if (probe || outp) {

@@ -1564,6 +1564,29 @@ does) fails on it. Run such scripts from elsewhere.
   (job 21829239, `results/P_tg_mhd/ladder/`): every check PASS on the A100, the
   budget at 1.6e-15 of each term's scale. A similar number from the wrong place
   is still the wrong number until the right place is read.
+- **PHASE 2, THE CONTROLS (2026-10-03): `GPU/csf3/tg_mhd_controls.sub`** fixes
+  four rules before its runs and `tools/tg_mhd_controls.py` applies them -- the
+  start (B with a smooth start against round 2's impulsive one), the field at
+  matched energy (C at E_V(0) = 1/4), the Mach number at Re = 2000 (u0 = 0.04:
+  halving needs N ~ 1024 to stay above RegWall's tau floor), and Pm = 0.5 and 2.
+  Two driver options carry them, in both twins: `-vamp A` (the initial velocity
+  times A) and `-ramp T` (a no-slip box's walls move with the flow at t = 0 and
+  come to rest along half a cosine over T). **The smooth start needed a wall
+  velocity that differs at every node, which neither code had**: both
+  regularised walls deduplicate wall states into a 16-bit tag, and a
+  Taylor-Green box's walls carry ~N^2 distinct velocities (past 65535 from
+  N ~ 256). `FluidSolver::set_wall_velocity_field` and GPU/'s
+  `Solver::set_wall_velocity_field` (and the host twin's) store one velocity per
+  node, scaled in time by `set_wall_velocity_field_scale`, and the wall kernels
+  read it in place of the table -- OPT-IN, so every reference (series, profiles,
+  budget, free and no slip, both twins) is reproduced byte for byte. GPU/'s five
+  read sites now go through one helper, `wall_velocity`. With the options the
+  twins agree to every printed digit but round-off on quantities that vanish,
+  and a smooth start reproduces A exactly at t = 0. The verify job now runs
+  both options on the device too, since the device half is code no host build
+  compiles. **Flags in a zsh variable do not split, and the runs silently fall
+  back to the defaults** -- it happened again here; the job script reads its
+  per-element options into a bash array.
 - Left for the author: in `main.tex` the department, funding, the AI-use
   disclosure AIP asks for, and the DOI; in `ARCHIVING.md` a LICENSE (the
   repository has none, so the code is readable but not reusable, and Zenodo will

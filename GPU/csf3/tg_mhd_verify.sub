@@ -17,6 +17,10 @@
 #  (profile_visc.dat, profile_ohm.dat), against references made the same way;
 #  and since 2026-10-02 on the energy budget against wall distance (budget.dat),
 #  whose host twins agree with each other to every printed digit after t = 0.
+#  Since 2026-10-03 two more runs check Phase 2's options on the device -- a
+#  smooth start (-ramp 0.2) and the box without a field at B's initial energy
+#  (-vamp sqrt 2) -- against host references made the same way, because the
+#  device half of the per-node wall velocity is code no host build compiles.
 #
 #  WHAT THIS JOB ADDS. The device build has never run: nvcc can reject what the
 #  host compiler accepted (this tree has a list), and a device run can differ
@@ -61,6 +65,13 @@ for W in slip noslip; do
   ./build64/tg_mhd -n 65 -vwall $W -mwall cond -ic tgc -re 200 -tmax 2 -probe 0.1 \
                    -out "$OUT/${W}_cuda_fp64" 2>&1 | tail -4
 done
+# Phase 2's two options (2026-10-03), whose device half -- Solver's per-node wall
+# velocity -- no host build compiles: a smooth start, and the box without a field
+# at B's initial energy.
+./build64/tg_mhd -n 65 -vwall noslip -mwall cond -ic tgc -ramp 0.2 -re 200 -tmax 2 -probe 0.1 \
+                 -out "$OUT/noslip_ramp0.2_cuda_fp64" 2>&1 | tail -4
+./build64/tg_mhd -n 65 -vwall noslip -ic hydro -vamp 1.4142135623730951 -re 200 -tmax 2 -probe 0.1 \
+                 -out "$OUT/hydro_va1.41421_cuda_fp64" 2>&1 | tail -4
 
 python3 - "$ROOT" "$OUT" <<'EOF'
 import sys
@@ -70,7 +81,7 @@ names = ("t E_V E_M E_T H_C Omega_V Omega_M eps EM/EV OmM/OmV j_max w_max skew "
 def load(p):
     return [[float(x) for x in l.split()] for l in open(p) if not l.startswith('#')]
 bad = 0
-for w in ("slip", "noslip"):
+for w in ("slip", "noslip", "noslip_ramp0.2", "hydro_va1.41421"):
     ref = load(f"{root}/results/P_tg_mhd/xcheck_n65_re200/{w}_src_kokkos_fp64.dat")
     dev = load(f"{out}/{w}_cuda_fp64/series.dat")
     if len(ref) != len(dev):

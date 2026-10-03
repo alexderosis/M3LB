@@ -53,6 +53,7 @@ class FluidSolver {
         bc_rho_("bc_rho", dom.n_padded),
         wall_u_("wall_u", 1, 4),
         wall_u0_("wall_u0", 1, 4),
+        wall_un_("wall_un", 0, 3),
         rho_("rho", dom.n_padded),
         ux_("ux", dom.n_padded), uy_("uy", dom.n_padded), uz_("uz", dom.n_padded) {
     h_flags_ = Kokkos::create_mirror_view(flags_);
@@ -330,6 +331,43 @@ class FluidSolver {
       KOKKOS_LAMBDA(Index k) { u(k, 3) = r; u0(k, 3) = r; });
     Kokkos::fence();
   }
+
+  //----------------------------------------------------------------------------
+  // A WALL VELOCITY THAT DIFFERS AT EVERY WALL NODE, with one scale in time.
+  //
+  // The table above deduplicates wall states into a 16-bit tag, which is right
+  // for lids and inlets -- a handful of states -- and impossible for a wall that
+  // moves with the flow beside it: a Taylor-Green box's six faces carry about N^2
+  // distinct velocities, past 65535 from N ~ 256. This stores one velocity per
+  // node instead, fn(x, y, z) in LATTICE units on interior coordinates, and from
+  // then on the three kernels that read a wall velocity (the wall density, the
+  // regularised reconstruction and the reported macroscopic state) take it from
+  // here, times set_wall_velocity_field_scale's factor, rather than from the
+  // table. The table's density slot is untouched, and nodes that are not RegWall
+  // ignore the field. OPT-IN: a solver that never calls this runs exactly the
+  // code it ran before, bit for bit (demonstrator/tg_mhd's references).
+  //
+  // Written for demonstrator/tg_mhd's smooth start, which brings a no-slip box's
+  // walls to rest over a ramp instead of at t = 0; GPU/'s Solver has the twin.
+  //----------------------------------------------------------------------------
+  template <class Fn>
+  void set_wall_velocity_field(Fn fn) {
+    wall_un_ = View2D<Real>("wall_un", dom_.n_padded, 3);
+    auto h = Kokkos::create_mirror_view(wall_un_);
+    for (Index n = 0; n < dom_.n_padded; ++n) h(n, 0) = h(n, 1) = h(n, 2) = Real(0);
+    for (Index z = 0; z < dom_.nz; ++z)
+      for (Index y = 0; y < dom_.ny; ++y)
+        for (Index x = 0; x < dom_.nx; ++x) {
+          const Index n = dom_.id(x, y, z);
+          const std::array<Real, 3> u = fn(x, y, z);
+          h(n, 0) = u[0]; h(n, 1) = u[1]; h(n, 2) = u[2];
+        }
+    Kokkos::deep_copy(wall_un_, h);
+    wall_un_on_ = true;
+    wall_un_scale_ = Real(1);
+  }
+  // ABSOLUTE, like set_wall_velocity_scale: the field as given, times s.
+  void set_wall_velocity_field_scale(Real s) { wall_un_scale_ = s; }
 
   template <class Fn>
   void set_regularized_walls(Fn fn) {
@@ -628,6 +666,7 @@ class FluidSolver {
     const Domain d = dom_;
     auto flags = flags_; auto bc_nrm = bc_nrm_; auto bc_tag = bc_tag_;
     auto bc_ext = bc_ext_; auto bc_rho = bc_rho_; auto wall_u = wall_u_;
+    auto wall_un = wall_un_; const bool un_on = wall_un_on_; const Real un_s = wall_un_scale_;
     const Real out_rho = outflow_rho_;
 
     auto walls = walls_;
@@ -645,7 +684,9 @@ class FluidSolver {
         for (int i = 0; i < Q; ++i) f[i] += weight<L, Real>(i);
       int nrm[3]; normal_of(code, nrm);
       const int tg = int(bc_tag(n));
-      const Real uw[3] = {wall_u(tg, 0), wall_u(tg, 1), wall_u(tg, 2)};
+      const Real uw[3] = {un_on ? un_s * wall_un(n, 0) : wall_u(tg, 0),
+                          un_on ? un_s * wall_un(n, 1) : wall_u(tg, 1),
+                          un_on ? un_s * wall_un(n, 2) : wall_u(tg, 2)};
       bc_rho(n) = (code == NrmOutXp || code == NrmOutEq) ? wall_u(tg, 3)
                 : (code == NrmOutFree) ? out_rho
                                        : BC::density(f, nrm, uw);
@@ -675,6 +716,7 @@ class FluidSolver {
     const Domain d  = dom_;
     auto flags = flags_;
     auto bc_nrm = bc_nrm_; auto bc_tag = bc_tag_; auto wall_u = wall_u_;
+    auto wall_un = wall_un_; const bool un_on = wall_un_on_; const Real un_s = wall_un_scale_;
     auto spec_nrm = spec_nrm_; auto spec_faces = spec_faces_;
     auto bc_rho = bc_rho_; auto bc_unk = bc_unk_; auto bc_don = bc_don_; auto bc_onrm = bc_onrm_;
     const bool fd_corners = fd_corners_ && has_shear_omega<Collision>;
@@ -760,7 +802,9 @@ class FluidSolver {
         const std::uint8_t code = bc_nrm(n);
         int nrm[3]; normal_of(code, nrm);
         const int tg = int(bc_tag(n));
-        const Real uw[3] = {wall_u(tg, 0), wall_u(tg, 1), wall_u(tg, 2)};
+        const Real uw[3] = {un_on ? un_s * wall_un(n, 0) : wall_u(tg, 0),
+                            un_on ? un_s * wall_un(n, 1) : wall_u(tg, 1),
+                            un_on ? un_s * wall_un(n, 2) : wall_u(tg, 2)};
 
         // KNOWN DEFECT, mechanism not identified. With a body force this
         // condition develops a wall slip proportional to F. Measured facts:
@@ -1002,6 +1046,7 @@ class FluidSolver {
     auto flags = flags_;
     auto bc_nrm = bc_nrm_; auto bc_tag = bc_tag_; auto spec_faces = spec_faces_;
     auto bc_rho = bc_rho_; auto wall_u = wall_u_; auto bc_don = bc_don_; auto bc_onrm = bc_onrm_;
+    auto wall_un = wall_un_; const bool un_on = wall_un_on_; const Real un_s = wall_un_scale_;
     const Real out_rho = outflow_rho_;
     const int out_order = out_order_;
     auto rho = rho_; auto ux = ux_; auto uy = uy_; auto uz = uz_;
@@ -1048,7 +1093,9 @@ class FluidSolver {
         for (int i = 1; i < Q; i += 2) acc.load_pair(nbw, i, fw[i], fw[i + 1]);
         if constexpr (Collision::Storage::shifted)
           for (int i = 0; i < Q; ++i) fw[i] += weight<L, Real>(i);
-        Real uw[3] = {wall_u(tg, 0), wall_u(tg, 1), wall_u(tg, 2)};
+        Real uw[3] = {un_on ? un_s * wall_un(n, 0) : wall_u(tg, 0),
+                      un_on ? un_s * wall_un(n, 1) : wall_u(tg, 1),
+                      un_on ? un_s * wall_un(n, 2) : wall_u(tg, 2)};
         Real rw;
         if (code == NrmOutFree) {
           rw = out_rho;
@@ -1285,6 +1332,11 @@ class FluidSolver {
  private:
   View2D<Real>         wall_u_;
   View2D<Real>         wall_u0_;   // as given; wall_u_ is this times the scale
+  // Per-node wall velocity (set_wall_velocity_field): empty, and never read,
+  // unless a driver asks for it.
+  View2D<Real>         wall_un_;
+  Real                 wall_un_scale_ = Real(1);
+  bool                 wall_un_on_ = false;
   // Node lists. Sweeping the padded box costs the same whether a cell does work
   // or returns immediately, and on a real geometry most of it returns: the
   // aorta is 84% solid, and corner_density's two passes act only on the few

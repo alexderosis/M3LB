@@ -102,6 +102,9 @@ sbatch GPU/csf3/tg_mhd_vol.sub                                     # and its 3-D
 sbatch --array=0-3  --time=4:00:00 GPU/csf3/tg_mhd_budget.sub       # Phase 1: the energy budget,
 sbatch --array=4-7  --time=2:30:00 GPU/csf3/tg_mhd_budget.sub       # chained on the verify job
 sbatch --array=8-15 --time=1:00:00 GPU/csf3/tg_mhd_budget.sub       # (see below)
+sbatch --array=0-5   --time=5:00:00 GPU/csf3/tg_mhd_controls.sub    # Phase 2: four controls,
+sbatch --array=6-12  --time=3:00:00 GPU/csf3/tg_mhd_controls.sub    # chained on the verify job
+sbatch --array=13-21 --time=1:30:00 GPU/csf3/tg_mhd_controls.sub    # (see below)
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -295,6 +298,28 @@ copy back with
 
 ```
 rsync -av --include='*/' --include='series.dat' --include='profile*.dat' --include='budget.dat' --include='log.txt' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_budget/ results/P_tg_mhd/budget/
+```
+
+**`tg_mhd_controls.sub`** is Phase 2: the four controls a referee will ask for,
+each with its rule fixed in the header before the runs -- a smooth start
+(`-ramp`), the box without a field at B's initial energy (`-vamp sqrt2`), the
+Mach number at Re = 2000 (u0 = 0.04, as far as RegWall's tau floor allows at
+N = 640), and Pm = 0.5 and 2. 22 elements, about 30 GPU-hours, chained on the
+verify job, which now also checks the device on `-ramp` and `-vamp` (the device
+half of the per-node wall velocity is code no host build compiles):
+
+```
+git pull
+jid=$(sbatch --parsable GPU/csf3/tg_mhd_verify.sub)
+sbatch --dependency=afterok:$jid --array=0-5   --time=5:00:00 GPU/csf3/tg_mhd_controls.sub
+sbatch --dependency=afterok:$jid --array=6-12  --time=3:00:00 GPU/csf3/tg_mhd_controls.sub
+sbatch --dependency=afterok:$jid --array=13-21 --time=1:30:00 GPU/csf3/tg_mhd_controls.sub
+```
+
+then `python3 tools/tg_mhd_controls.py runs/tg_mhd_controls`, and copy back with
+
+```
+rsync -av --include='*/' --include='series.dat' --include='profile*.dat' --include='budget.dat' --include='log.txt' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_controls/ results/P_tg_mhd/controls/
 ```
 
 ---

@@ -88,6 +88,18 @@ class Fluid {
 
   void set_fd_corners(bool on) { fd_corners_ = on; }
   long wall_count() const { return n_walls_; }
+  // The device Solver's set_wall_velocity_field, which says what it is for: 3
+  // values per storage node in lattice units, read by the wall kernels in place
+  // of the state table, times set_wall_velocity_field_scale.
+  void set_wall_velocity_field(const std::vector<Real>& u) {
+    if (long(u.size()) != 3 * N_) {
+      std::fprintf(stderr, "set_wall_velocity_field: %zu values for %ld nodes\n", u.size(), N_);
+      std::exit(1);
+    }
+    wall_un_ = u;
+    wall_un_s_ = Real(1);
+  }
+  void set_wall_velocity_field_scale(Real s) { wall_un_s_ = s; }
   void set_magic(Real lambda) { omega_minus_ = omega_minus_for(omega_, lambda); }
 
   // Store f_i - w_i instead of f_i. Call BEFORE initialise_with; see core.cuh.
@@ -221,6 +233,7 @@ class Fluid {
       p.bc_nrm = bc_nrm_.data();  p.bc_tag = bc_tag_.data();
       p.bc_unk = bc_unk_.data();  p.bc_ext = bc_ext_.data();
       p.wall_u = wall_u_.data();  p.bc_rho = bc_rho_.data();
+      if (!wall_un_.empty()) { p.wall_un = wall_un_.data();  p.wall_un_s = wall_un_s_; }
       p.bc_pi = bc_pi_.empty() ? nullptr : bc_pi_.data();
     }
     if (!spec_faces_.empty()) p.spec_faces = spec_faces_.data();
@@ -325,6 +338,8 @@ class Fluid {
   std::vector<std::uint16_t> bc_tag_;
   std::vector<std::uint32_t> bc_unk_;
   std::vector<Real> bc_rho_, bc_pi_, wall_u_;
+  std::vector<Real> wall_un_;        // per-node wall velocity; see set_wall_velocity_field
+  Real wall_un_s_ = Real(1);
   long n_walls_ = 0;
   std::vector<std::uint8_t> spec_faces_;
   bool has_walls_ = false;

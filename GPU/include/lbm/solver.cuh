@@ -61,6 +61,10 @@ struct FluidParams {
   const std::uint32_t* bc_unk = nullptr;    // which directions streamed from outside
   const std::uint8_t*  bc_ext = nullptr;    // corner rho stencil direction
   const Real*          wall_u = nullptr;    // 3 per state
+  // Per-node wall velocity (set_wall_velocity_field), 3 per node, times
+  // wall_un_s; null unless a driver asked, and then read in place of wall_u.
+  const Real*          wall_un = nullptr;
+  Real                 wall_un_s = Real(1);
   Real* bc_rho = nullptr;                   // written by the wall passes
   Real* bc_pi  = nullptr;                   // 6 per node, corners only
   Real  bc_shear_omega = Real(1);           // for the FD corner route
@@ -71,6 +75,21 @@ struct FluidParams {
   // edge or a corner of a closed box. See specular.cuh.
   const std::uint8_t* spec_faces = nullptr;
 };
+
+// THE WALL VELOCITY AT A RegWall NODE: the per-node field when a driver set one
+// (a wall moving with the flow beside it, which the 16-bit state table cannot
+// hold -- see set_wall_velocity_field), else the node's state in the table. The
+// parent's FluidSolver reads the same three ways, in the same kernels.
+LBM_HD LBM_INLINE void wall_velocity(const FluidParams& p, long n, Real uw[3]) {
+  if (p.wall_un) {
+    uw[0] = p.wall_un_s * p.wall_un[3 * n];
+    uw[1] = p.wall_un_s * p.wall_un[3 * n + 1];
+    uw[2] = p.wall_un_s * p.wall_un[3 * n + 2];
+    return;
+  }
+  const int tg = int(p.bc_tag[n]);
+  uw[0] = p.wall_u[3 * tg];  uw[1] = p.wall_u[3 * tg + 1];  uw[2] = p.wall_u[3 * tg + 2];
+}
 
 //------------------------------------------------------------------------------
 // One node, one step: gather, collide, scatter.
@@ -124,8 +143,8 @@ LBM_HD LBM_INLINE void fluid_node_update(const FluidParams& p, long N, long n) {
     if (code != NrmNone) {
       if (p.shifted) for (int i = 0; i < 27; ++i) f[i] += D3Q27::w(i);
 
-      const int tg = int(p.bc_tag[n]);
-      const Real ur[3] = {p.wall_u[3 * tg], p.wall_u[3 * tg + 1], p.wall_u[3 * tg + 2]};
+      Real ur[3];
+      wall_velocity(p, n, ur);
 
       Real F[3] = {Real(0), Real(0), Real(0)};
       if (FKind != ForceNone) force_at<FKind>(p.force, n, F);
@@ -229,8 +248,8 @@ LBM_HD LBM_INLINE void macro_node(const FluidParams& p, long N, long n,
   // is the one the wall is enforcing rather than a snapshot of the plumbing.
   if (cell == RegWall && p.bc_nrm) {
     const std::uint8_t code = p.bc_nrm[n];
-    const int tg = int(p.bc_tag[n]);
-    const Real uw[3] = {p.wall_u[3 * tg], p.wall_u[3 * tg + 1], p.wall_u[3 * tg + 2]};
+    Real uw[3];
+    wall_velocity(p, n, uw);
     if (p.shifted) for (int i = 0; i < 27; ++i) fl[i] += D3Q27::w(i);
     int nrm[3];  normal_of(code, nrm);
     rho[n] = (code == NrmCorner) ? (p.bc_rho ? p.bc_rho[n] : Real(1))
@@ -281,8 +300,8 @@ LBM_HD LBM_INLINE void wall_rho_node(const FluidParams& p, long N, long n) {
   if (p.shifted) for (int i = 0; i < 27; ++i) f[i] += D3Q27::w(i);
 
   int nrm[3];  normal_of(code, nrm);
-  const int tg = int(p.bc_tag[n]);
-  const Real uw[3] = {p.wall_u[3 * tg], p.wall_u[3 * tg + 1], p.wall_u[3 * tg + 2]};
+  Real uw[3];
+  wall_velocity(p, n, uw);
   p.bc_rho[n] = reg_density(f, nrm, uw);
 }
 
@@ -294,8 +313,7 @@ LBM_HD LBM_INLINE void wall_rho_node(const FluidParams& p, long N, long n) {
 template <int Parity>
 LBM_HD LBM_INLINE void wall_vel_at(const FluidParams& p, long N, long m, Real out[3]) {
   if (p.flags[m] == RegWall) {
-    const int t = int(p.bc_tag[m]);
-    out[0] = p.wall_u[3 * t];  out[1] = p.wall_u[3 * t + 1];  out[2] = p.wall_u[3 * t + 2];
+    wall_velocity(p, m, out);
     return;
   }
   int x, y, z;
@@ -330,8 +348,8 @@ LBM_HD LBM_INLINE void wall_corner_node(const FluidParams& p, long N, long n) {
   if (!p.fd_corners || !p.bc_pi) return;
 
   // ---- Pi from a finite-difference velocity gradient, Eq. (21) ----
-  const int tg = int(p.bc_tag[n]);
-  const Real uw[3] = {p.wall_u[3 * tg], p.wall_u[3 * tg + 1], p.wall_u[3 * tg + 2]};
+  Real uw[3];
+  wall_velocity(p, n, uw);
   const int ic[3] = {x, y, z};
   const int nn[3] = {p.nx, p.ny, p.nz};
   Real grad[3][3] = {{Real(0),Real(0),Real(0)},
@@ -511,7 +529,7 @@ class Solver {
     cudaFree(f_); cudaFree(flags_);
     cudaFree(ux_); cudaFree(uy_); cudaFree(uz_);
     cudaFree(bc_nrm_); cudaFree(bc_ext_); cudaFree(bc_tag_); cudaFree(bc_unk_);
-    cudaFree(bc_rho_); cudaFree(bc_pi_); cudaFree(wall_u_);
+    cudaFree(bc_rho_); cudaFree(bc_pi_); cudaFree(wall_u_); cudaFree(wall_un_);
     cudaFree(spec_faces_);
   }
 
@@ -646,6 +664,23 @@ class Solver {
 
   void set_fd_corners(bool on) { fd_corners_ = on; }
   long wall_count() const { return n_walls_; }
+
+  // A WALL VELOCITY THAT DIFFERS AT EVERY WALL NODE, the parent's
+  // set_wall_velocity_field: u holds 3 values per STORAGE node, in lattice units
+  // (nodes that are not RegWall are ignored), and set_wall_velocity_field_scale
+  // multiplies it in time. The kernels read it in place of the 16-bit state
+  // table, which cannot hold a wall that moves with the flow beside it. Opt-in:
+  // a driver that never calls this runs the code it ran before.
+  void set_wall_velocity_field(const std::vector<Real>& u) {
+    if (long(u.size()) != 3 * N_) {
+      std::fprintf(stderr, "set_wall_velocity_field: %zu values for %ld nodes\n", u.size(), N_);
+      std::exit(1);
+    }
+    if (!wall_un_) LBM_CUDA_CHECK(cudaMalloc(&wall_un_, sizeof(Real) * 3 * N_));
+    LBM_CUDA_CHECK(cudaMemcpy(wall_un_, u.data(), sizeof(Real) * 3 * N_, cudaMemcpyHostToDevice));
+    wall_un_s_ = Real(1);
+  }
+  void set_wall_velocity_field_scale(Real s) { wall_un_s_ = s; }
 
   // TRT's free rate, set through the magic parameter rather than directly --
   // Lambda is the quantity with a meaning (3/16 puts the bounce-back wall
@@ -805,6 +840,7 @@ class Solver {
     p.shifted = shifted_;
     p.bc_nrm = bc_nrm_;  p.bc_tag = bc_tag_;  p.bc_unk = bc_unk_;
     p.bc_ext = bc_ext_;  p.wall_u = wall_u_;
+    p.wall_un = wall_un_;  p.wall_un_s = wall_un_s_;
     p.bc_rho = bc_rho_;  p.bc_pi = bc_pi_;
     p.spec_faces = spec_faces_;
     // THE SHEAR RATE, not just any rate: TRT's is omega_plus. See
@@ -925,6 +961,8 @@ class Solver {
   Real* bc_rho_ = nullptr;
   Real* bc_pi_  = nullptr;
   Real* wall_u_ = nullptr;
+  Real* wall_un_ = nullptr;      // per-node wall velocity; see set_wall_velocity_field
+  Real  wall_un_s_ = Real(1);
   std::uint8_t* spec_faces_ = nullptr;
   long n_walls_ = 0;
   bool has_walls_ = false;
