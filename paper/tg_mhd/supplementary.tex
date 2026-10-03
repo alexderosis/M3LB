@@ -66,8 +66,9 @@ verification jobs, each with free and no slip. The runs behind the paper's numbe
 took $34.1$ GPU-hours: the ladder, its two controls, and a second round with the top
 rung, the insulating pair, and reruns of the lower rungs that also write the viscous
 and Ohmic parts of the profile. The reruns that wrote the fields of
-Sec.~\ref{M-sec:fields} took $1.5$ more, and the first ladder, run with the estimator
-of Sec.~\ref{s:estimator}, $8.2$.
+Sec.~\ref{M-sec:fields} took $1.5$ more, those that wrote the energy budget of
+Sec.~\ref{M-sec:budget} $15.1$, and the first ladder, run with the estimator of
+Sec.~\ref{s:estimator}, $8.2$.
 
 \emph{Run C2 of Pouquet et al.} The free-slip box A at $\Rey=1000$ is run C2 of
 Ref.~\onlinecite{pouquet2010}. Its minimum ratio of magnetic to kinetic energy is
@@ -110,7 +111,10 @@ rungs had been run, and seen, and before the runs they judge. Before 30 Septembe
 only that B$-$A exceed its band and trend monotonically over at least three rungs;
 the decision rule of Sec.~\ref{M-sec:protocol}, which is the one applied in the
 paper, replaced that with a test at the top rung, fixed with the job script that ran
-it.
+it. The second test, of the energy budget (Sec.~\ref{M-sec:budget}), was fixed with
+the commit that also carries the code that writes the budget, so the runs it governs
+could not have been made with any earlier commit; that commit reached GitHub two
+seconds after it was made (Table~\ref{stab:protocol}).
 % TODO(author): add the cluster's accounting of when each job was submitted (sacct;
 % provenance/README.md says how), which closes the other end of each interval.
 
@@ -218,6 +222,65 @@ $0.21h$ and $0.42h$ at $\Rey=500$, on the finer grids. These are estimates from 
 initial field: we have not measured the layers of B$'$, and its integrated share
 agrees between grids that could not resolve them. We draw no conclusion from B$'$ or
 from B$'-$A$'$.
+
+%===============================================================================
+\section{The energy budget}
+\label{s:budget}
+%===============================================================================
+
+\emph{The terms.} Per probe and per wall-distance layer, out to $8\delta$, the
+drivers write twelve terms, each as the layer's contribution to the box mean: the
+energies $e_K=|\vv|^2/2$ and $e_M=|\BB|^2/2$; the viscous and Ohmic dissipation
+$\nu|\bm\omega|^2$ and $\eta|\bm{j}|^2$; the stretching $S=B_iB_j\partial_jv_i$ and
+the Lorentz work $\vv\cdot(\bm{j}\times\BB)$; the advections $-\vv\cdot\nabla e_K$ and
+$-\vv\cdot\nabla e_M$; the pressure work $-\vv\cdot\nabla p$; the viscous and
+resistive transports $\nu\nabla\cdot(\vv\times\bm\omega)$ and
+$\eta\nabla\cdot(\BB\times\bm{j})$; and the compressible remainder of the induction,
+$-|\BB|^2\nabla\cdot\vv+(\vv\cdot\BB)\nabla\cdot\BB$. The transports need second
+derivatives, closed at each wall by the extension of Sec.~\ref{M-sec:method}.
+
+\emph{Checks.} The two implementations write the budget identically, to every
+printed digit after $t=0$, at $N=65$ and $\Rey=200$ with free and no slip; the six rows
+that differ are those of the terms that vanish at $t=0$ and print round-off there. The
+free-slip box equals its periodic twin the same way. The sixteen runs of the test
+reproduce round 2's time series and profiles exactly.
+% TODO: quote the device's budget against the host's from the verification job's log
+% (tg_mhd_verify.sub, "energy budget worst term"), once it is copied back.
+On the stretching, a check
+the physics gives for free: on the wall nodes of a no-slip conducting box $S$
+vanishes identically, since the velocity and its tangential derivatives vanish and
+the field is tangential.
+
+\emph{Closure.} Products of central differences do not telescope, and the
+compressible remainder oscillates with the acoustic waves at the size of a layer's
+Ohmic dissipation, so the explicit terms close a layer's budget only to a residual.
+Over $t=2$--$10$, on the finer grids, the magnetic budget within $\delta$ closes to
+$1.0$--$2.9$\% of the Ohmic dissipation there in A and $0.3$--$0.7$\% in B. The
+kinetic one closes to $0.1$--$0.7$\% of the viscous dissipation in B and to
+$1.3$--$10.4$\% in A, whose near-wall viscous dissipation is small. Over the whole box
+the magnetic and kinetic budgets close to $1.6$\% and $1.2$\% of the dissipation in
+every run, and $\langle S\rangle$ balances $-\langle\vv\cdot(\bm{j}\times\BB)\rangle$ to
+$0.9$\%. The residual falls at second order: in previews at $\Rey=200$, doubling $N$
+from $65$ to $129$ took the magnetic closure within $\delta$ from $15$\% to $3.1$\% in A
+and from $11$\% to $1.7$\% in B. The test of Sec.~\ref{M-sec:budget} does not use the
+explicit transports, only $S$ and the Ohmic dissipation.
+
+\emph{What had been seen when the test was fixed.} The previews were run to check
+these properties. One of them, at $N=65$ to $t=2$, had been analysed for its closure,
+in a table that showed $S$ and the Ohmic dissipation within $\delta$ over $t\le2$; no
+preview over the test's window had been. Read afterwards, the $N=65$ preview at
+$\Rey=200$, which is not a rung and has $1.4$ cells in $\delta$, gives $\phi=2.5$.
+
+\begin{table*}
+\caption{\label{stab:budget}The test of Sec.~\ref{M-sec:budget}, rung by rung, over
+$t=2$--$10$ within $\delta$: $\phi$ on the finer and the coarser grid, its band, the
+transport and storage shares of the Ohmic deficit (the three adding to one), the
+near-wall stretching of each box as a share of its own near-wall Ohmic dissipation,
+and the magnetic budget's closure within $\delta$ in A and B on the finer grid.}
+\begin{ruledtabular}
+\input{tab_budget}
+\end{ruledtabular}
+\end{table*}
 
 %===============================================================================
 \section{The fields at a later time}

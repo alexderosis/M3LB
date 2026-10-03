@@ -49,7 +49,10 @@ Reynolds numbers $250$ to $2000$, on grids that resolve the $\Rey^{-1/2}$ wall l
 with the observable, the resolution criterion and the decision rule fixed before the
 runs. No-slip walls add dissipation within $\Rey^{-1/2}$ of them at every Reynolds
 number and under every definition we tried. The excess is viscous: the near-wall
-Ohmic dissipation is 40--45\% lower than with free-slip walls. Snapshots and
+Ohmic dissipation is 40--45\% lower than with free-slip walls. A second
+pre-registered test, on the energy budget, attributes that deficit to the stretching
+of the field by the flow, which the no-slip wall removes and, within $\Rey^{-1/2}$ of
+it, reverses. Snapshots and
 three-dimensional views of the local dissipation show current sheets crossing the
 near-wall layer of the free-slip box and a broad viscous layer at the no-slip walls. The pre-registered
 reading, the excess at the dissipation peak, falls from $0.063$ to $0.036$ between
@@ -129,7 +132,8 @@ Sec.~\ref{sec:verify} the verification, Sec.~\ref{sec:results} the results, and
 Sec.~\ref{sec:discussion} what they settle and what they do not. In brief, the
 no-slip excess is robust: it is positive at every $\Rey$ and under every definition
 we tried, it is viscous, and it comes with less near-wall Ohmic dissipation than free
-slip. The pre-registered verdict is ``cascade''. But that verdict rests on a switch
+slip, which a second pre-registered test traces to the stretching of the field that
+the no-slip wall removes. The pre-registered verdict is ``cascade''. But that verdict rests on a switch
 between two maxima of the dissipation, and over the factor of eight in $\Rey$ that one
 GPU affords, the trend of the wall share depends on when it is measured.
 
@@ -293,6 +297,22 @@ $m\delta$ of the walls. It is evaluated with the trapezoidal rule over the probe
 which are $0.05$ or $0.1$ apart, with every integrand interpolated to the window's
 edges.
 
+The drivers also write the energy budgets layer by layer. With $e_M=|\BB|^2/2$,
+\begin{equation}
+  \partial_t e_M = S + T_M - \eta|\bm{j}|^2, \qquad S = B_iB_j\,\partial_j v_i,
+  \label{eq:budget}
+\end{equation}
+where $S$ is the stretching of the field by the flow, the rate at which the field
+gains energy from it, and $T_M$ collects the advection of $e_M$, its resistive
+transport and the compressible part of the induction. The transports integrate to
+zero over the box but not over a layer. The kinetic budget carries the Lorentz work
+$\vv\cdot(\bm{j}\times\BB)$, which balances $S$ over the box, beside pressure work,
+advection, viscous transport and the viscous dissipation. Within $m\delta$ of the
+walls each term is read as $f_m$ is and integrated over a window. Products of
+central differences do not telescope, so the explicit transports close a layer's
+budget only to a residual: within $\delta$, on the finer grids, $2.9$\% of its Ohmic
+dissipation or less (Sec.~\ref{S-s:budget}).
+
 \subsection{The pre-registered protocol}
 \label{sec:protocol}
 
@@ -323,7 +343,10 @@ precision at $\Rey=2000$, $N=512$. A control passes if it moves B$-$A by less th
 band.
 \end{enumerate}
 The time-integrated share~(\ref{eq:F}) was not part of the protocol; we introduce it
-in Sec.~\ref{sec:windows} because of what Sec.~\ref{sec:switch} found.
+in Sec.~\ref{sec:windows} because of what Sec.~\ref{sec:switch} found. A second test,
+of what causes the near-wall Ohmic deficit, was fixed in the same way on 2 October
+2026, with the job script that ran it, and is stated where it is applied
+(Sec.~\ref{sec:budget}).
 
 %===============================================================================
 \section{Verification}
@@ -586,6 +609,62 @@ depth cue, which must not be read as an intensity; hidden edges of the box are
 dashed. One logarithmic colour scale, shared with Fig.~\ref{S-sfig:vol46}.}
 \end{figure*}
 
+\subsection{What feeds the near-wall Ohmic dissipation}
+\label{sec:budget}
+
+The snapshots suggest that the current sheets next to a free-slip wall need the
+tangential flow along it, but they cannot test that. The budget~(\ref{eq:budget})
+can, and we fixed the test before running it, on round 2's sixteen A and B runs
+again: reruns that reproduce round 2's time series exactly and also write the budget.
+Over $t=2$--$10$ and within $\delta$ of the walls, let $\Omega_X$ and $S_X$ be the
+time-integrated Ohmic dissipation and stretching of box X. The share of the Ohmic
+deficit that the stretching deficit accounts for is
+\begin{equation}
+  \phi = (S_A-S_B)\big/(\Omega_A-\Omega_B),
+  \label{eq:phi}
+\end{equation}
+with a band from the two grids of each rung. The verdict was to be ``stretching'' if
+$\phi$ minus its band exceeds $\frac12$ at every rung, ``transport'' if $\phi$ plus
+its band is below $\frac12$ at every rung, and undecided otherwise. Transport is
+defined as whatever closes the layer's budget, so $\phi$ needs only $S$ and the Ohmic
+dissipation, both products of first derivatives.
+
+The verdict is ``stretching''. At $\Rey=250$, $500$, $1000$ and $2000$, $\phi=1.86$,
+$1.55$, $1.47$ and $1.84$, with bands of at most $0.052$ [Fig.~\ref{fig:budget}(b),
+Table~\ref{S-stab:budget}]. The stretching deficit exceeds the Ohmic deficit because
+the two boxes' stretching differs in sign, not only in size. Within $\delta$ of a
+free-slip wall the flow feeds the field, $S_A$ being $0.56$--$0.67$ of $\Omega_A$;
+within $\delta$ of a no-slip wall $S_B$ is negative, $-0.08$ to $-0.40$ of
+$\Omega_B$, at every rung and on both grids, and the Lorentz work has the opposite
+signs. The field does work on the flow there. The rest of the deficit is balanced by
+the layer's stored magnetic energy at low $\Rey$ and by transport at high $\Rey$.
+
+Figure~\ref{fig:budget}(a) shows where, at $\Rey=1000$. A's stretching is largest on
+the wall, $0.39$ of the mean dissipation, and falls to zero at $2.5\delta$. B's
+vanishes on the wall, where the velocity and its tangential derivatives vanish and the
+field is tangential; it is negative out to $0.8\delta$ and positive beyond. The Ohmic
+dissipation peaks at $1.2\delta$ in A and at $1.9\delta$ in B: the no-slip wall
+moves it away from itself.
+
+The kinetic budget of B's layer completes the picture [Fig.~\ref{fig:budget}(c)].
+Viscous transport from outside the layer supplies $54$--$66$\% of its viscous
+dissipation and the Lorentz work $14$--$36$\%, a share that rises with $\Rey$ over
+this window; pressure work, advection and the layer's own kinetic energy supply the
+rest.
+
+\begin{figure*}
+\includegraphics[width=\textwidth]{tg_mhd_budget.pdf}
+\caption{\label{fig:budget}What feeds the near-wall Ohmic dissipation, over $t=2$--$10$,
+on the finer grid of each rung. (a) At $\Rey=1000$, the stretching
+$S=B_iB_j\partial_jv_i$ (dashed) and the Ohmic dissipation $\eta|\bm{j}|^2$ (solid)
+per unit volume, relative to the box-mean dissipation, against $d/\delta$, for A and
+B; the shaded band is $\delta$. (b) $\phi$, the share of the near-wall Ohmic deficit
+that the stretching deficit accounts for [Eq.~(\ref{eq:phi})], with its two-grid
+band, mostly smaller than the symbols, against the pre-registered threshold
+$\frac12$; the transport and storage shares are its complements, the three adding to
+one. (c) What supplies B's viscous dissipation within $\delta$, as shares of it.}
+\end{figure*}
+
 %===============================================================================
 \section{Discussion}
 \label{sec:discussion}
@@ -602,7 +681,8 @@ intensifies with $\Rey$: B's wall dissipation density rises monotonically in eve
 window, while A's stays near $0.4$ of the mean. Fourth, at the one rung where the
 hydrodynamic box is turbulent, the field moves dissipation away from the walls: the
 box without a field dissipates $33$\% of its energy within $\delta$ of the walls, the
-box with one $9.9$\%.
+box with one $9.9$\%. A fifth statement comes from the second test: the Ohmic deficit
+is the stretching that the no-slip wall removes (Sec.~\ref{sec:budget}).
 
 \emph{What they do not settle.} The question that motivated the work was whether the
 wall share holds as $\Rey$ grows, and it has a registered answer: ``cascade''. That
@@ -638,16 +718,20 @@ $\BB\cdot\bm{n}=0$, carry none; those of B$'$ would, $0.14h$ thick at $\Rey=1000
 we have not resolved them. Whether a finite part of the dissipation remains at the
 walls of A and B as $\Rey\to\infty$ cannot be decided from these data.
 
-\emph{A conjecture for the Ohmic deficit.} At a free-slip conducting wall the
+\emph{The mechanism of the Ohmic deficit.} At a free-slip conducting wall the
 tangential flow reaches the wall, and with $\BB\cdot\bm{n}=0$ and
-$\partial_n\BB_t=0$ it can stretch tangential field along it, building current sheets
-next to the wall. In A the near-wall dissipation is mostly Ohmic, and the snapshots
-of Sec.~\ref{sec:fields} show current sheets crossing the plane $0.58\delta$ above
-the wall. A no-slip wall stops the tangential flow, and with it the induction in the
-layer: in B that plane carries $0.68$--$0.79$ of A's Ohmic dissipation and several
-times its viscous dissipation. The snapshots are consistent with the conjecture but do
-not test its mechanism, which needs the induction term itself in the layer, and they
-show one class of walls at two instants.
+$\partial_n\BB_t=0$ it stretches tangential field along it: the stretching is
+largest on the wall itself, and the snapshots show current sheets crossing the plane
+$0.58\delta$ above it. A no-slip wall stops that flow. The test of
+Sec.~\ref{sec:budget} confirms that this is what cuts the near-wall Ohmic
+dissipation, and sharpens it: the no-slip wall does not only remove the production of
+magnetic energy next to it, it reverses it, so that within $0.8\delta$ the field
+does work on the flow, and the layer dissipates that work viscously with the energy
+viscous transport brings in. Part of the viscous excess is that exchange: the Lorentz
+work supplies $14$--$36$\% of B's near-wall viscous dissipation, and viscous
+transport most of the rest. What the budget does not settle is why the Lorentz work's share of
+B's layer grows with $\Rey$: that is a trend read through one window, of the kind
+Sec.~\ref{sec:windows} warns against.
 
 \emph{What the protocol bought.} Had the decision rule not been fixed in advance, any
 window of Table~\ref{tab:windows} could have been chosen after seeing the data. Over
@@ -684,7 +768,11 @@ Taylor--Green MHD flow in its closed fundamental box with free-slip and no-slip 
 and nothing else changed, and we fixed the observable and the decision rule before the
 runs. No-slip walls add dissipation in a layer $\Rey^{-1/2}$ thick at every Reynolds
 number from $250$ to $2000$. The excess is viscous and comes with less Ohmic
-dissipation at the wall, and the wall layer intensifies as $\Rey$ grows. Snapshots
+dissipation at the wall, and the wall layer intensifies as $\Rey$ grows. A budget of
+the field's energy, tested against a second rule fixed before its runs, attributes the
+Ohmic deficit to the stretching that the no-slip wall removes: within $\delta$ of a
+free-slip wall the flow feeds the field, and within $\delta$ of a no-slip wall the
+field does work on the flow. Snapshots
 of the local dissipation show the same contrast in space: current sheets cross the
 near-wall layer of the free-slip box, and a broad viscous layer, with weaker currents,
 lines the no-slip walls. The pre-registered reading, the excess at the dissipation peak, falls between $\Rey=1000$
@@ -709,14 +797,15 @@ The author has no conflicts to disclose.
 The supplementary material gives the tests of the method and the comparison with
 run C2 in full, the record of when each rule of the protocol was fixed, the failure of
 the first estimator of $f_m$, the resolution gate and controls rung by rung, the
-readings within $2\delta$ and $4\delta$, the insulating pair, and the fields at
-$t=4.6$.
+readings within $2\delta$ and $4\delta$, the insulating pair, the fields at
+$t=4.6$, and the energy budget's terms, checks and results rung by rung.
 
 \section*{Data availability}
 The code (both implementations), the job scripts with the decision rules fixed before
 the runs, the time series and wall-distance profiles of every run, the plane means of
-the field snapshots, the analysis tools, the script that produces every number in
-this paper, and GitHub's record of when the protocol's commits were pushed are in the
+the field snapshots, the energy budgets, the analysis tools, the script that
+produces every number in this paper, and GitHub's record of when the protocol's
+commits were pushed are in the
 public M3LB repository, \url{https://github.com/alexderosis/M3LB}. The field dumps
 behind Figs.~\ref{fig:snap23} and~\ref{fig:vol23} and Figs.~\ref{S-sfig:snap46}
 and~\ref{S-sfig:vol46} (11\,GB per run) are available from the author.

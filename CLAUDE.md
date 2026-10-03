@@ -1542,6 +1542,26 @@ does) fails on it. Run such scripts from elsewhere.
   header records exactly what had been seen when the rule was written (a t <= 2
   closure table of one preview) and what was read after (the Re = 200, N = 65
   preview over t = 2..10: phi = 2.5, not a rung and not a measurement).
+  **THE VERDICT (CSF3, 2026-10-02; `results/P_tg_mhd/budget/`) IS "STRETCHING"
+  AT EVERY RUNG**: phi = 1.86 / 1.55 / 1.47 / 1.84 at Re = 250..2000, bands
+  <= 0.052. phi > 1 because the stretching CHANGES SIGN: within delta of the
+  free-slip wall S_A = 0.56-0.67 of Omega_A, within delta of the no-slip wall
+  S_B = -0.08 to -0.40 of Omega_B on every grid, and the Lorentz work has the
+  opposite signs -- the field does work on the flow there. At Re = 1000 S_A is
+  largest ON the wall (0.39 of the mean dissipation) and S_B vanishes there
+  identically (u = 0, B tangential), negative out to 0.8 delta; the Ohmic peak
+  moves from 1.2 delta (A) to 1.9 delta (B). B's near-wall viscous loss: 54-66 %
+  viscous transport, 14-36 % Lorentz work (rising with Re -- one window, no trend
+  claimed). Closure within delta on the finer grids: magnetic 1.0-2.9 % (A),
+  0.3-0.7 % (B). The 16 runs reproduce round 2's series and all 48 profiles byte
+  for byte, so git keeps round 2's profiles only. They cost 15.1 GPU-h, not the
+  13 estimated: the probes were 1.8-4.8x dearer on CSF3's host CPUs where the
+  laptop measured 1.6x. In the paper: Sec. IV H, Fig. 6, Table S4, Sec. S8.
+  **A STAND-IN'S NUMBER IS NOT THE MEASUREMENT.** Drafting S8, the device's
+  budget was quoted as matching the host's to 1.4e-15 -- the figure of the
+  laptop DRY RUN of the verify check, with the host twin standing in for the
+  device. The verify job's own log was never seen; the sentence is now a TODO
+  until it is.
 - Left for the author: in `main.tex` the department, funding, the AI-use
   disclosure AIP asks for, and the DOI; in `ARCHIVING.md` a LICENSE (the
   repository has none, so the code is readable but not reusable, and Zenodo will

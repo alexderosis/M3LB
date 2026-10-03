@@ -4,7 +4,7 @@ II. PARAMETERS (u0 = 0.05, t = 0..10)
   Re   500  N 256/384  delta/h 3.63/5.45  tau-1/2 (fluid) 0.0244/0.0366  (magnetic, D3Q7 cs2=1/4) 0.0488  steps 24383  peak Ma 0.109  FP64
   Re  1000  N 384/512  delta/h 3.86/5.14  tau-1/2 (fluid) 0.0183/0.0244  (magnetic, D3Q7 cs2=1/4) 0.0325  steps 32531  peak Ma 0.117  FP64
   Re  2000  N 512/640  delta/h 3.64/4.55  tau-1/2 (fluid) 0.0122/0.0153  (magnetic, D3Q7 cs2=1/4) 0.0203  steps 40680  peak Ma 0.133  FP32
-  GPU time (each log.txt's wall clock): ladder 7.8 + Mach 6.4 + round 2 16.6 + FP64 3.2 = 34.1 h; snapshot reruns 1.5 h; the first, node-counting ladder 8.2 h
+  GPU time (each log.txt's wall clock): ladder 7.8 + Mach 6.4 + round 2 16.6 + FP64 3.2 = 34.1 h; snapshot reruns 1.5 h; the budget's reruns 15.1 h; the first, node-counting ladder 8.2 h
 
 III. VERIFICATION
   C2 (A, Re 1000, N 384): min E_M/E_V 0.3695 at t = 7.31; first max Om_M/Om_V after its fall 2.154
@@ -128,6 +128,25 @@ V. SCALES (finer grid of each rung; h = pi/(N-1))
   B' Re 1000, t = 0: Hartmann layer 1/(Re |B_n|) = 0.14 h on the z faces (|B_n| <= 2 b0 = 1.155), 0.28 h on the x, y faces (b0)
   volume within delta of the walls: 0.1160 / 0.0830 / 0.0592 / 0.0421 of the box; slope -0.487 over Re 250 -> 2000
 
+IV.H THE BUDGET (results/P_tg_mhd/budget; within delta, t = 2-10)
+  16 runs; series.dat identical to round 2's in 16
+  Re  250 N 192/256: phi 1.857 / 1.892, band 0.035 -> stretching; parts stretching +1.857 transport +0.061 storage -0.919; Ohmic B/A 0.568; S_A/Omega_A 0.57, S_B/Omega_B -0.40; S_A > 0 > S_B on both grids: True; lor_A < 0 < lor_B on both grids: True
+           closure within delta, finer grid: magnetic A 1.0 % B 0.7 %, kinetic A 1.5 % B 0.5 %
+           B's viscous dissipation within delta: viscous transport 0.66, Lorentz work 0.14, pressure work 0.12, advection 0.02, its kinetic energy 0.07
+  Re  500 N 256/384: phi 1.545 / 1.582, band 0.037 -> stretching; parts stretching +1.545 transport -0.100 storage -0.445; Ohmic B/A 0.544; S_A/Omega_A 0.56, S_B/Omega_B -0.26; S_A > 0 > S_B on both grids: True; lor_A < 0 < lor_B on both grids: True
+           closure within delta, finer grid: magnetic A 1.2 % B 0.3 %, kinetic A 1.3 % B 0.1 %
+           B's viscous dissipation within delta: viscous transport 0.63, Lorentz work 0.19, pressure work 0.11, advection 0.02, its kinetic energy 0.06
+  Re 1000 N 384/512: phi 1.474 / 1.509, band 0.035 -> stretching; parts stretching +1.474 transport -0.304 storage -0.171; Ohmic B/A 0.586; S_A/Omega_A 0.56, S_B/Omega_B -0.08; S_A > 0 > S_B on both grids: True; lor_A < 0 < lor_B on both grids: True
+           closure within delta, finer grid: magnetic A 1.9 % B 0.4 %, kinetic A 7.4 % B 0.1 %
+           B's viscous dissipation within delta: viscous transport 0.57, Lorentz work 0.26, pressure work 0.10, advection 0.02, its kinetic energy 0.05
+  Re 2000 N 512/640: phi 1.839 / 1.890, band 0.052 -> stretching; parts stretching +1.839 transport -0.911 storage +0.073; Ohmic B/A 0.568; S_A/Omega_A 0.67, S_B/Omega_B -0.22; S_A > 0 > S_B on both grids: True; lor_A < 0 < lor_B on both grids: True
+           closure within delta, finer grid: magnetic A 2.9 % B 0.5 %, kinetic A 10.4 % B 0.7 %
+           B's viscous dissipation within delta: viscous transport 0.54, Lorentz work 0.36, pressure work 0.06, advection 0.01, its kinetic energy 0.04
+  verdict: STRETCHING
+  Fig. budget (a), Re 1000, finer grid, per unit volume / box-mean eps: at the wall node A S 0.39 ohm 0.24, B S +0.000 ohm 0.07; ohm peaks at d = 1.2 delta (A, 0.75) and 1.9 delta (B, 0.73); S_B's minimum -0.063 at 0.4 delta, crossing zero at 0.8 delta; S_A first reaches zero at 2.5 delta
+  RECORDED: previews at Re = 200 (laptop, 2026-10-02, not rungs), magnetic closure within delta over t = 2-10: A 14.7 % (N 65) -> 3.1 % (N 129), B 11.1 % -> 1.7 %; the N 65 preview's phi 2.47
+  box over the window, every run: magnetic closure <= 1.6 %, kinetic <= 1.2 %, |<S> + <lor>| <= 0.9 % of int eps
+
 IV.F THE FIELDS (results/P_tg_mhd/snap, Re 1000, N 512)
   A: the snapshot run against the production run, 48 probe rows to t = 4.7: worst 0.0e+00
   B: the snapshot run against the production run, 48 probe rows to t = 4.7: worst 0.0e+00
@@ -170,8 +189,9 @@ S3. THE FIRST LADDER, COUNTING NODE LAYERS (results/P_tg_mhd/ladder_count, raw c
   the same series moved to the exact band (tg_mhd_ladder.band_corrected): worst of the three 2.9 %, so all 8 pass
   RECORDED: the sweep N = 33..49 at Re = 100 (2026-09-28): f4 by the count jumps 0.52 -> 0.60 each time 4 delta/h crosses a node; by Eq. (within) 0.561-0.566
 
-S2. THE PROTOCOL'S RECORD (git log; GitHub's push log, provenance/github_activity_2026-10-02.json)
+S2. THE PROTOCOL'S RECORD (git log; GitHub's push log, every provenance/github_activity_*.json)
   663929c observable, peak rule, gate            committed 2026-09-27 11:57:38 UTC, pushed 2026-09-27 11:58:24 UTC (+46 s)
   9f65706 estimator of f_m corrected             committed 2026-09-28 11:55:32 UTC, pushed 2026-09-28 11:56:52 UTC (+80 s)
   cd07f45 Mach control                           committed 2026-09-29 06:22:12 UTC, pushed 2026-09-29 06:22:15 UTC (+3 s)
   d061ee8 decision rule, FP64 control (Re 2000)  committed 2026-09-30 20:03:29 UTC, pushed 2026-09-30 20:03:34 UTC (+5 s)
+  8376e66 the budget test (phi)                  committed 2026-10-02 12:00:24 UTC, pushed 2026-10-02 12:00:26 UTC (+2 s)

@@ -25,6 +25,8 @@ ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import tg_mhd_ladder as T          # noqa: E402
 import plot_tg_mhd_ladder as P     # noqa: E402  (matplotlib is imported only by its main)
+import tg_mhd_budget as BU         # noqa: E402
+import plot_tg_mhd_budget as PB    # noqa: E402  (likewise)
 
 U0, TMAX = 0.05, 10.0
 GRIDS = {125: (128, 192), 250: (192, 256), 500: (256, 384), 1000: (384, 512), 2000: (512, 640)}
@@ -112,7 +114,7 @@ def main():
         rows.append("%d & %d, %d & %.2f, %.2f & %.4f, %.4f & %d & %.3f & %s \\\\" % (
             Re, nc, nf, dh[0], dh[1], 3 * nu_lat[0], 3 * nu_lat[1], steps, ma, prec))
     hours = {}
-    for d in ("ladder", "mach", "round2", "fp64check", "snap", "ladder_count"):
+    for d in ("ladder", "mach", "round2", "fp64check", "snap", "ladder_count", "budget"):
         tot = 0.0
         for lt in glob.glob(os.path.join(res(d), "*", "log.txt")):
             with open(lt) as f:
@@ -120,10 +122,10 @@ def main():
             tot += got[-1]
         hours[d] = tot / 3600
     say("  GPU time (each log.txt's wall clock): ladder %.1f + Mach %.1f + round 2 %.1f + FP64 %.1f = %.1f h; "
-        "snapshot reruns %.1f h; the first, node-counting ladder %.1f h" % (
+        "snapshot reruns %.1f h; the budget's reruns %.1f h; the first, node-counting ladder %.1f h" % (
             hours["ladder"], hours["mach"], hours["round2"], hours["fp64check"],
             hours["ladder"] + hours["mach"] + hours["round2"] + hours["fp64check"], hours["snap"],
-            hours["ladder_count"]))
+            hours["budget"], hours["ladder_count"]))
     write("tab_runs.tex", "\\begin{tabular}{rcccccc}\n"
           "$\\mathrm{Re}$ & $N$ & $\\delta/h$ & $\\tau-\\tfrac12$ & steps & $\\mathrm{Ma}_{\\max}$ & bits \\\\\n"
           "\\hline\n" + "\n".join(rows) + "\n\\end{tabular}\n")
@@ -421,6 +423,86 @@ def main():
     say("  volume within delta of the walls: %s of the box; slope %+.3f over Re 250 -> 2000"
         % (" / ".join("%.4f" % v for v in vol), math.log(vol[-1] / vol[0]) / math.log(8)))
 
+    # ---- Sec. IV.H: the energy budget (GPU/csf3/tg_mhd_budget.sub, Phase 1) --------
+    # The budget runs are round 2's runs again, with budget.dat; the test is the one
+    # fixed in that job's header, computed by tools/tg_mhd_budget.py.
+    say()
+    say("IV.H THE BUDGET (results/P_tg_mhd/budget; within delta, t = %g-%g)" % DEFAULT)
+    bud = BU.find([res("budget")])
+    same = 0
+    for (s_, Re), by_n in sorted(bud.items()):
+        for N in by_n:
+            d = res("budget/%s_re%d_n%d" % (s_, Re, N))
+            a = [l for l in open(os.path.join(d, "series.dat")) if not l.startswith("#")]
+            b = [l for l in open(res("round2/%s_re%d_n%d/series.dat" % (s_, Re, N))) if not l.startswith("#")]
+            same += a == b
+    say("  %d runs; series.dat identical to round 2's in %d" % (sum(len(v) for v in bud.values()), same))
+    rows, calls = [], []
+    for Re in RUNGS:
+        Ns = sorted(set(bud[("A", Re)]) & set(bud[("B", Re)]))
+        L = {N: (BU.layer(bud[("A", Re)][N], *DEFAULT, 1.0), BU.layer(bud[("B", Re)][N], *DEFAULT, 1.0))
+             for N in Ns}
+        ph = {N: BU.phi_of(*L[N]) for N in Ns}
+        la, lb = L[Ns[-1]]
+        band = abs(ph[Ns[-1]] - ph[Ns[-2]])
+        dO = la["ohm"] - lb["ohm"]
+        tr, st = (la["Tres"] - lb["Tres"]) / dO, -(la["deM"] - lb["deM"]) / dO
+        call = "stretching" if ph[Ns[-1]] - band > 0.5 else "transport" if ph[Ns[-1]] + band < 0.5 else "undecided"
+        calls.append(call)
+        sgn = all(L[N][0]["S"] > 0 and L[N][1]["S"] < 0 for N in Ns)
+        lsg = all(L[N][0]["lor"] < 0 and L[N][1]["lor"] > 0 for N in Ns)
+        say("  Re %4d N %d/%d: phi %.3f / %.3f, band %.3f -> %s; parts stretching %+.3f transport %+.3f"
+            " storage %+.3f; Ohmic B/A %.3f; S_A/Omega_A %.2f, S_B/Omega_B %+.2f; S_A > 0 > S_B on both grids: %s;"
+            " lor_A < 0 < lor_B on both grids: %s" % (
+                Re, Ns[0], Ns[1], ph[Ns[-1]], ph[Ns[0]], band, call, ph[Ns[-1]], tr, st, lb["ohm"] / la["ohm"],
+                la["S"] / la["ohm"], lb["S"] / lb["ohm"], sgn, lsg))
+        cl = [abs(x["Tres"] - x["Texp"]) / x["ohm"] for x in (la, lb)]
+        ck = [abs(x["Kres"] - x["Kexp"]) / x["visc"] for x in (la, lb)]
+        say("           closure within delta, finer grid: magnetic A %.1f %% B %.1f %%, kinetic A %.1f %% B %.1f %%"
+            % (100 * cl[0], 100 * cl[1], 100 * ck[0], 100 * ck[1]))
+        v = lb["visc"]
+        say("           B's viscous dissipation within delta: viscous transport %.2f, Lorentz work %.2f,"
+            " pressure work %.2f, advection %.2f, its kinetic energy %.2f" % (
+                lb["difK"] / v, lb["lor"] / v, lb["pres"] / v, lb["advK"] / v, -lb["deK"] / v))
+        rows.append("%d & %d, %d & %.2f & %.2f & %.3f & $%+.2f$ & $%+.2f$ & %.2f & $%+.2f$ & %.1f, %.1f \\\\" % (
+            Re, Ns[0], Ns[1], ph[Ns[-1]], ph[Ns[0]], band, tr, st, la["S"] / la["ohm"], lb["S"] / lb["ohm"],
+            100 * cl[0], 100 * cl[1]))
+    say("  verdict: %s" % ("STRETCHING" if all(c == "stretching" for c in calls) else
+                            "TRANSPORT" if all(c == "transport" for c in calls) else "UNDECIDED"))
+    bx = []
+    for (s_, Re), by_n in sorted(bud.items()):
+        for N, b in by_n.items():
+            x = BU.layer(b, *DEFAULT, None)
+            loss = x["visc"] + x["ohm"]
+            bx.append((abs(x["Tres"] - x["Texp"]) / loss, abs(x["Kres"] - x["Kexp"]) / loss,
+                       abs(x["S"] + x["lor"]) / loss))
+    for Re in (1000,):
+        prof = {}
+        for s_ in ("A", "B"):
+            b = bud[(s_, Re)][max(bud[(s_, Re)])]
+            e = PB.box_eps(b, *DEFAULT)
+            for term in ("ohm", "S"):
+                x, y = PB.layer_density(b, term, *DEFAULT)
+                prof[(s_, term)] = (x, [v / e for v in y])
+        (xa, oa), (xb, ob) = prof[("A", "ohm")], prof[("B", "ohm")]
+        (_, sa), (_, sb) = prof[("A", "S")], prof[("B", "S")]
+        ka, kb = max(range(len(oa)), key=lambda k: oa[k]), max(range(len(ob)), key=lambda k: ob[k])
+        km = min(range(len(sb)), key=lambda k: sb[k])
+        kz = next(k for k in range(km, len(sb)) if sb[k] > 0)
+        z = xb[kz - 1] + (xb[kz] - xb[kz - 1]) * (-sb[kz - 1]) / (sb[kz] - sb[kz - 1])
+        ka0 = next(k for k in range(len(sa)) if sa[k] <= 0)
+        say("  Fig. budget (a), Re %d, finer grid, per unit volume / box-mean eps: at the wall node A S %.2f ohm %.2f,"
+            " B S %+.3f ohm %.2f; ohm peaks at d = %.1f delta (A, %.2f) and %.1f delta (B, %.2f); S_B's minimum %+.3f"
+            " at %.1f delta, crossing zero at %.1f delta; S_A first reaches zero at %.1f delta"
+            % (Re, sa[0], oa[0], sb[0], ob[0], xa[ka], oa[ka], xb[kb], ob[kb], sb[km], xb[km], z, xa[ka0]))
+    say("  RECORDED: previews at Re = 200 (laptop, 2026-10-02, not rungs), magnetic closure within delta over"
+        " t = 2-10: A 14.7 % (N 65) -> 3.1 % (N 129), B 11.1 % -> 1.7 %; the N 65 preview's phi 2.47")
+    say("  box over the window, every run: magnetic closure <= %.1f %%, kinetic <= %.1f %%, |<S> + <lor>| <= %.1f %%"
+        " of int eps" % tuple(100 * max(c[i] for c in bx) for i in range(3)))
+    write("tab_budget.tex", "\\begin{tabular}{rccccccccc}\n"
+          "$\\Rey$ & $N$ & $\\phi$ & $\\phi_{\\mathrm{coarse}}$ & band & transport & storage"
+          " & $S_A/\\Omega_A$ & $S_B/\\Omega_B$ & closure (\\%) \\\\\n\\hline\n" + "\n".join(rows) + "\n\\end{tabular}\n")
+
     # ---- Sec. IV.F: the field snapshots (GPU/csf3/tg_mhd_snap.sub) -----------------
     # The plane means come from slices/index.json, which is tracked; the .f32 planes
     # themselves are not, and are needed only to redraw the figures.
@@ -521,9 +603,11 @@ def main():
     # The commit time is the author's clock; the push time is GitHub's, from the
     # server-side log captured in provenance/ (its README says how and when).
     say()
-    say("S2. THE PROTOCOL'S RECORD (git log; GitHub's push log, provenance/github_activity_2026-10-02.json)")
-    with open(os.path.join(HERE, "provenance", "github_activity_2026-10-02.json")) as f:
-        log = json.load(f)
+    say("S2. THE PROTOCOL'S RECORD (git log; GitHub's push log, every provenance/github_activity_*.json)")
+    log = []
+    for cap in sorted(glob.glob(os.path.join(HERE, "provenance", "github_activity_*.json"))):
+        with open(cap) as f:
+            log += json.load(f)
 
     def utc(iso):
         return datetime.datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(datetime.timezone.utc)
@@ -532,7 +616,8 @@ def main():
     for sha, plain, tex in (("663929c", "observable, peak rule, gate", "observable, peak rule, gate"),
                             ("9f65706", "estimator of f_m corrected", "estimator of $f_m$ corrected"),
                             ("cd07f45", "Mach control", "Mach control"),
-                            ("d061ee8", "decision rule, FP64 control (Re 2000)", "decision rule, FP64 control ($\\Rey=2000$)")):
+                            ("d061ee8", "decision rule, FP64 control (Re 2000)", "decision rule, FP64 control ($\\Rey=2000$)"),
+                            ("8376e66", "the budget test (phi)", "the budget test, $\\phi$")):
         got = subprocess.run(["git", "-C", ROOT, "log", "-1", "--format=%cI", sha],
                              capture_output=True, text=True)
         committed = utc(got.stdout.strip())

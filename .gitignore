@@ -101,5 +101,8 @@ results/P_tg_mhd/**/raw/
 results/P_tg_mhd/**/slices/*.f32
 # and tools/tg_mhd_vol.cpp's 3-D volumes, 64 MB each; their vol/index.json is tracked.
 results/P_tg_mhd/**/vol/*.f32
+# The budget runs' profiles are byte-identical to round 2's (all 48 files compared,
+# 2026-10-02; results/P_tg_mhd/budget/README.md), so git keeps round 2's only.
+results/P_tg_mhd/budget/*/profile*.dat
 results/P_tg_mhd/**/png/
 results/P_tg_mhd/**/*.mp4

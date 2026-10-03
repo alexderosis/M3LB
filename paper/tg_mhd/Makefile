@@ -2,7 +2,7 @@
 #
 #   make            tables from the committed results (numbers.py), then main.pdf and
 #                   supplementary.pdf
-#   make figs       the seven figures, PNG and PDF, into results/P_tg_mhd/fig/;
+#   make figs       the figures, PNG and PDF, into results/P_tg_mhd/fig/;
 #                   needs a python with numpy and matplotlib: make figs PY=/path/to/venv/bin/python.
 #                   The snapshots and the 3-D views also need the .f32 planes and volumes
 #                   under results/P_tg_mhd/snap/*/{slices,vol}/, which git does not keep
@@ -45,6 +45,8 @@ figs:
 	    $(PY) tools/plot_tg_mhd_snapshots.py results/P_tg_mhd/snap/A_re1000_n512 \
 	        results/P_tg_mhd/snap/B_re1000_n512 results/P_tg_mhd/snap/C_re1000_n512 \
 	        --t $$t -o results/P_tg_mhd/fig/tg_mhd_snap_t$$t --fmt png,pdf || exit 1; done
+	cd $(ROOT) && $(PY) tools/plot_tg_mhd_budget.py results/P_tg_mhd/budget \
+	    -o results/P_tg_mhd/fig/tg_mhd_budget --fmt png,pdf
 	cd $(ROOT) && for t in 2.3 4.6; do \
 	    $(PY) tools/plot_tg_mhd_3d.py results/P_tg_mhd/snap/A_re1000_n512 \
 	        results/P_tg_mhd/snap/B_re1000_n512 results/P_tg_mhd/snap/C_re1000_n512 \

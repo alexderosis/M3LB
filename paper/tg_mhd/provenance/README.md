@@ -24,6 +24,13 @@ rule was fixed before the runs it governs. Two records are kept by someone else:
    | f_w estimator corrected | 9f65706 | 2026-09-28 11:55:32 UTC | 2026-09-28 11:56:52 |
    | Mach control | cd07f45 | 2026-09-29 06:22:12 UTC | 2026-09-29 06:22:15 |
    | decision rule and FP64 control (round 2) | d061ee8 | 2026-09-30 20:03:29 UTC | 2026-09-30 20:03:34 |
+   | the budget test, phi (Phase 1) | 8376e66 | 2026-10-02 12:00:24 UTC | 2026-10-02 12:00:26 |
+
+   The last row is from a second capture, `github_activity_2026-10-02T1808Z.json`
+   (the same request, at 18:08:30 GMT), taken after the Phase 1 runs; numbers.py
+   reads every capture here. That commit also carries the code that writes
+   budget.dat, so the runs it governs could not have been made with any earlier
+   commit.
 
 2. **The cluster's accounting.** SLURM records when each job was submitted
    and started, which closes the other end: a rule pushed before the jobs it
