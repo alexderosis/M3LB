@@ -1,0 +1,48 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB, 595.71.05
+
+[ 50%] Building CUDA object CMakeFiles/tg_mhd.dir/src/tg_mhd.cu.o
+~/scratch/M3LB/GPU/include/lbm/core.cuh(176): warning #20013-D: calling a constexpr __host__ function("make_dir_table") from a __host__ __device__ function("pi") is not allowed. The experimental flag '--expt-relaxed-constexpr' can be used to allow this.
+    constexpr DirTable t = make_dir_table();
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+[100%] Linking CUDA executable tg_mhd
+[100%] Built target tg_mhd
+  1.5 s   158.40 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 21 probes, 0.9 s = 60 % of the run on 4 thread(s); 395.39 MLUPS without them
+  peak dissipation eps = 4.3755e-02 at t = 1.912 (past any impulsive start); skewness there 0.315, max 0.428
+  min E_M/E_V = 0.633   first max of Omega_M/Omega_V after its initial fall = not reached
+  1.2 s   205.82 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 21 probes, 0.9 s = 77 % of the run on 4 thread(s); 893.49 MLUPS without them
+  peak dissipation eps = 4.9713e-02 at t = 1.711 (past any impulsive start); skewness there 0.312, max 0.397
+  min E_M/E_V = 0.940   first max of Omega_M/Omega_V after its initial fall = 1.359957
+slip: device vs Kokkos parent, worst column divb/j 5.06e-16 of its scale  PASS
+slip: device vs Kokkos parent, wall-distance profile worst |share| 3.67e-33  PASS
+slip: device vs Kokkos parent, wall-distance profile_visc worst |share| 3.66e-33  PASS
+slip: device vs Kokkos parent, wall-distance profile_ohm worst |share| 7.75e-35  PASS
+slip: device vs Kokkos parent, energy budget worst term pres 1.63e-15 of its scale  PASS
+noslip: device vs Kokkos parent, worst column divb/j 5.54e-16 of its scale  PASS
+noslip: device vs Kokkos parent, wall-distance profile worst |share| 1.20e-33  PASS
+noslip: device vs Kokkos parent, wall-distance profile_visc worst |share| 1.21e-33  PASS
+noslip: device vs Kokkos parent, wall-distance profile_ohm worst |share| 4.15e-35  PASS
+noslip: device vs Kokkos parent, energy budget worst term pres 1.59e-15 of its scale  PASS
+[ 50%] Building CUDA object CMakeFiles/tg_mhd.dir/src/tg_mhd.cu.o
+~/scratch/M3LB/GPU/include/lbm/core.cuh(176): warning #20013-D: calling a constexpr __host__ function("make_dir_table") from a __host__ __device__ function("pi") is not allowed. The experimental flag '--expt-relaxed-constexpr' can be used to allow this.
+    constexpr DirTable t = make_dir_table();
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+[100%] Linking CUDA executable tg_mhd
+[100%] Built target tg_mhd
+
+  39.4 s   718.19 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 6 probes, 16.2 s = 41 % of the run on 4 thread(s); 1219.00 MLUPS without them
+  dissipation peak not reached: eps = 1.3986e-02 still rising at t = 1.000; skewness max 0.407
+  min E_M/E_V = 0.979   first max of Omega_M/Omega_V after its initial fall = not reached
+
+  29.4 s   964.69 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 6 probes, 16.2 s = 55 % of the run on 4 thread(s); 2156.61 MLUPS without them
+  dissipation peak not reached: eps = 2.7322e-02 still rising at t = 1.000; skewness max 0.378
+  min E_M/E_V = 1.089   first max of Omega_M/Omega_V after its initial fall = not reached

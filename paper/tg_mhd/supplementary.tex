@@ -61,7 +61,7 @@ fluid at rest, converges at second order (order $2.00$ over $N=17$, $33$, $65$).
 \emph{The two implementations.} The C++20/Kokkos code and the CUDA code share no
 source. Their host builds agree to every printed digit over 815 steps at $N=65$,
 $\Rey=200$, with free and no slip, and the CUDA build on the device agrees with the
-Kokkos reference to within $5.5\times10^{-16}$ of each diagnostic's scale, in four
+Kokkos reference to within $5.5\times10^{-16}$ of each diagnostic's scale, in five
 verification jobs, each with free and no slip. The runs behind the paper's numbers
 took $34.1$ GPU-hours: the ladder, its two controls, and a second round with the top
 rung, the insulating pair, and reruns of the lower rungs that also write the viscous
@@ -243,10 +243,9 @@ derivatives, closed at each wall by the extension of Sec.~\ref{M-sec:method}.
 printed digit after $t=0$, at $N=65$ and $\Rey=200$ with free and no slip; the six rows
 that differ are those of the terms that vanish at $t=0$ and print round-off there. The
 free-slip box equals its periodic twin the same way. The sixteen runs of the test
-reproduce round 2's time series and profiles exactly.
-% TODO: quote the device's budget against the host's from the verification job's log
-% (tg_mhd_verify.sub, "energy budget worst term"), once it is copied back.
-On the stretching, a check
+reproduce round 2's time series and profiles exactly, and in the verification job that
+preceded them the device's budget agreed with the host's to $1.6\times10^{-15}$ of each
+term's scale, with free and no slip. On the stretching, a check
 the physics gives for free: on the wall nodes of a no-slip conducting box $S$
 vanishes identically, since the velocity and its tangential derivatives vanish and
 the field is tangential.

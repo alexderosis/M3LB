@@ -19,7 +19,8 @@ III. VERIFICATION
   Mach halving, Re 1000 N 512: B-A +0.0626 -> +0.0626, shift -0.00002; A's peak at halved Mach t = 4.04
   FP32 vs FP64, Re 2000 N 512: B-A +0.0372 vs +0.0372, shift -0.00000; series differ up to 4e-05 relative
   over every run: |mass drift| <= 4.4e-05, divb/|j| <= 9.8e-03
-  device against the Kokkos parent (GPU/csf3/tg_mhd_verify.sub): 4 jobs, 8 checks, 8 PASS; worst column 5.5e-16 of its scale
+  device against the Kokkos parent (GPU/csf3/tg_mhd_verify.sub): 5 jobs, 10 checks, 10 PASS; worst column 5.5e-16 of its scale
+  the device's energy budget against the host's (since 2026-10-02): 2 checks, 2 PASS; worst term 1.6e-15 of its scale
   RECORDED: validation/mhd_parity_wall.cpp -- the box against the periodic box it mirrors, both parities, 1e-14 node for node with the transient; B.n on the wall nodes 1e-32; the conducting-wall eigenmode decays at order 2.00 and 2.00 over N = 17, 33, 65
   RECORDED: results/P_tg_mhd/xcheck_n65_re200 -- the CUDA host build against the Kokkos driver, FP64, free and no slip, N = 65, 815 steps: every printed digit
 

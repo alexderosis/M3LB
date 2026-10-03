@@ -1560,8 +1560,10 @@ does) fails on it. Run such scripts from elsewhere.
   **A STAND-IN'S NUMBER IS NOT THE MEASUREMENT.** Drafting S8, the device's
   budget was quoted as matching the host's to 1.4e-15 -- the figure of the
   laptop DRY RUN of the verify check, with the host twin standing in for the
-  device. The verify job's own log was never seen; the sentence is now a TODO
-  until it is.
+  device, before the verify job's own log had been seen. It came back later
+  (job 21829239, `results/P_tg_mhd/ladder/`): every check PASS on the A100, the
+  budget at 1.6e-15 of each term's scale. A similar number from the wrong place
+  is still the wrong number until the right place is read.
 - Left for the author: in `main.tex` the department, funding, the AI-use
   disclosure AIP asks for, and the DOI; in `ARCHIVING.md` a LICENSE (the
   repository has none, so the code is readable but not reusable, and Zenodo will

@@ -190,13 +190,18 @@ def main():
     mass = max(abs(x) for by_n in RUNS.values() for r in by_n.values() for x in T.col(r, "mass_drift"))
     divb = max(max(T.col(r, "divb/j")[1:]) for by_n in RUNS.values() for r in by_n.values())
     say("  over every run: |mass drift| <= %.1e, divb/|j| <= %.1e" % (mass, divb))
-    dev, jobs = [], glob.glob(os.path.join(res("ladder"), "tg_mhd_verify-*.log"))
+    dev, bdev, jobs = [], [], glob.glob(os.path.join(res("ladder"), "tg_mhd_verify-*.log"))
     for lg in jobs:
         with open(lg) as f:
-            dev += [(float(x.split("divb/j")[1].split()[0]), x.rstrip().endswith("PASS")) for x in f
-                    if "worst column" in x]
+            for x in f:
+                if "worst column" in x:
+                    dev.append((float(x.split("divb/j")[1].split()[0]), x.rstrip().endswith("PASS")))
+                elif "energy budget worst term" in x:
+                    bdev.append((float(x.split("worst term")[1].split()[1]), x.rstrip().endswith("PASS")))
     say("  device against the Kokkos parent (GPU/csf3/tg_mhd_verify.sub): %d jobs, %d checks, %d PASS; "
         "worst column %.1e of its scale" % (len(jobs), len(dev), sum(ok for _, ok in dev), max(v for v, _ in dev)))
+    say("  the device's energy budget against the host's (since 2026-10-02): %d checks, %d PASS; worst term"
+        " %.1e of its scale" % (len(bdev), sum(ok for _, ok in bdev), max(v for v, _ in bdev)))
     say("  RECORDED: validation/mhd_parity_wall.cpp -- the box against the periodic box it mirrors, both parities, "
         "1e-14 node for node with the transient; B.n on the wall nodes 1e-32; the conducting-wall eigenmode decays at "
         "order 2.00 and 2.00 over N = 17, 33, 65")
