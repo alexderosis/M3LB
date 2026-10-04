@@ -1,0 +1,30 @@
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP64
+  walls: velocity free-slip (SpecNode), field CONDUCTING parity
+  ic tgc   N = 256 (256^3 nodes)   Re = 1000   Pm = 1   u0 = 0.05 (Ma 0.087)
+  nu_lat = 4.0585e-03  tau_f = 0.51218   eta_lat = 4.0585e-03  tau_m = 0.51623
+  dt = 6.1600e-04  ->  81169 steps to t = 50   ->  /net/scratch/f07459ad/M3LB/runs/tg_mhd_pilot/A_re1000_n256_f0.1_m0.2
+  DRIVEN: Taylor-Green force 0.1 on the flow and TG-C source 0.2 on the field, in the bulk: zero within 0.15 of every wall and full beyond 0.35
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 1.25004e-01 1.25000e-01    1.0000    3.9993 3.749e-03     3.464  3.36e-15  +0.0e+00     0.0403
+    2.501 1.71497e-01 1.52631e-01    0.8900    1.7901 6.078e-02    49.967  1.14e-02  -7.9e-06     0.0279
+    5.002 1.32467e-01 9.01849e-02    0.6808    1.4685 6.576e-02    61.371  1.42e-02  +4.1e-07     0.0558
+    7.503 8.45354e-02 7.66887e-02    0.9072    1.4854 3.485e-02    22.442  9.24e-03  +6.5e-06     0.0291
+   10.004 7.81972e-02 7.34450e-02    0.9392    1.5460 3.277e-02    22.276  9.25e-03  +2.0e-06     0.0235
+   12.505 8.53854e-02 7.84522e-02    0.9188    1.4145 2.959e-02    22.382  8.77e-03  +2.4e-06     0.0131
+   15.006 8.11036e-02 9.28236e-02    1.1445    1.6603 3.671e-02    31.600  8.80e-03  +1.5e-06     0.0305
+   17.507 7.00320e-02 1.11308e-01    1.5894    1.6223 3.280e-02    29.099  8.88e-03  +5.1e-06     0.0224
+   20.008 6.97257e-02 1.29300e-01    1.8544    1.8130 3.955e-02    33.733  7.67e-03  +3.5e-06     0.0411
+   22.509 6.61042e-02 1.42372e-01    2.1537    2.0101 3.315e-02    39.435  7.27e-03  +3.3e-06     0.0245
+   25.010 7.15467e-02 1.61290e-01    2.2543    2.0840 3.580e-02    34.313  7.93e-03  -5.1e-07     0.0211
+   27.510 6.28410e-02 2.18547e-01    3.4778    2.0349 3.108e-02    20.651  5.82e-03  +3.6e-06     0.0193
+   30.011 7.75482e-02 2.42175e-01    3.1229    2.3427 3.585e-02    20.990  5.58e-03  +8.7e-06     0.0196
+   32.512 6.20800e-02 3.04873e-01    4.9110    2.7157 3.660e-02    25.386  5.75e-03  +6.0e-06     0.0226
+   35.013 6.64768e-02 3.87749e-01    5.8328    3.6840 3.844e-02    26.442  4.69e-03  +9.3e-06     0.0193
+  DIVERGED at t = 35.7636 (step 58058)
+
+  1429.1 s   975.38 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 144 probes, 358.1 s = 25 % of the run on 4 thread(s); 1301.48 MLUPS without them
+  peak dissipation eps = 7.3601e-02 at t = 3.251 (past any impulsive start); skewness there 0.224, max 0.576
+  min E_M/E_V = 0.584   first max of Omega_M/Omega_V after its initial fall = 2.148992
+  Pouquet et al. (2010) C2, nu = eta = 1e-3: min E_M/E_V = 0.35, first max Omega_M/Omega_V = 2

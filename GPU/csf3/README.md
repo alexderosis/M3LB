@@ -107,6 +107,9 @@ sbatch --array=6-12  --time=3:00:00 GPU/csf3/tg_mhd_controls.sub    # chained on
 sbatch --array=13-21 --time=1:30:00 GPU/csf3/tg_mhd_controls.sub    # (see below)
 sbatch --array=0-17,36-37 --time=1:00:00 GPU/csf3/tg_mhd_pilot.sub  # Phase 3: the forced boxes' pilot,
 sbatch --array=18-35 --time=0:30:00 GPU/csf3/tg_mhd_pilot.sub       # chained on the verify job (see below)
+sbatch --array=0-1   --time=16:00:00 GPU/csf3/tg_mhd_pilot2.sub    # its second round, likewise
+sbatch --array=2-13  --time=2:30:00  GPU/csf3/tg_mhd_pilot2.sub
+sbatch --array=14-25 --time=1:00:00  GPU/csf3/tg_mhd_pilot2.sub
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -345,6 +348,28 @@ then `python3 tools/tg_mhd_forced.py pilot runs/tg_mhd_pilot`, and copy back wit
 
 ```
 rsync -av --include='*/' --include='series.dat' --include='profile*.dat' --include='budget.dat' --include='log.txt' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_pilot/ results/P_tg_mhd/pilot/
+```
+
+Its rule gave INCONCLUSIVE (2026-10-04): at Re = 1000 the field was still
+growing at t = 50, the strong fields diverged, and the target lies beyond the
+Mach bound. **`tg_mhd_pilot2.sub`** is the second round its header calls for:
+F0 = 0.15/0.2/0.3 x FM = 0.05/0.1 to t = 150, A and B at Re = 250 and 1000, plus
+the top rung -- A and B at Re = 2000 on N = 512, FP32, for (0.2, 0.1) -- with a
+stationarity condition over t = 100..150. 26 elements, about 50 GPU-hours, the
+two top-rung elements ~13 h each:
+
+```
+git pull
+jid=$(sbatch --parsable GPU/csf3/tg_mhd_verify.sub)
+sbatch --dependency=afterok:$jid --array=0-1   --time=16:00:00 GPU/csf3/tg_mhd_pilot2.sub
+sbatch --dependency=afterok:$jid --array=2-13  --time=2:30:00  GPU/csf3/tg_mhd_pilot2.sub
+sbatch --dependency=afterok:$jid --array=14-25 --time=1:00:00  GPU/csf3/tg_mhd_pilot2.sub
+```
+
+then `python3 tools/tg_mhd_forced.py pilot runs/tg_mhd_pilot2 --round 2`, and copy back with
+
+```
+rsync -av --include='*/' --include='series.dat' --include='profile*.dat' --include='budget.dat' --include='log.txt' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_pilot2/ results/P_tg_mhd/pilot2/
 ```
 
 ---

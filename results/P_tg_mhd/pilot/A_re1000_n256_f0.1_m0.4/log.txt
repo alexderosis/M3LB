@@ -1,0 +1,23 @@
+Taylor-Green MHD, CLOSED box [0,pi]^3, on-node walls   CUDA native   FP64
+  walls: velocity free-slip (SpecNode), field CONDUCTING parity
+  ic tgc   N = 256 (256^3 nodes)   Re = 1000   Pm = 1   u0 = 0.05 (Ma 0.087)
+  nu_lat = 4.0585e-03  tau_f = 0.51218   eta_lat = 4.0585e-03  tau_m = 0.51623
+  dt = 6.1600e-04  ->  81169 steps to t = 50   ->  /net/scratch/f07459ad/M3LB/runs/tg_mhd_pilot/A_re1000_n256_f0.1_m0.4
+  DRIVEN: Taylor-Green force 0.1 on the flow and TG-C source 0.4 on the field, in the bulk: zero within 0.15 of every wall and full beyond 0.35
+
+        t         E_V         E_M     EM/EV   OmM/OmV       eps     j_max    divb/j      mass     fw(1d)
+    0.000 1.25004e-01 1.25000e-01    1.0000    3.9993 3.749e-03     3.464  3.36e-15  +0.0e+00     0.0403
+    2.501 1.98635e-01 2.51799e-01    1.2676    2.1098 1.191e-01    78.840  1.16e-02  -1.4e-05     0.0667
+    5.002 1.44828e-01 1.47999e-01    1.0219    1.2687 1.099e-01    53.500  1.56e-02  +7.7e-06     0.0358
+    7.503 1.05101e-01 1.79106e-01    1.7041    1.5229 8.538e-02    57.482  1.27e-02  +6.3e-06     0.0345
+   10.004 1.03055e-01 1.96652e-01    1.9082    1.6116 9.148e-02    73.321  1.29e-02  +1.5e-06     0.0313
+   12.505 1.11312e-01 2.18745e-01    1.9652    1.9149 1.060e-01    61.993  1.33e-02  -1.0e-06     0.0315
+   15.006 1.09768e-01 1.99842e-01    1.8206    1.7517 1.152e-01    64.300  1.39e-02  +2.2e-06     0.0325
+   17.507 6.08772e-02 2.59881e-01    4.2689    2.0228 8.129e-02    58.560  1.37e-02  +8.3e-06     0.0261
+  DIVERGED at t = 20.0076 (step 32480)
+
+  887.6 s   1570.51 MLUPS (storage nodes x steps; field and probes included)
+  host diagnostics: 81 probes, 285.8 s = 32 % of the run on 4 thread(s); 2316.50 MLUPS without them
+  peak dissipation eps = 1.3867e-01 at t = 4.252 (past any impulsive start); skewness there 0.274, max 0.490
+  min E_M/E_V = 0.857   first max of Omega_M/Omega_V after its initial fall = 4.283603
+  Pouquet et al. (2010) C2, nu = eta = 1e-3: min E_M/E_V = 0.35, first max Omega_M/Omega_V = 2

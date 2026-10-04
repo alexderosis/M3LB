@@ -1,31 +1,41 @@
 #!/usr/bin/env python3
 """Phase 3 of the confined-MHD paper: the forced, statistically steady boxes.
 
-    tg_mhd_forced.py pilot PILOT_DIR [--window 25 50] [--round2 DIR]
+    tg_mhd_forced.py pilot PILOT_DIR [--round 1|2] [--window T0 T1] [--round2 DIR]
     tg_mhd_forced.py shares RUN_DIR... --window T0 T1 --batches NB
 
-PILOT_DIR holds what GPU/csf3/tg_mhd_pilot.sub writes (runs/tg_mhd_pilot/, or
-results/P_tg_mhd/pilot/ once copied back): one <A|B>_re<Re>_n<N>_f<F0>_m<FM>[_fp32]/
-per run, each driven by the bulk Taylor-Green force F0 (-drive) and the bulk
-TG-C source FM on the field (-bdrive). The pilot exists to fix the forcing
-amplitudes, and the transient and averaging scales, BEFORE the forced test is
-registered -- and to do it without seeing the test's observable. So this tool
-reads only E_V, E_M, eps, umax_lat and the divergence flag of each series. It
-never reads f_w, the wall-distance profiles or the budget, and prints nothing
-derived from them.
+PILOT_DIR holds what a pilot job writes -- GPU/csf3/tg_mhd_pilot.sub (round 1,
+runs/tg_mhd_pilot/ or results/P_tg_mhd/pilot/) or tg_mhd_pilot2.sub (round 2,
+runs/tg_mhd_pilot2/ or results/P_tg_mhd/pilot2/): one
+<A|B>_re<Re>_n<N>_f<F0>_m<FM>[_fp32]/ per run, each driven by the bulk
+Taylor-Green force F0 (-drive) and the bulk TG-C source FM on the field
+(-bdrive). The pilot exists to fix the forcing amplitudes, and the transient and
+averaging scales, BEFORE the forced test is registered -- and to do it without
+seeing the test's observable. So `pilot` reads only E_V, E_M, eps, umax_lat,
+div B and the divergence flag of each series. It never reads f_w, the
+wall-distance profiles or the budget, and prints nothing derived from them.
 
-THE SELECTION RULE (stated and argued in GPU/csf3/tg_mhd_pilot.sub, fixed before
-the runs): among the pairs (F0, FM) whose four runs -- A and B at Re = 250 and
-1000 -- all reach t = 50 finite with umax_lat <= 0.08, and whose A at Re = 1000
-is unsteady (the r.m.s. of eps over the window above 1 % of its mean), take the
-one whose A at Re = 1000 lies closest to that box's turbulent peak in the
-decaying ladder (round 2's A, Re = 1000, N = 512), in the distance
+THE SELECTION RULES (stated and argued in each job's header, fixed before its
+runs). Both take, among the pairs (F0, FM) that qualify, the one whose A at
+Re = 1000 lies closest to that box's turbulent peak in the decaying ladder
+(round 2's A, Re = 1000, N = 512), in the distance
 
     D = |ln(<eps> / eps_pk)| + |ln((<E_M>/<E_V>) / (E_M/E_V)_pk)|
 
-with <.> the trapezoidal mean over the window. If the closest pair sits on the
-edge of the scan with D > 0.5, the pilot is INCONCLUSIVE and is extended before
-anything is registered.
+with <.> the trapezoidal mean over the window. A pair qualifies when its four
+runs -- A and B at Re = 250 and 1000 -- are finite to the window's end and its A
+at Re = 1000 is unsteady (the r.m.s. of eps over the window above 1 % of its
+mean), and
+  ROUND 1 (window t = 25..50): umax_lat <= 0.08 over the WHOLE run; and if the
+     closest pair sits on the scan's edge with D > 0.5, the pilot is
+     INCONCLUSIVE and is extended. It was (2026-10-04).
+  ROUND 2 (window t = 100..150): umax_lat <= 0.08 over the WINDOW, and every
+     one of the four runs STATIONARY -- E_V and E_M averaged over the window's
+     two halves differ by less than 25 % of their window means. The closest
+     qualifying pair is taken whatever its D; none qualifying ends the pilot
+     without a selection.
+Runs at Re = 2000 (round 2's top-rung pair) gate nothing: they are reported, with
+their stationarity, for the production's length.
 
 Reported beside it, per run: the window means, the r.m.s. of eps, the integral
 time of eps (its autocorrelation summed to the first zero), when the run settles
@@ -57,7 +67,8 @@ import tg_mhd_ladder as T     # noqa: E402
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 UMAX = 0.08                    # the Mach bound on umax_lat, Ma = 0.139
 UNSTEADY = 0.01                # r.m.s./mean of eps above which a run is unsteady
-EDGE_D = 0.5                   # a selection on the scan's edge further than this is no selection
+EDGE_D = 0.5                   # round 1: a selection on the scan's edge further than this is no selection
+STATIONARY = 0.25              # round 2: largest drift of E_V or E_M between the window's halves
 DIR_RE = re.compile(r"^(A|B)_re(\d+)_n(\d+)_f([0-9.]+)_m([0-9.]+)(_fp32)?$")
 
 
@@ -76,13 +87,17 @@ def load(d):
 
 def window_stats(run, t0, t1):
     """Means over [t0, t1] (trapezoidal), the r.m.s. of eps and its integral time,
-    the settling time of E_T and the largest umax_lat over the run; or a string
-    saying why there are none."""
+    the settling time of E_T, the largest umax_lat over the run and over the
+    window, and the drift of E_V and E_M between the window's two halves; or a
+    string saying why there are none."""
     if run["diverged"]:
         return "diverged"
     t = T.col(run, "t")
-    if t[-1] < t1 - 1e-6:
+    # Probes fall on whole steps, so a complete run's last one sits just short of
+    # t1 (49.999987 at N = 256); the same 1e-2 as tg_mhd_ladder.integrated.
+    if t[-1] < t1 - 1e-2:
         return "reached only t = %.2f" % t[-1]
+    t1 = min(t1, t[-1])
     cols = ("E_V", "E_M", "E_T", "eps")
     q = [(r[0], [r[T.IX[c]] for c in cols]) for r in run["rows"]]
     if not all(math.isfinite(v) for _, vs in q for v in vs):
@@ -115,7 +130,15 @@ def window_stats(run, t0, t1):
             settle = r[0]
     m["settle"] = settle
     m["umax"] = max(r[T.IX["umax_lat"]] for r in run["rows"])
+    m["umax_win"] = max(r[T.IX["umax_lat"]] for r in run["rows"] if t0 - 1e-9 <= r[0] <= t1 + 1e-9)
     m["divb"] = max(r[T.IX["divb/j"]] for r in run["rows"] if t0 - 1e-9 <= r[0] <= t1 + 1e-9)
+    # stationarity: each energy's mean over the window's two halves, as a share of
+    # its window mean
+    h = 0.5 * (t0 + t1)
+    m1 = [x / (h - t0) for x in T.trapz_window(q, t0, h)]
+    m2 = [x / (t1 - h) for x in T.trapz_window(q, h, t1)]
+    m["drift_V"] = abs(m2[0] - m1[0]) / m["E_V"]
+    m["drift_M"] = abs(m2[1] - m1[1]) / m["E_M"]
     return m
 
 
@@ -133,7 +156,8 @@ def target(round2):
 
 
 def pilot(args):
-    t0, t1 = args.window
+    rnd = args.round
+    t0, t1 = args.window if args.window else ((25.0, 50.0) if rnd == 1 else (100.0, 150.0))
     eps_pk, ratio_pk, t_pk = target(args.round2)
     runs = []
     for name in sorted(os.listdir(args.pilot_dir)):
@@ -143,11 +167,13 @@ def pilot(args):
     if not runs:
         print("no pilot runs in %s" % args.pilot_dir)
         return 1
-    print("Phase 3 pilot (GPU/csf3/tg_mhd_pilot.sub): window t = %g..%g" % (t0, t1))
+    print("Phase 3 pilot, round %d (GPU/csf3/%s): window t = %g..%g"
+          % (rnd, "tg_mhd_pilot.sub" if rnd == 1 else "tg_mhd_pilot2.sub", t0, t1))
     print("target, round 2's A at Re = 1000 (N = 512) at its turbulent peak, t = %.2f: "
           "eps %.4f, E_M/E_V %.3f\n" % (t_pk, eps_pk, ratio_pk))
-    print("  %-30s %8s %8s %8s %7s %8s %7s %7s %7s %8s" % (
-        "run", "<E_V>", "<E_M>", "<eps>", "EM/EV", "eps rms", "t_int", "settle", "umax", "divb/j"))
+    print("  %-30s %8s %8s %8s %7s %8s %7s %7s %7s %7s %8s %13s" % (
+        "run", "<E_V>", "<E_M>", "<eps>", "EM/EV", "eps rms", "t_int", "settle", "umax", "in win",
+        "divb/j", "drift V / M"))
     stats = {}
     for r in runs:
         tag = "%s Re %4d N %d F0 %g FM %g%s" % (r["box"], r["re"], r["n"], r["F0"], r["FM"],
@@ -157,9 +183,10 @@ def pilot(args):
         if isinstance(st, str):
             print("  %-30s %s" % (tag, st))
             continue
-        print("  %-30s %8.4f %8.4f %8.4f %7.3f %7.1f%% %7.2f %7.2f %7.4f %8.1e" % (
+        print("  %-30s %8.4f %8.4f %8.4f %7.3f %7.1f%% %7.2f %7.2f %7.4f %7.4f %8.1e %5.1f%% / %4.1f%%" % (
             tag, st["E_V"], st["E_M"], st["eps"], st["E_M"] / st["E_V"], 100 * st["eps_rms"] / st["eps"],
-            st["tau_int"], st["settle"], st["umax"], st["divb"]))
+            st["tau_int"], st["settle"], st["umax"], st["umax_win"], st["divb"],
+            100 * st["drift_V"], 100 * st["drift_M"]))
 
     # ---- FP32 against FP64 at the same pair, where the pilot ran it ----------
     for (b, Re, f0, fm, p32), st in sorted(stats.items(), key=lambda kv: kv[0][:4]):
@@ -172,9 +199,21 @@ def pilot(args):
                                                          100 * (st["eps"] / s64["eps"] - 1),
                                                          100 * s64["eps_rms"] / s64["eps"]))
 
+    # ---- the top rung (round 2): reported, gating nothing ---------------------
+    for (b, Re, f0, fm, p32), st in sorted(stats.items(), key=lambda kv: kv[0][:4]):
+        if Re == 2000:
+            if isinstance(st, str):
+                print("  TOP RUNG %s Re 2000 F0 %g FM %g: %s" % (b, f0, fm, st))
+            else:
+                print("  TOP RUNG %s Re 2000 F0 %g FM %g: %s over the window (drift V %.1f %%, M %.1f %%),"
+                      " settles by t = %.2f, umax_lat %.4f in the window"
+                      % (b, f0, fm, "STATIONARY" if max(st["drift_V"], st["drift_M"]) < STATIONARY
+                         else "NOT STATIONARY", 100 * st["drift_V"], 100 * st["drift_M"], st["settle"],
+                         st["umax_win"]))
+
     # ---- the selection -------------------------------------------------------
-    F0s = sorted({r["F0"] for r in runs if not r["fp32"]})
-    FMs = sorted({r["FM"] for r in runs if not r["fp32"]})
+    F0s = sorted({r["F0"] for r in runs if not r["fp32"] and r["re"] in (250, 1000)})
+    FMs = sorted({r["FM"] for r in runs if not r["fp32"] and r["re"] in (250, 1000)})
     print("\nSELECTION over F0 = %s, FM = %s" % (", ".join("%g" % v for v in F0s),
                                                   ", ".join("%g" % v for v in FMs)))
     best = None
@@ -186,8 +225,13 @@ def pilot(args):
                 why = "a run is missing"
             elif any(isinstance(s, str) for s in four):
                 why = "a run " + next(s for s in four if isinstance(s, str))
-            elif any(s["umax"] > UMAX for s in four):
+            elif rnd == 1 and any(s["umax"] > UMAX for s in four):
                 why = "umax_lat %.4f > %g" % (max(s["umax"] for s in four), UMAX)
+            elif rnd == 2 and any(s["umax_win"] > UMAX for s in four):
+                why = "umax_lat %.4f > %g in the window" % (max(s["umax_win"] for s in four), UMAX)
+            elif rnd == 2 and any(max(s["drift_V"], s["drift_M"]) >= STATIONARY for s in four):
+                why = "not stationary (drift %.1f %%)" % (100 * max(max(s["drift_V"], s["drift_M"])
+                                                                   for s in four))
             a = stats.get(("A", 1000, F0, FM, False))
             if why is None and a["eps_rms"] / a["eps"] <= UNSTEADY:
                 why = "A at Re = 1000 is steady (eps r.m.s. %.2f %%)" % (100 * a["eps_rms"] / a["eps"])
@@ -204,7 +248,7 @@ def pilot(args):
         return 1
     D, F0, FM = best
     edge = F0 in (F0s[0], F0s[-1]) or FM in (FMs[0], FMs[-1])
-    if edge and D > EDGE_D:
+    if rnd == 1 and edge and D > EDGE_D:
         print("  verdict: INCONCLUSIVE -- the closest pair, F0 = %g, FM = %g, is on the scan's edge"
               " with D = %.3f > %g; extend the scan" % (F0, FM, D, EDGE_D))
         return 1
@@ -243,6 +287,7 @@ def batch_means(run, t0, t1, nb):
     q = integrand(run)
     if q[0][0] > t0 + 1e-2 or q[-1][0] < t1 - 1e-2:
         return "run covers t = %.2f..%.2f only" % (q[0][0], q[-1][0])
+    t1 = min(t1, q[-1][0])
     F = shares_over(q, t0, t1)
     L = (t1 - t0) / nb
     Fb = [shares_over(q, t0 + k * L, t0 + (k + 1) * L)[0] for k in range(nb)]
@@ -282,7 +327,9 @@ def main(argv):
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("pilot", help="select the forcing amplitudes from the pilot")
     p.add_argument("pilot_dir")
-    p.add_argument("--window", type=float, nargs=2, default=[25.0, 50.0])
+    p.add_argument("--round", type=int, choices=(1, 2), default=1)
+    p.add_argument("--window", type=float, nargs=2, default=None,
+                   help="default: 25 50 in round 1, 100 150 in round 2")
     p.add_argument("--round2", default=os.path.join(ROOT, "results", "P_tg_mhd", "round2"))
     q = sub.add_parser("shares", help="time-averaged near-wall shares with batch-mean errors")
     q.add_argument("run_dirs", nargs="+")

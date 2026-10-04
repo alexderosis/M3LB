@@ -1,0 +1,180 @@
+#!/bin/bash --login
+#==============================================================================
+#  Phase 3 of the confined-MHD paper (paper/tg_mhd/): the PILOT'S SECOND ROUND,
+#  for the forced, statistically steady boxes. Like the first
+#  (tg_mhd_pilot.sub, whose header argues the forcing), it fixes the forcing
+#  amplitudes and the transient and averaging scales of the forced test, which
+#  is registered separately AFTER it and before its own runs. It tests nothing.
+#
+#  WHAT ROUND 1 FOUND (2026-10-04; results/P_tg_mhd/pilot/, all 38 runs; read
+#  with `tools/tg_mhd_forced.py pilot`, which reads no f_w):
+#   * ITS RULE GAVE "INCONCLUSIVE". Only (F0, FM) = (0.1, 0.1) qualified, at
+#     D = 2.08 (E_M/E_V 1.61, eps 0.0158 against the target's 0.467 and
+#     0.0369), on the scan's edge. The tool's first reading had excluded every
+#     run as unfinished -- probes fall on whole steps, so a complete run's last
+#     one is at t = 49.999987, and the tolerance was 1e-6; it is now
+#     tg_mhd_ladder's 1e-2, and with it the verdict above.
+#   * THE STRONG FIELDS DIVERGE AT Re = 1000 ON N = 256. 9 of the 12 FP64 runs
+#     there with FM >= 0.2 went non-finite, between t = 20 and 49.5, E_M at
+#     0.36-0.68 at each one's last probe but one, which caught the blow-up
+#     itself; none of the 6 with FM = 0.1 did, and none of the 18 at Re = 250,
+#     FM up to 0.4. N = 256 at Re = 1000 has the tau and the cell Reynolds
+#     number of the top rung's coarser grid (N = 512 at Re = 2000).
+#   * THE MACH BOUND BITES TWICE. (0.2, 0.1) fell out on umax_lat = 0.0822 at
+#     t = 4.25 -- the start from the decaying runs' initial condition with the
+#     force switched on; over t >= 25 its largest is 0.067. F0 = 0.4 is past the
+#     bound inside the window too (0.100 and 0.110 at FM = 0.1 and 0.2), so the
+#     target -- whose eps needs F0 between 0.2 and 0.4 at FM = 0.1 -- lies
+#     beyond the bound at u0 = 0.05.
+#   * AT Re = 1000 NOTHING IS STEADY BY t = 50. Between the two halves of
+#     t = 25..50, E_M drifts by 7-54 % and E_V by 1-17 %. Under weak flow
+#     forcing (F0 = 0.1) the field's projection on the forced pattern grows with
+#     E_M (the box mean of injM / FM, squared, stays at 0.18-0.30 of E_M): the
+#     forced mode piling up on its Ohmic time, 1/(eta k^2) = Re/12 = 83 at
+#     Re = 1000. Under strong forcing (F0 = 0.4) E_M grows OUTSIDE the forced
+#     pattern (that share falls from 0.12 to 0.02): the flow building field,
+#     dynamo-like. Nor is Re = 250, Ohmic time 21, steady by then: E_M drifts by
+#     0.1-54 % between the halves there too, so the slow evolution is not only
+#     the forced mode's pile-up. The integral time of eps is 0.5-4.6 time units.
+#
+#  ROUND 2, THEREFORE: longer, weaker in the field, and narrower in the flow.
+#      F0 = 0.15, 0.2, 0.3   x   FM = 0.05, 0.1
+#  FM <= 0.1 because every run that diverged had FM >= 0.2; F0 <= 0.3 because
+#  0.4 broke the bound inside the window, and 0.15-0.3 brackets 0.2, the pair
+#  nearest the target inside it. A and B at Re = 1000 (N = 256) and Re = 250
+#  (N = 192), FP64, to t = 150, probes every 0.5, from the decaying runs'
+#  initial condition as before. And THE TOP RUNG, which nothing in round 1
+#  reached: A and B at Re = 2000 on N = 512 in FP32 -- the production's
+#  coarser grid and its precision -- for the pair nearest the target inside the
+#  bound in round 1, (0.2, 0.1), to t = 150: whether it survives that long,
+#  when its field settles, and its Mach number in the window.
+#
+#  THE SELECTION RULE, FIXED HERE BEFORE THE RUNS (2026-10-04). As round 1's --
+#  the pair whose free-slip box at Re = 1000 lies closest to that box's
+#  turbulent peak in the decaying ladder (eps 0.0369, E_M/E_V 0.467) in
+#  D = |ln(<eps>/0.0369)| + |ln((<E_M>/<E_V>)/0.467)| -- over the window
+#  t = 100..150, among the pairs whose four runs (A and B, Re = 250 and 1000)
+#    1. are finite to t = 150,
+#    2. keep umax_lat <= 0.08 (Ma 0.139) over the WINDOW,
+#    3. are STATIONARY: E_V and E_M averaged over t = 100..125 and over
+#       125..150 differ by less than 25 % of their means over the window,
+#  and whose A at Re = 1000 is unsteady (the r.m.s. of eps above 1 % of its
+#  mean). The closest qualifying pair is taken WHATEVER ITS D, which is
+#  reported; if none qualifies, the pilot ends without a selection, and the
+#  forced design is reconsidered before anything is registered.
+#  WHAT CHANGED FROM ROUND 1, AND WHY. The window: the field needs more than 50
+#  time units at Re = 1000. The Mach bound is read over the window, where the
+#  measurement is, not over the start: the one pair round 1 lost to it while
+#  inside it over the window, (0.2, 0.1), lost it at the start-up from the
+#  decaying initial condition, which the transient discards; and a run must
+#  still be finite throughout. The
+#  stationarity condition is new because round 1 showed it is the binding
+#  question, and it is a GUARD, not the test of a steady state: round 1's
+#  drifts run continuously from 0.1 to 54 %, with no gap between growth and
+#  fluctuation, and a steady signal fluctuating by ~15 % with a correlation of
+#  a few time units can differ by 10-15 % between two 25-unit halves by chance.
+#  25 % rejects the sustained growth round 1 showed -- 35-54 % of E_M between
+#  12.5-unit halves where the field was piling up, which halves twice as long
+#  would double -- without rejecting such a flow on its fluctuations; the
+#  production's own stationarity test is registered with it. The edge clause
+#  is gone: round 1 showed that the target lies beyond the Mach bound at
+#  u0 = 0.05, so the closest pair inside it will not reach it, and a scan
+#  extended toward it would only cross the bound. The top-rung pair gates
+#  nothing; it fixes the production's length and says whether its top rung can
+#  run at all.
+#
+#  WHAT THE PILOT CANNOT SEE. tools/tg_mhd_forced.py's `pilot` reads only E_V,
+#  E_M, eps, umax_lat, div B and the divergence flag (`--round 2` applies this
+#  rule). Every run also writes f_w, its profiles and the budget; they are not
+#  to be looked at before the forced test is registered. Round 1's were not:
+#  what was read of them is the box mean of injM, the field's projection on the
+#  forcing above, and nothing nearer a wall than the whole box. The Re = 2000
+#  runs are on a production grid, and the same holds for them.
+#
+#  THE RUNS -- 26 elements:
+#      0-1    Re = 2000, N = 512, FP32: the pair (0.2, 0.1), A and B
+#      2-13   Re = 1000, N = 256, FP64: pair k = (i-2)/2 (A if i even, B if odd)
+#      14-25  Re =  250, N = 192, FP64: pair k = (i-14)/2, likewise
+#  with pair k = (F0, FM) = ({0.15, 0.2, 0.3}[k/2], {0.05, 0.1}[k%2]).
+#
+#  COST, from round 1's logs and Phase 1's (steps per unit time and probes with
+#  the budget, on CSF3): N = 512 FP32, 267 s + 2 probes of ~24 s, ~13 h an
+#  element; N = 256, 30 s + 2 x 2.9 s, ~1.5 h; N = 192, 10.6 s + 2 x 1.1 s,
+#  ~0.55 h. About 50 GPU-hours in all.
+#
+#  SUBMIT from the repo root, after git pull, chained on the verify job, which
+#  rebuilds build64 and build32 from the current source and checks the device's
+#  forced runs against host references before anything here starts:
+#
+#      jid=$(sbatch --parsable GPU/csf3/tg_mhd_verify.sub)
+#      sbatch --dependency=afterok:$jid --array=0-1   --time=16:00:00 GPU/csf3/tg_mhd_pilot2.sub
+#      sbatch --dependency=afterok:$jid --array=2-13  --time=2:30:00  GPU/csf3/tg_mhd_pilot2.sub
+#      sbatch --dependency=afterok:$jid --array=14-25 --time=1:00:00  GPU/csf3/tg_mhd_pilot2.sub
+#
+#  OUTPUT: runs/tg_mhd_pilot2/<A|B>_re<Re>_n<N>_f<F0>_m<FM>[_fp32]/ with
+#  series.dat, profile*.dat, budget.dat and log.txt. Then, on the login node
+#  (pure stdlib):
+#      python3 tools/tg_mhd_forced.py pilot runs/tg_mhd_pilot2 --round 2
+#  and copy back, from the laptop's repo root:
+#      rsync -av --include='*/' --include='series.dat' --include='profile*.dat' \
+#            --include='budget.dat' --include='log.txt' --exclude='*' \
+#            csf3:scratch/M3LB/runs/tg_mhd_pilot2/ results/P_tg_mhd/pilot2/
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-2:30               # elements 2-13; see the header for 0-1 and 14-25
+#SBATCH -J tg_mhd_pilot2
+#SBATCH -o tg_mhd_pilot2-%A_%a.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+i=${SLURM_ARRAY_TASK_ID:?"submit as an array job; see the header"}
+
+F0S=(0.15 0.2 0.3)
+FMS=(0.05 0.1)
+if [ "$i" -eq 0 ] || [ "$i" -eq 1 ]; then
+  RE=2000; N=512; PREC=32; SUF="_fp32"; F0=0.2; FM=0.1
+elif [ "$i" -ge 2 ] && [ "$i" -le 13 ]; then
+  k=$(( (i - 2) / 2 ));  RE=1000; N=256; PREC=64; SUF=""
+  F0=${F0S[$(( k / 2 ))]}; FM=${FMS[$(( k % 2 ))]}
+elif [ "$i" -ge 14 ] && [ "$i" -le 25 ]; then
+  k=$(( (i - 14) / 2 )); RE=250;  N=192; PREC=64; SUF=""
+  F0=${F0S[$(( k / 2 ))]}; FM=${FMS[$(( k % 2 ))]}
+else
+  echo "ERROR: element $i -- this job has elements 0-25 (see the header)" >&2
+  exit 1
+fi
+if [ $(( i % 2 )) -eq 0 ]; then NAME=A; else NAME=B; fi
+
+BIN="$ROOT/GPU/build$PREC/tg_mhd"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN -- run tg_mhd_verify.sub first, which builds it" >&2
+  exit 1
+fi
+# A binary older than any source it depends on is stale: refuse, and say which.
+STALE=$(find "$ROOT/GPU/src/tg_mhd.cu" "$ROOT/GPU/include" -newer "$BIN" -type f | head -3)
+if [ -n "$STALE" ]; then
+  echo "ERROR: $BIN is older than:" >&2
+  echo "$STALE" | sed 's/^/    /' >&2
+  echo "  Rebuild by running tg_mhd_verify.sub, or: cd $ROOT/GPU && cmake --build build$PREC --target tg_mhd -j8" >&2
+  exit 1
+fi
+
+case $NAME in
+  A) FLAGS=(-vwall slip   -mwall cond -ic tgc) ;;
+  B) FLAGS=(-vwall noslip -mwall cond -ic tgc) ;;
+esac
+
+OUT="$ROOT/runs/tg_mhd_pilot2/${NAME}_re${RE}_n${N}_f${F0}_m${FM}${SUF}"
+mkdir -p "$OUT"
+echo "element $i: setup $NAME, Re $RE, N $N, FP$PREC, drive $F0, bdrive $FM -> $OUT"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+"$BIN" -n "$N" "${FLAGS[@]}" -drive "$F0" -bdrive "$FM" -re "$RE" -tmax 150 -probe 0.5 \
+       -out "$OUT" 2>&1 | tee "$OUT/log.txt"

@@ -1635,6 +1635,27 @@ does) fails on it. Run such scripts from elsewhere.
   `tools/tg_mhd_forced.py pilot` applies it READING NO f_w: the amplitudes must
   not be chosen by the observable. The forced test's own rule is registered
   after the pilot, from its transient and integral time.
+  **ROUND 1 (CSF3, 2026-10-04; `results/P_tg_mhd/pilot/`) WAS INCONCLUSIVE BY
+  ITS RULE**, and it found three things the design had not foreseen. The field
+  is NOT STEADY by t = 50 at Re = 1000, and not everywhere at Re = 250: E_M
+  drifts by up to 54 % between the halves of t = 25..50 -- under weak flow
+  forcing the forced mode piles up on its Ohmic time (Re/12 = 83 at
+  Re = 1000), under strong forcing the flow builds field outside the forced
+  pattern, dynamo-like. STRONG FIELDS DIVERGE: 9 of the 12 FP64 runs at
+  Re = 1000 with FM >= 0.2 went non-finite between t = 20 and 49.5, with E_M
+  at 0.36-0.68, and none with FM = 0.1 -- N = 256 at Re = 1000 has the tau and
+  cell Reynolds number of N = 512 at Re = 2000. And the target lies BEYOND THE
+  MACH BOUND at u0 = 0.05 (F0 = 0.4 reaches umax_lat 0.10-0.11 inside the
+  window). The tool's first reading rejected every run as unfinished: probes
+  fall on whole steps, a complete run ends at t = 49.999987, and its tolerance
+  was 1e-6 (now tg_mhd_ladder's 1e-2). **Round 2, `GPU/csf3/tg_mhd_pilot2.sub`**
+  (chosen by the user, 2026-10-04): F0 = 0.15/0.2/0.3 x FM = 0.05/0.1 to
+  t = 150, window 100..150, the Mach bound read over the window, a 25 %
+  stationarity guard between the window's halves (round 1's drifts run
+  continuously from 0.1 to 54 %, so it is a guard against growth, not a test
+  of steadiness), no edge clause; and A and B at Re = 2000, N = 512, FP32 for
+  (0.2, 0.1), gating nothing, to measure the top rung's survival and settling
+  time. `tg_mhd_forced.py pilot --round 2` applies it.
 - Left for the author: in `main.tex` the department, funding, the AI-use
   disclosure AIP asks for, and the DOI; in `ARCHIVING.md` a LICENSE (the
   repository has none, so the code is readable but not reusable, and Zenodo will
