@@ -1,0 +1,183 @@
+#!/bin/bash --login
+#==============================================================================
+#  Phase 3 of the confined-MHD paper (paper/tg_mhd/): the PILOT for the forced,
+#  statistically steady boxes. It fixes the forcing amplitudes and the transient
+#  and averaging scales of the forced test, which is registered separately
+#  AFTER this and before its own runs. It tests nothing.
+#
+#  WHY FORCED BOXES. The decaying ladder's verdict rested on WHEN to read an
+#  unsteady observable: the dissipation peak switched between rungs, and a
+#  window compared different phases as the evolution slowed with Re (paper,
+#  Secs. IV D-E). A statistically steady box has no "when": its time averages are
+#  well defined, with error bars from batch means. Both boxes are forced in the
+#  BULK only -- the envelope is zero within 0.15 of every wall and one beyond
+#  0.35 -- because a regularised no-slip wall under a body force slips by an
+#  amount proportional to the force, with no diagnosed mechanism, and because a
+#  force that never reaches the walls cannot be what the near-wall dissipation
+#  is made of (demonstrator/tg_mhd.cpp, TGForce, argues both):
+#
+#      -drive F0    F = F0 W (sin x cos y cos z, -cos x sin y cos z, 0),
+#                   the initial velocity's own pattern;
+#      -bdrive FM   S = FM curl(W A), A = (cos2x sin2y sin2z, -sin2x cos2y sin2z, 0)/2,
+#                   a source on the induction equation that IS FM times the
+#                   initial TG-C field's pattern where W = 1, and solenoidal
+#                   everywhere.
+#
+#  WHY THE FIELD IS FORCED TOO: NO DYNAMO KEEPS IT. Driven by F0 = 0.1 alone at
+#  N = 65, Re = 200 (laptop, 2026-10-03), neither box sustains its field: over
+#  t = 20..50, E_M falls 1.23e-3 -> 4.39e-5 (free slip) and 3.31e-3 -> 1.21e-3
+#  (no slip), e-folding at 0.11 and 0.033 per unit time, while E_V settles.
+#  Phase 3's plan named this risk and its fallback, forcing both fields; a
+#  forced box with no field left in it would test the walls of a hydrodynamic
+#  flow. Whether a dynamo starts at larger Rm is a question this test does not
+#  need answered, and a box driven by its own dynamo would change the field's
+#  strength between A and B and between rungs along with the walls.
+#
+#  WHAT THE PILOT SCANS. Nine pairs, a factor of 2 apart:
+#      F0 = 0.1, 0.2, 0.4   x   FM = 0.1, 0.2, 0.4
+#  centred where a rough balance puts the target below: injection equals
+#  dissipation, and with the flow and the field keeping about half their
+#  energy in the forced modes, eps ~ 0.08 F0 + 0.1 FM, which is 0.037 near
+#  (0.2, 0.2). Laptop runs at N = 33, Re = 100 -- not a rung, too viscous to be
+#  turbulent, there to see that the forces run for fifty time units -- gave
+#  eps = 0.017 at (0.15, 0.1) and 0.069 at (0.3, 0.3), with E_M/E_V 0.44 and
+#  0.58 in A, and all six (A and B, also at (0.6, 0.9)) reached t = 50 finite;
+#  (0.6, 0.9) did so at umax_lat = 0.18, far past the bound below, which is why
+#  the scan stops at 0.4. Their logs print f_w, as every run's does; one A value
+#  was seen in passing, no B - A was formed from them. Each pair runs A and B
+#  at Re = 1000 (N = 256, the coarsest grid that keeps RegWall's tau - 1/2 at
+#  0.0122) and Re = 250 (N = 192), from the decaying runs' initial condition, to
+#  t = 50, probes every 0.25; and the centre pair (0.2, 0.2) also in FP32 at
+#  Re = 1000, to see what single precision does to a run fifty time units long
+#  -- the top rung must run in FP32.
+#
+#  THE SELECTION RULE, FIXED HERE BEFORE THE RUNS (2026-10-03). The production
+#  pair is the one whose free-slip box at Re = 1000 lies closest, over
+#  t = 25..50, to that box's TURBULENT PEAK in the decaying ladder -- round 2's
+#  A, Re = 1000, N = 512, at t = 4.06: eps = 0.0369, E_M/E_V = 0.467 -- in
+#
+#      D = |ln(<eps> / 0.0369)| + |ln((<E_M>/<E_V>) / 0.467)|,
+#
+#  among the pairs whose four runs (A and B, Re = 250 and 1000) all reach
+#  t = 50 finite with umax_lat <= 0.08 (Ma 0.139), and whose A at Re = 1000 is
+#  unsteady (the r.m.s. of eps over the window above 1 % of its mean). WHY THAT
+#  TARGET: the dissipation rate sets the smallest scales, and the ladder's grids
+#  passed their resolution gate at the decaying peak -- matching eps there keeps
+#  them adequate for the forced flow -- while E_M/E_V puts the field in the
+#  regime the decaying test measured. If the closest pair lies on the scan's
+#  edge with D > 0.5, the pilot is INCONCLUSIVE and is extended before anything
+#  is registered.
+#
+#  WHAT THE PILOT CANNOT SEE. tools/tg_mhd_forced.py reads only E_V, E_M, eps,
+#  umax_lat and the divergence flag. Every run also writes f_w, its profiles
+#  and the budget, as every run of this driver does; the selection does not read
+#  them, and they are not to be looked at before the forced test is registered.
+#  The test's rule will be written from the pilot's scales -- its transient,
+#  the integral time of eps -- and say so.
+#
+#  ALREADY ESTABLISHED WITHOUT A GPU (2026-10-03), at N = 65, Re = 200:
+#   * With neither force both twins reproduce every reference byte for byte --
+#     series, profiles and budget of the six runs in
+#     results/P_tg_mhd/xcheck_n65_re200/ -- run with ONE probe thread, as the
+#     references were: four threads reorder the sums of quantities that vanish
+#     at t = 0, which then print different round-off.
+#   * Driven by both (-drive 0.1 -bdrive 0.1, to t = 1) the twins agree to every
+#     printed digit but round-off at t = 0 (1.1e-16 of a column's scale), the
+#     wall-distance profiles to 3e-32 and the budget to 1.3e-15 of each term's
+#     scale. These runs are the references tg_mhd_verify.sub now checks the
+#     device against.
+#   * The driven free-slip box equals its driven periodic twin on every
+#     diagnostic -- budget to 8e-16, profiles to 7e-34 -- but the mass, whose
+#     plain node sum counts the face nodes whole and drifts by ~1e-5 in the
+#     unforced reference too; the twin conserves its own to 1e-13.
+#   * The box energy budgets close as well driven as unforced: over t = 0..1
+#     the magnetic residual is +5.4 / +8.2 % of the integrated Ohmic loss (free
+#     / no slip), against +5.6 / +9.3 % without forcing, while the field's
+#     source supplies 3.6 / 6.6 times the change of E_M -- so a source off by
+#     10 % would move the residual by ~13 points.
+#
+#  THE RUNS -- 38 elements:
+#      0-17   Re = 1000, N = 256, FP64: pair k = i/2 (A if i even, B if odd)
+#      18-35  Re =  250, N = 192, FP64: pair k = (i-18)/2, likewise
+#      36-37  Re = 1000, N = 256, FP32: the centre pair, A and B
+#  with pair k = (F0, FM) = ({0.1, 0.2, 0.4}[k/3], {0.1, 0.2, 0.4}[k%3]).
+#
+#  COST, from round 2's logs at these grids (30 and 11 s of steps per unit time,
+#  and the budget's probes): ~25 min an element at Re = 1000, ~9 min at 250;
+#  about 10 GPU-hours in all.
+#
+#  SUBMIT from the repo root, after git pull, chained on the verify job, which
+#  rebuilds build64 and build32 from the new source and checks the device's
+#  forced runs against host references before anything here starts:
+#
+#      jid=$(sbatch --parsable GPU/csf3/tg_mhd_verify.sub)
+#      sbatch --dependency=afterok:$jid --array=0-17,36-37 --time=1:00:00 GPU/csf3/tg_mhd_pilot.sub
+#      sbatch --dependency=afterok:$jid --array=18-35      --time=0:30:00 GPU/csf3/tg_mhd_pilot.sub
+#
+#  OUTPUT: runs/tg_mhd_pilot/<A|B>_re<Re>_n<N>_f<F0>_m<FM>[_fp32]/ with
+#  series.dat, profile*.dat, budget.dat and log.txt. Then, on the login node
+#  (pure stdlib):
+#      python3 tools/tg_mhd_forced.py pilot runs/tg_mhd_pilot
+#  and copy back, from the laptop's repo root:
+#      rsync -av --include='*/' --include='series.dat' --include='profile*.dat' \
+#            --include='budget.dat' --include='log.txt' --exclude='*' \
+#            csf3:scratch/M3LB/runs/tg_mhd_pilot/ results/P_tg_mhd/pilot/
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-1:00               # elements 0-17 and 36-37; see the header for 18-35
+#SBATCH -J tg_mhd_pilot
+#SBATCH -o tg_mhd_pilot-%A_%a.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+i=${SLURM_ARRAY_TASK_ID:?"submit as an array job; see the header"}
+
+F0S=(0.1 0.2 0.4)
+FMS=(0.1 0.2 0.4)
+if [ "$i" -ge 0 ] && [ "$i" -le 17 ]; then
+  k=$(( i / 2 ));        RE=1000; N=256; PREC=64; SUF=""
+elif [ "$i" -ge 18 ] && [ "$i" -le 35 ]; then
+  k=$(( (i - 18) / 2 )); RE=250;  N=192; PREC=64; SUF=""
+elif [ "$i" -eq 36 ] || [ "$i" -eq 37 ]; then
+  k=4;                   RE=1000; N=256; PREC=32; SUF="_fp32"
+else
+  echo "ERROR: element $i -- this job has elements 0-37 (see the header)" >&2
+  exit 1
+fi
+F0=${F0S[$(( k / 3 ))]}
+FM=${FMS[$(( k % 3 ))]}
+if [ $(( i % 2 )) -eq 0 ]; then NAME=A; else NAME=B; fi
+
+BIN="$ROOT/GPU/build$PREC/tg_mhd"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN -- run tg_mhd_verify.sub first, which builds it" >&2
+  exit 1
+fi
+# A binary older than any source it depends on is stale: refuse, and say which.
+STALE=$(find "$ROOT/GPU/src/tg_mhd.cu" "$ROOT/GPU/include" -newer "$BIN" -type f | head -3)
+if [ -n "$STALE" ]; then
+  echo "ERROR: $BIN is older than:" >&2
+  echo "$STALE" | sed 's/^/    /' >&2
+  echo "  Rebuild by running tg_mhd_verify.sub, or: cd $ROOT/GPU && cmake --build build$PREC --target tg_mhd -j8" >&2
+  exit 1
+fi
+
+case $NAME in
+  A) FLAGS=(-vwall slip   -mwall cond -ic tgc) ;;
+  B) FLAGS=(-vwall noslip -mwall cond -ic tgc) ;;
+esac
+
+OUT="$ROOT/runs/tg_mhd_pilot/${NAME}_re${RE}_n${N}_f${F0}_m${FM}${SUF}"
+mkdir -p "$OUT"
+echo "element $i: setup $NAME, Re $RE, N $N, FP$PREC, drive $F0, bdrive $FM -> $OUT"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+"$BIN" -n "$N" "${FLAGS[@]}" -drive "$F0" -bdrive "$FM" -re "$RE" -tmax 50 -probe 0.25 \
+       -out "$OUT" 2>&1 | tee "$OUT/log.txt"

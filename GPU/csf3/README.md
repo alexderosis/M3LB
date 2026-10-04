@@ -105,6 +105,8 @@ sbatch --array=8-15 --time=1:00:00 GPU/csf3/tg_mhd_budget.sub       # (see below
 sbatch --array=0-5   --time=5:00:00 GPU/csf3/tg_mhd_controls.sub    # Phase 2: four controls,
 sbatch --array=6-12  --time=3:00:00 GPU/csf3/tg_mhd_controls.sub    # chained on the verify job
 sbatch --array=13-21 --time=1:30:00 GPU/csf3/tg_mhd_controls.sub    # (see below)
+sbatch --array=0-17,36-37 --time=1:00:00 GPU/csf3/tg_mhd_pilot.sub  # Phase 3: the forced boxes' pilot,
+sbatch --array=18-35 --time=0:30:00 GPU/csf3/tg_mhd_pilot.sub       # chained on the verify job (see below)
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -320,6 +322,29 @@ then `python3 tools/tg_mhd_controls.py runs/tg_mhd_controls`, and copy back with
 
 ```
 rsync -av --include='*/' --include='series.dat' --include='profile*.dat' --include='budget.dat' --include='log.txt' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_controls/ results/P_tg_mhd/controls/
+```
+
+**`tg_mhd_pilot.sub`** is the pilot for Phase 3, the forced, statistically
+steady boxes: both drivers' `-drive F0` (the bulk Taylor-Green force) and
+`-bdrive FM` (the bulk TG-C source on the field -- no dynamo keeps the field),
+scanned over F0 = 0.1/0.2/0.4 x FM = 0.1/0.2/0.4 for A and B at Re = 250 and
+1000, to t = 50. It tests nothing: its header fixes, before the runs, how the
+production amplitudes are chosen (A at Re = 1000 closest to its decaying
+turbulent peak), and `tools/tg_mhd_forced.py pilot` applies that rule reading no
+f_w. 38 elements, about 10 GPU-hours, chained on the verify job, which now also
+checks the device's forced runs:
+
+```
+git pull
+jid=$(sbatch --parsable GPU/csf3/tg_mhd_verify.sub)
+sbatch --dependency=afterok:$jid --array=0-17,36-37 --time=1:00:00 GPU/csf3/tg_mhd_pilot.sub
+sbatch --dependency=afterok:$jid --array=18-35      --time=0:30:00 GPU/csf3/tg_mhd_pilot.sub
+```
+
+then `python3 tools/tg_mhd_forced.py pilot runs/tg_mhd_pilot`, and copy back with
+
+```
+rsync -av --include='*/' --include='series.dat' --include='profile*.dat' --include='budget.dat' --include='log.txt' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_pilot/ results/P_tg_mhd/pilot/
 ```
 
 ---

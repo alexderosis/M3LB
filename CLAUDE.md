@@ -1556,7 +1556,7 @@ does) fails on it. Run such scripts from elsewhere.
   0.3-0.7 % (B). The 16 runs reproduce round 2's series and all 48 profiles byte
   for byte, so git keeps round 2's profiles only. They cost 15.1 GPU-h, not the
   13 estimated: the probes were 1.8-4.8x dearer on CSF3's host CPUs where the
-  laptop measured 1.6x. In the paper: Sec. IV H, Fig. 6, Table S4, Sec. S8.
+  laptop measured 1.6x. In the paper: Sec. IV G, Fig. 6, Table S4, Sec. S8.
   **A STAND-IN'S NUMBER IS NOT THE MEASUREMENT.** Drafting S8, the device's
   budget was quoted as matching the host's to 1.4e-15 -- the figure of the
   laptop DRY RUN of the verify check, with the host twin standing in for the
@@ -1596,13 +1596,45 @@ does) fails on it. Run such scripts from elsewhere.
   at Re = 500, 1000, 2000. C3: passes -- B - A moves 7e-5 (band 9e-4), phi 0.003
   (band 0.052), peak Ma 0.133 -> 0.107. C4: holds at Pm = 0.5 and 2 -- B - A
   0.060 / 0.052 (0.054 at Pm = 1), viscous, Ohmic negative; phi 2.01 / 1.22
-  (1.47 at Pm = 1). In the paper: Sec. IV I, Table S5, Sec. S9; the abstract
+  (1.47 at Pm = 1). In the paper: Sec. IV H, Table S5, Sec. S9; the abstract
   says the gentler start enlarges the excess by up to 20 % at Re = 500 rather
   than "all controls passed". The job's verify log (21890230) passes all 20
   checks on the A100, the first device runs of the per-node wall velocity among
   them: the smooth start to 5.5e-16 of each diagnostic's scale, its budget to
   1.7e-15. A verify log's worst column is not always divb/j -- a box without a
   field reports w_max -- so numbers.py reads the value after whatever name.
+- **PHASE 3, THE FORCED BOXES (2026-10-03, in progress).** The decaying
+  verdict rested on WHEN to read an unsteady observable; a statistically steady
+  box has no "when". Both twins take `-drive F0` (the initial velocity's
+  Taylor-Green pattern as a body force, through `FieldGuo` / `ForceField`) and
+  `-bdrive FM` (a source on the induction equation, through each magnetic
+  solver's existing `set_source`), both under an envelope that is ZERO within
+  0.15 of every wall and one beyond 0.35 (`-gap D0 D1`); `budget.dat` gains
+  the rows `injK = u.F` and `injM = B.S`, only for a run with that force.
+  **The envelope designs around RegWall's body-force slip** (`FluidSolver`'s
+  `run_step`): a force that never reaches a wall can neither make it slip nor
+  be what the near-wall dissipation is made of. **The field is forced because
+  no dynamo keeps it**: driven by F0 = 0.1 alone (N = 65, Re = 200), E_M
+  e-folds at 0.11 (free slip) and 0.033 (no slip) over t = 20..50 while E_V
+  settles. **A source on B must be solenoidal**: W times the TG-C pattern is
+  not -- its divergence is grad W . B_C wherever the envelope rises -- so the
+  source is FM curl(W A) with A = (cos2x sin2y sin2z, -sin2x cos2y sin2z, 0)/2,
+  which is the pattern where W = 1 and has the conducting parity at every face.
+  Unforced, both twins reproduce all six references byte for byte **with
+  `-threads 1`**: the references were made with one probe thread, and four
+  reorder the sums of quantities that vanish at t = 0, which a byte comparison
+  then reports as a difference. Driven, the twins agree to every printed digit
+  but that round-off, the driven free-slip box equals its driven periodic twin
+  on every diagnostic but the plain-sum mass (which counts face nodes whole and
+  drifts ~1e-5 in the unforced reference too), and the box budgets close as
+  well as unforced ones while the source supplies 3.6-6.6x the change of E_M.
+  The pilot (`GPU/csf3/tg_mhd_pilot.sub`, 38 elements, ~10 GPU-hours) scans
+  F0 = 0.1/0.2/0.4 x FM = 0.1/0.2/0.4 at Re = 250 and 1000 and selects, by a
+  rule fixed before its runs, the pair whose free-slip box at Re = 1000 sits
+  closest to that box's decaying turbulent peak (eps 0.0369, E_M/E_V 0.467).
+  `tools/tg_mhd_forced.py pilot` applies it READING NO f_w: the amplitudes must
+  not be chosen by the observable. The forced test's own rule is registered
+  after the pilot, from its transient and integral time.
 - Left for the author: in `main.tex` the department, funding, the AI-use
   disclosure AIP asks for, and the DOI; in `ARCHIVING.md` a LICENSE (the
   repository has none, so the code is readable but not reusable, and Zenodo will

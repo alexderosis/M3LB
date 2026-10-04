@@ -21,6 +21,10 @@
 #  smooth start (-ramp 0.2) and the box without a field at B's initial energy
 #  (-vamp sqrt 2) -- against host references made the same way, because the
 #  device half of the per-node wall velocity is code no host build compiles.
+#  And two more, since the same day, for Phase 3's forced boxes: A and B driven
+#  by the bulk force and the field's bulk source (-drive 0.1 -bdrive 0.1, to
+#  t = 1), whose device halves -- ForceField and the magnetic source -- no host
+#  build compiles either.
 #
 #  WHAT THIS JOB ADDS. The device build has never run: nvcc can reject what the
 #  host compiler accepted (this tree has a list), and a device run can differ
@@ -72,6 +76,11 @@ done
                  -out "$OUT/noslip_ramp0.2_cuda_fp64" 2>&1 | tail -4
 ./build64/tg_mhd -n 65 -vwall noslip -ic hydro -vamp 1.4142135623730951 -re 200 -tmax 2 -probe 0.1 \
                  -out "$OUT/hydro_va1.41421_cuda_fp64" 2>&1 | tail -4
+# Phase 3's forced boxes (2026-10-03): the bulk force and the field's bulk source.
+for W in slip noslip; do
+  ./build64/tg_mhd -n 65 -vwall $W -mwall cond -ic tgc -drive 0.1 -bdrive 0.1 -re 200 -tmax 1 -probe 0.1 \
+                   -out "$OUT/${W}_drive0.1_bdrive0.1_cuda_fp64" 2>&1 | tail -4
+done
 
 python3 - "$ROOT" "$OUT" <<'EOF'
 import sys
@@ -81,7 +90,8 @@ names = ("t E_V E_M E_T H_C Omega_V Omega_M eps EM/EV OmM/OmV j_max w_max skew "
 def load(p):
     return [[float(x) for x in l.split()] for l in open(p) if not l.startswith('#')]
 bad = 0
-for w in ("slip", "noslip", "noslip_ramp0.2", "hydro_va1.41421"):
+for w in ("slip", "noslip", "noslip_ramp0.2", "hydro_va1.41421",
+          "slip_drive0.1_bdrive0.1", "noslip_drive0.1_bdrive0.1"):
     ref = load(f"{root}/results/P_tg_mhd/xcheck_n65_re200/{w}_src_kokkos_fp64.dat")
     dev = load(f"{out}/{w}_cuda_fp64/series.dat")
     if len(ref) != len(dev):

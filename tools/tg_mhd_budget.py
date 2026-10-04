@@ -56,11 +56,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tg_mhd_ladder as T     # noqa: E402
 
 TERMS = ("eK", "eM", "visc", "ohm", "S", "lor", "advK", "pres", "difK", "advM", "difM", "cmpM")
+# Written only by a driven run (Phase 3): the bulk forces' work, u.F (-drive) and
+# B.S (-bdrive). A run without one reads it as zero.
+OPTIONAL = ("injK", "injM")
 
 
 def load_budget(path):
     """{'N','Re','dh','nbw','vol','t':[...],'rows':{term:[[cols] per probe]}} or None."""
-    head, vol, rows, ts = {}, None, {k: [] for k in TERMS}, []
+    head, vol, rows, ts = {}, None, {k: [] for k in TERMS + OPTIONAL}, []
     with open(path) as f:
         for line in f:
             if line.startswith("# tg_mhd"):
@@ -86,9 +89,12 @@ def load_budget(path):
                 if p[1] == TERMS[0]:
                     ts.append(t)
                 rows[p[1]].append(vals)
-    n = min(len(v) for v in rows.values())        # whole probes only
+    n = min(len(rows[k]) for k in TERMS)          # whole probes only
     if not ts or n == 0 or vol is None:
         return None
+    for k in OPTIONAL:                            # absent, or torn: zero
+        if len(rows[k]) < n:
+            rows[k] = [[0.0] * len(vol) for _ in range(n)]
     return {"N": int(head["N"]), "Re": float(head["Re"]), "dh": float(head["delta/h"]),
             "nbw": int(head["written"]), "vol": vol, "t": ts[:n],
             "rows": {k: v[:n] for k, v in rows.items()}}
@@ -120,13 +126,15 @@ def layer(b, t0, t1, m):
     if b["t"][0] > t0 + 1e-2 or b["t"][-1] < t1 - 1e-2:
         return None
     a, z = max(t0, b["t"][0]), min(t1, b["t"][-1])
-    out = {k: T.trapz_window(series(b, k, m), a, z)[0] for k in TERMS if k not in ("eK", "eM")}
+    out = {k: T.trapz_window(series(b, k, m), a, z)[0] for k in TERMS + OPTIONAL if k not in ("eK", "eM")}
     for e in ("eK", "eM"):
         q = series(b, e, m)
         out["d" + e] = T.lerp(q, z)[0] - T.lerp(q, a)[0]
-    out["Tres"] = out["deM"] - out["S"] + out["ohm"]                     # exact by construction
+    # T is what feeds the layer besides the stretching and a forced run's source,
+    # which is zero within its envelope's gap of the walls (tg_mhd's TGForce).
+    out["Tres"] = out["deM"] - out["S"] - out["injM"] + out["ohm"]      # exact by construction
     out["Texp"] = out["advM"] + out["difM"] + out["cmpM"]
-    out["Kres"] = out["deK"] - out["lor"] + out["visc"]                  # the kinetic analogue
+    out["Kres"] = out["deK"] - out["lor"] - out["injK"] + out["visc"]   # the kinetic analogue
     out["Kexp"] = out["advK"] + out["pres"] + out["difK"]
     return out
 

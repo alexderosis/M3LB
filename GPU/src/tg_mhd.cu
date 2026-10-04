@@ -40,15 +40,19 @@
 //  -vamp A and -ramp T, the paper's Phase 2 controls, are the parent's: the
 //  initial velocity times A, and a no-slip box's walls brought to rest over T
 //  instead of at t = 0 (Solver::set_wall_velocity_field). Off by default.
+//  -drive F0, -bdrive FM and -gap D0 D1 (Phase 3) are the parent's too: the
+//  bulk Taylor-Green force, through ForceField, the bulk TG-C source on the
+//  field, through the magnetic solver's set_source, and their envelope (TGForce).
 //
 //    usage: tg_mhd [-n N] [-geom box|periodic] [-vwall noslip|slip]
 //                  [-mwall cond|pv] [-ic tgc|tgi|tga|hydro] [-re R] [-pm P]
 //                  [-u0 U] [-tmax T] [-probe dt] [-vti dt] [-dump dt]
 //                  [-dumpvol] [-volstride S] [-raw dt] [-out DIR] [-force]
-//                  [-vamp A] [-ramp T]
+//                  [-vamp A] [-ramp T] [-drive F0] [-bdrive FM] [-gap D0 D1]
 //==============================================================================
 #include "lbm/backend.cuh"
 #include "lbm/vti.cuh"
+#include "lbm/ehd.cuh"          // Field: the host/device-neutral array the -drive force lives in
 
 #include <algorithm>
 #include <chrono>
@@ -57,6 +61,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <fstream>
 #include <string>
 #include <thread>
@@ -81,6 +86,9 @@ struct Opts {
   double probe = 0.05, vti = 0.0, dump = 0.0, raw = 0.0;
   double vamp = 1.0;            // the initial velocity's amplitude, in v0 (-vamp)
   double ramp = 0.0;            // no-slip walls brought to rest over this time (-ramp)
+  double drive = 0.0;           // the bulk Taylor-Green force's amplitude (-drive)
+  double bdrive = 0.0;          // the bulk source on the field's (-bdrive)
+  double gap0 = 0.15, gap1 = 0.35;   // their envelope (-gap D0 D1), as the parent's
   bool dumpvol = false;
   int volstride = 1;
   int threads = 0;              // host diagnostics; 0 = SLURM allocation or machine
@@ -258,11 +266,67 @@ bool mkdir_p(const std::string& path) {
 // parent's -- its banner above Acc argues what each term is, what the analysis
 // uses it for (where a layer's dissipated energy comes from) and why it closes
 // only to a residual in a weakly compressible scheme:
-//    d eK / dt = lor + advK + pres + difK - visc
-//    d eM / dt = S   + advM + difM + cmpM - ohm
-enum BudgetTerm : int { BeK, BeM, Bvisc, Bohm, BS, Blor, BadvK, Bpres, BdifK, BadvM, BdifM, BcmpM, NBUD };
+//    d eK / dt = lor + advK + pres + difK - visc  (+ injK = u.F in a forced run)
+//    d eM / dt = S   + advM + difM + cmpM - ohm   (+ injM = B.S in a forced run)
+// injK and injM, the bulk forces' work (-drive, -bdrive), are written only for a
+// run with that force.
+enum BudgetTerm : int { BeK, BeM, Bvisc, Bohm, BS, Blor, BadvK, Bpres, BdifK, BadvM, BdifM, BcmpM, BinjK,
+                        BinjM, NBUD };
 const char* const budget_name[NBUD] = {"eK",   "eM",   "visc", "ohm",  "S",    "lor",
-                                       "advK", "pres", "difK", "advM", "difM", "cmpM"};
+                                       "advK", "pres", "difK", "advM", "difM", "cmpM", "injK",
+                                       "injM"};
+
+// THE BULK TAYLOR-GREEN FORCES (-drive F0, -bdrive FM), the parent's TGForce: the
+// initial velocity's pattern on the flow, and on the field the curl of the
+// windowed potential A = (cos2x sin2y sin2z, -sin2x cos2y sin2z, 0) / 2, which is
+// the TG-C pattern wherever the envelope is one and solenoidal everywhere. The
+// envelope is zero within gap0 of every wall and one beyond gap1, per index
+// along an axis. Its banner argues the envelope, the curl and why the field is
+// forced at all (no dynamo keeps it).
+struct TGForce {
+  double F0 = 0.0, FM = 0.0;
+  std::vector<double> sn, cs, s2, c2, w, dw;
+  void build(int L, int N, double h, double F0_, double FM_, double d0, double d1) {
+    F0 = F0_; FM = FM_;
+    sn.assign(std::size_t(L), 0.0); cs = sn; s2 = sn; c2 = sn; w = sn; dw = sn;
+    for (int p = 0; p < L; ++p) {
+      const std::size_t i = std::size_t(p);
+      const double X = h * double(p);
+      sn[i] = std::sin(X);
+      cs[i] = std::cos(X);
+      s2[i] = std::sin(2 * X);
+      c2[i] = std::cos(2 * X);
+      const int m = p % (N - 1);
+      const bool low = m <= N - 1 - m;          // the nearest face is below
+      const double dist = h * double(low ? m : N - 1 - m);
+      if (dist <= d0)      { w[i] = 0.0; dw[i] = 0.0; }
+      else if (dist >= d1) { w[i] = 1.0; dw[i] = 0.0; }
+      else {
+        const double k = PI / (d1 - d0);
+        w[i]  = 0.5 * (1.0 - std::cos(k * (dist - d0)));
+        dw[i] = (low ? 0.5 : -0.5) * k * std::sin(k * (dist - d0));
+      }
+    }
+  }
+  void at(int x, int y, int z, double f[3]) const {
+    const std::size_t X = std::size_t(x), Y = std::size_t(y), Z = std::size_t(z);
+    const double a = F0 * w[X] * w[Y] * w[Z] * cs[Z];
+    f[0] =  a * sn[X] * cs[Y];
+    f[1] = -a * cs[X] * sn[Y];
+    f[2] = 0.0;
+  }
+  // S = FM (W curl A + grad W x A), with A_z = 0.
+  void field_at(int x, int y, int z, double s[3]) const {
+    const std::size_t X = std::size_t(x), Y = std::size_t(y), Z = std::size_t(z);
+    const double W  = w[X] * w[Y] * w[Z];
+    const double Wx = dw[X] * w[Y] * w[Z], Wy = w[X] * dw[Y] * w[Z], Wz = w[X] * w[Y] * dw[Z];
+    const double Ax =  0.5 * c2[X] * s2[Y] * s2[Z];
+    const double Ay = -0.5 * s2[X] * c2[Y] * s2[Z];
+    s[0] = FM * ( W * s2[X] * c2[Y] * c2[Z] - Wz * Ay);
+    s[1] = FM * ( W * c2[X] * s2[Y] * c2[Z] + Wz * Ax);
+    s[2] = FM * (-2.0 * W * c2[X] * c2[Y] * s2[Z] + Wx * Ay - Wy * Ax);
+  }
+};
 
 // THE PROBE RUNS ON THE HOST, PARALLEL OVER z. Every probe copies the fields
 // down and walks every node computing eighteen derivatives, and at N = 512 a
@@ -426,6 +490,9 @@ int main(int argc, char** argv) {
     else if (a == "-threads")   o.threads = std::atoi(next());
     else if (a == "-vamp")      o.vamp = std::atof(next());
     else if (a == "-ramp")      o.ramp = std::atof(next());
+    else if (a == "-drive")     o.drive = std::atof(next());
+    else if (a == "-bdrive")    o.bdrive = std::atof(next());
+    else if (a == "-gap")     { o.gap0 = std::atof(next()); o.gap1 = std::atof(next()); }
   }
 
   const bool hydro = (o.ic == Hydro);
@@ -440,6 +507,16 @@ int main(int argc, char** argv) {
 
   if (o.ramp > 0 && (o.periodic || !o.noslip)) {
     std::fprintf(stderr, "tg_mhd: -ramp brings NO-SLIP walls to rest; this box has none.\n");
+    return 2;
+  }
+  if ((o.drive > 0 || o.bdrive > 0) && !(o.gap0 >= 0 && o.gap1 > o.gap0 && o.gap1 < 0.5 * PI)) {
+    std::fprintf(stderr, "tg_mhd: -gap needs 0 <= D0 < D1 < pi/2.\n");
+    return 2;
+  }
+  // The field's source has the CONDUCTING parity (TGForce), as the parent's.
+  if (o.bdrive > 0 && (hydro || (!o.periodic && !o.conducting))) {
+    std::fprintf(stderr, "tg_mhd: -bdrive forces the field with the TG-C pattern; it needs a "
+                 "field and, in a box, -mwall cond.\n");
     return 2;
   }
   const int N = o.N;
@@ -470,6 +547,8 @@ int main(int argc, char** argv) {
                   hydro ? "nofield" : (o.conducting ? "cond" : "pv"), N, o.re);
   if (o.vamp != 1.0) std::snprintf(tag + std::strlen(tag), sizeof tag - std::strlen(tag), "_va%g", o.vamp);
   if (o.ramp > 0)    std::snprintf(tag + std::strlen(tag), sizeof tag - std::strlen(tag), "_ramp%g", o.ramp);
+  if (o.drive > 0)   std::snprintf(tag + std::strlen(tag), sizeof tag - std::strlen(tag), "_drive%g", o.drive);
+  if (o.bdrive > 0)  std::snprintf(tag + std::strlen(tag), sizeof tag - std::strlen(tag), "_bdrive%g", o.bdrive);
   if (o.out.empty()) o.out = std::string("tg_mhd_") + tag + (backend::on_device ? "_cuda" : "_host");
   if (!mkdir_p(o.out)) { std::fprintf(stderr, "tg_mhd: cannot create %s\n", o.out.c_str()); return 2; }
 
@@ -491,6 +570,10 @@ int main(int argc, char** argv) {
   if (o.ramp > 0)
     std::printf("  SMOOTH START: the walls move with the flow at t = 0 and come to rest over"
                 " t = %g (cosine ramp)\n", o.ramp);
+  if (o.drive > 0 || o.bdrive > 0)
+    std::printf("  DRIVEN: Taylor-Green force %g on the flow and TG-C source %g on the field, in"
+                " the bulk: zero within %g of every wall and full beyond %g\n",
+                o.drive, o.bdrive, o.gap0, o.gap1);
   if (o.noslip && !o.periodic && tauf - 0.5 < 0.012)
     std::printf("  NOTE: tau_f - 1/2 = %.2e is at RegWall's measured floor; expect trouble at "
                 "the wall.\n", tauf - 0.5);
@@ -545,6 +628,45 @@ int main(int argc, char** argv) {
   }
   mag.initialise_with(TGField{st}, TGVelocity{st});
   fl.seed_populations_with(TGPopulations{st});
+  // The bulk forces (-drive, -bdrive): the parent's TGForce, through ForceField
+  // and the magnetic solver's source. Allocated only when asked for -- three
+  // fields of N^3 each, 3.2 GB in FP32 at N = 640.
+  TGForce tgf;
+  std::unique_ptr<Field> Fxf, Fyf, Fzf, Sxf, Syf, Szf;
+  if (o.drive > 0 || o.bdrive > 0) tgf.build(L, N, h, o.drive, o.bdrive, o.gap0, o.gap1);
+  // Both in lattice units: a paper acceleration or field source per unit time
+  // times u0^2 h (the field is u0 B in lattice units, and dt = u0 h).
+  const double lat = o.u0 * o.u0 * h;
+  if (o.drive > 0) {
+    std::vector<Real> hx(static_cast<std::size_t>(NS), Real(0)), hy = hx, hz = hx;
+    for (int z = 0; z < L; ++z)
+      for (int y = 0; y < L; ++y)
+        for (int x = 0; x < L; ++x) {
+          const std::size_t n = std::size_t(node_id(x + pad, y + pad, z + pad, LS, LS));
+          double f[3];
+          tgf.at(x, y, z, f);
+          hx[n] = Real(lat * f[0]);  hy[n] = Real(lat * f[1]);
+        }
+    Fxf.reset(new Field(NS)); Fyf.reset(new Field(NS)); Fzf.reset(new Field(NS));
+    Fxf->from_host(hx); Fyf->from_host(hy); Fzf->from_host(hz);
+    BodyForce bf;
+    bf.Fx = Fxf->data(); bf.Fy = Fyf->data(); bf.Fz = Fzf->data();
+    fl.set_force(bf, ForceField);
+  }
+  if (o.bdrive > 0) {
+    std::vector<Real> hx(static_cast<std::size_t>(NS), Real(0)), hy = hx, hz = hx;
+    for (int z = 0; z < L; ++z)
+      for (int y = 0; y < L; ++y)
+        for (int x = 0; x < L; ++x) {
+          const std::size_t n = std::size_t(node_id(x + pad, y + pad, z + pad, LS, LS));
+          double s[3];
+          tgf.field_at(x, y, z, s);
+          hx[n] = Real(lat * s[0]);  hy[n] = Real(lat * s[1]);  hz[n] = Real(lat * s[2]);
+        }
+    Sxf.reset(new Field(NS)); Syf.reset(new Field(NS)); Szf.reset(new Field(NS));
+    Sxf->from_host(hx); Syf->from_host(hy); Szf->from_host(hz);
+    mag.set_source(Sxf->data(), Syf->data(), Szf->data());
+  }
 
   std::vector<Real> rho, ux, uy, uz, bx, by, bz;
   HostFields H;
@@ -650,6 +772,17 @@ int main(int argc, char** argv) {
             tb[BadvM] = advM;
             tb[BdifM] = eta_tg * (j2 + b[0] * lb[0] + b[1] * lb[1] + b[2] * lb[2]);
             tb[BcmpM] = -b2 * divu + ub * dvb;
+            tb[BinjK] = tb[BinjM] = 0.0;
+            if (tgf.F0 > 0) {
+              double fp[3];
+              tgf.at(x, y, z, fp);
+              tb[BinjK] = u[0] * fp[0] + u[1] * fp[1] + u[2] * fp[2];
+            }
+            if (tgf.FM > 0) {
+              double sp[3];
+              tgf.field_at(x, y, z, sp);
+              tb[BinjM] = b[0] * sp[0] + b[1] * sp[1] + b[2] * sp[2];
+            }
             const std::size_t nl = a.lay_e.size();
             for (int q = 0; q < NBUD; ++q) a.lay_b[std::size_t(q) * nl + lay] += w * tb[q];
           }
@@ -762,8 +895,8 @@ int main(int argc, char** argv) {
                     "# k cells from the nearest wall, the slab [(k-1/2)h, (k+1/2)h]) and from the rest of\n"
                     "# the box beyond them, so a row sums to the box average. Paper units: energies in\n"
                     "# v0^2, rates in k0 v0^3. With eK = |u|^2/2 and eM = |B|^2/2,\n"
-                    "#   d eK/dt = lor + advK + pres + difK - visc\n"
-                    "#   d eM/dt = S + advM + difM + cmpM - ohm\n"
+                    "#   d eK/dt = lor + advK + pres + difK + injK - visc   (injK = u.F, -drive only)\n"
+                    "#   d eM/dt = S + advM + difM + cmpM + injM - ohm   (injM = B.S, -bdrive only)\n"
                     "# lor = u.(j x B); S = B_i B_j d_j u_i; advK, advM = -u.grad eK, -u.grad eM;\n"
                     "# pres = -u.grad p, p = cs^2 rho/u0^2; difK = nu div(u x w); difM = eta div(B x j);\n"
                     "# cmpM = -|B|^2 div u + (u.B) div B; visc = nu |w|^2; ohm = eta |j|^2. The scheme is\n"
@@ -966,6 +1099,7 @@ int main(int argc, char** argv) {
           bud_vol = true;
         }
         for (int q = 0; q < NBUD; ++q) {
+          if ((q == BinjK && !(o.drive > 0)) || (q == BinjM && !(o.bdrive > 0))) continue;
           std::fprintf(bud, "%.6f %s", t, budget_name[q]);
           for (std::size_t c = 0; c <= nbw; ++c) std::fprintf(bud, " %.6e", g.bud[std::size_t(q) * (nbw + 1) + c]);
           std::fprintf(bud, "\n");

@@ -107,11 +107,18 @@
 //               distinct velocities.
 //  Either marks the tag (_va..., _ramp...), and neither changes a run without it.
 //
+//  AND TWO FOR PHASE 3 (2026-10-03), the forced boxes: -drive F0 forces the
+//  flow with the initial velocity's Taylor-Green pattern and -bdrive FM the
+//  field with the initial TG-C field's, both confined to the bulk (TGForce says
+//  how and why), -gap D0 D1 setting where their envelope rises (default 0.15 to
+//  0.35); budget.dat then carries their work as rows injK and injM. Each marks
+//  the tag (_drive..., _bdrive...).
+//
 //    usage: tg_mhd [-n N] [-geom box|periodic] [-vwall noslip|slip]
 //                  [-mwall cond|pv] [-ic tgc|tgi|tga|hydro] [-re R] [-pm P]
 //                  [-u0 U] [-tmax T] [-probe dt] [-vti dt] [-dump dt]
 //                  [-dumpvol] [-volstride S] [-raw dt] [-out DIR] [-force]
-//                  [-vamp A] [-ramp T]
+//                  [-vamp A] [-ramp T] [-drive F0] [-bdrive FM] [-gap D0 D1]
 //==============================================================================
 #include "Campaign.hpp"
 #include "boundary/Specular.hpp"
@@ -145,7 +152,9 @@ using ML = D3Q7;
 // moments differently, and the twin drivers first disagreed by exactly that:
 // identical to 5.7e-14 after one step, 7.7e-5 apart after two, the gap shaped
 // like u itself (measured 2026-09-25, periodic TG, N = 17).
-using FC = MhdCentralMomentsShifted<FL>;
+// FieldGuo, so that -drive can force the box (Phase 3). With no field set it
+// applies nothing: every reference is reproduced byte for byte without -drive.
+using FC = MhdCentralMomentsShifted<FL, FieldGuo>;
 using MC = MagneticBGK<ML>;
 using FluidT = FluidSolver<FL, EsotericPull<FL>, FC>;
 using MagT   = MagneticSolver<ML, EsotericPull<ML>, MC>;
@@ -164,10 +173,94 @@ struct Opts {
   double probe = 0.05, vti = 0.0, dump = 0.0, raw = 0.0;
   double vamp = 1.0;            // the initial velocity's amplitude, in v0 (-vamp)
   double ramp = 0.0;            // no-slip walls brought to rest over this time (-ramp)
+  double drive = 0.0;           // the bulk Taylor-Green force's amplitude (-drive)
+  double bdrive = 0.0;          // the bulk source on the field's (-bdrive)
+  double gap0 = 0.15, gap1 = 0.35;   // their envelope: zero within gap0 of a wall,
+                                     // full beyond gap1 (-gap D0 D1)
   bool dumpvol = false;
   int volstride = 1;
   int threads = 0;              // host diagnostics; 0 = SLURM allocation or machine
   std::string out;
+};
+
+// THE BULK TAYLOR-GREEN FORCE (-drive F0, Phase 3): the initial velocity's own
+// pattern, F = F0 W (sin x cos y cos z, -cos x sin y cos z, 0), in the paper's
+// units (an acceleration, k0 v0^2), times an envelope W that is ZERO within
+// gap0 of every wall and one beyond gap1 (-gap), half a cosine between, the product
+// of one such step per axis in the distance to the nearest face. Two reasons:
+// a regularised no-slip wall under a body force develops a slip proportional to
+// the force, with no diagnosed mechanism (FluidSolver's run_step), and a force
+// that never reaches the walls cannot be what the near-wall dissipation is made
+// of. The envelope is a fixed length, the same at every Re, so each rung is the
+// same forced problem with only the viscosity changed; it is mirror-symmetric
+// about every face, so the free-slip box stays an exact restriction of a forced
+// periodic flow. The tables are per index along an axis, so the force costs a
+// few multiplications per node in the probe. GPU/src/tg_mhd.cu has the twin.
+//
+// THE FIELD IS FORCED TOO (-bdrive FM), BECAUSE NO DYNAMO KEEPS IT. Driven at
+// F0 = 0.1 alone (N = 65, Re = 200), neither box sustains its field: over
+// t = 20..50 E_M falls 1.23e-3 -> 4.39e-5 in the free-slip box and 3.31e-3 ->
+// 1.21e-3 in the no-slip one, e-folding rates 0.11 and 0.033, while E_V settles
+// (2026-10-03). A forced comparison of the walls with no field left in it would
+// be a hydrodynamic one, so the field gets its own source on the induction
+// equation, the initial TG-C field's pattern under the same envelope:
+//
+//     S = FM curl(W A),   A = (cos2x sin2y sin2z, -sin2x cos2y sin2z, 0) / 2,
+//
+// whose curl is (sin2x cos2y cos2z, cos2x sin2y cos2z, -2 cos2x cos2y sin2z), so
+// S IS FM times that pattern wherever W = 1. THE CURL, AND NOT W TIMES THE
+// PATTERN, because a source on B must be solenoidal or it makes monopoles:
+// div(W B_C) = grad W . B_C, nonzero wherever the envelope rises, while the curl
+// of anything has none; the price is grad W x A, which lives only in that rise.
+// S has the conducting parity about every face (normal component odd,
+// tangential even, term by term), so the free-slip box stays an exact
+// restriction of the forced periodic flow with the field forced as well.
+struct TGForce {
+  double F0 = 0.0, FM = 0.0;
+  // sin, cos, sin 2X, cos 2X, the envelope and its derivative d w/d X, per index
+  std::vector<double> sn, cs, s2, c2, w, dw;
+  void build(Index L, Index N, double h, double F0_, double FM_, double d0, double d1) {
+    F0 = F0_; FM = FM_;
+    sn.assign(std::size_t(L), 0.0); cs = sn; s2 = sn; c2 = sn; w = sn; dw = sn;
+    for (Index p = 0; p < L; ++p) {
+      const std::size_t i = std::size_t(p);
+      const double X = h * double(p);
+      sn[i] = std::sin(X);
+      cs[i] = std::cos(X);
+      s2[i] = std::sin(2 * X);
+      c2[i] = std::cos(2 * X);
+      // the distance to the nearest face: in the box min(p, N-1-p), and in the
+      // periodic twin the same about the nearest symmetry plane
+      const Index m = p % (N - 1);
+      const bool low = m <= N - 1 - m;          // the nearest face is below
+      const double dist = h * double(low ? m : N - 1 - m);
+      if (dist <= d0)      { w[i] = 0.0; dw[i] = 0.0; }
+      else if (dist >= d1) { w[i] = 1.0; dw[i] = 0.0; }
+      else {
+        const double k = PI / (d1 - d0);
+        w[i]  = 0.5 * (1.0 - std::cos(k * (dist - d0)));
+        dw[i] = (low ? 0.5 : -0.5) * k * std::sin(k * (dist - d0));
+      }
+    }
+  }
+  void at(Index x, Index y, Index z, double f[3]) const {
+    const std::size_t X = std::size_t(x), Y = std::size_t(y), Z = std::size_t(z);
+    const double a = F0 * w[X] * w[Y] * w[Z] * cs[Z];
+    f[0] =  a * sn[X] * cs[Y];
+    f[1] = -a * cs[X] * sn[Y];
+    f[2] = 0.0;
+  }
+  // S = FM (W curl A + grad W x A), with A_z = 0.
+  void field_at(Index x, Index y, Index z, double s[3]) const {
+    const std::size_t X = std::size_t(x), Y = std::size_t(y), Z = std::size_t(z);
+    const double W  = w[X] * w[Y] * w[Z];
+    const double Wx = dw[X] * w[Y] * w[Z], Wy = w[X] * dw[Y] * w[Z], Wz = w[X] * w[Y] * dw[Z];
+    const double Ax =  0.5 * c2[X] * s2[Y] * s2[Z];
+    const double Ay = -0.5 * s2[X] * c2[Y] * s2[Z];
+    s[0] = FM * ( W * s2[X] * c2[Y] * c2[Z] - Wz * Ay);
+    s[1] = FM * ( W * c2[X] * s2[Y] * c2[Z] + Wz * Ax);
+    s[2] = FM * (-2.0 * W * c2[X] * c2[Y] * s2[Z] + Wx * Ay - Wy * Ax);
+  }
 };
 
 // THE SMOOTH START'S RAMP: the walls' velocity, as a fraction of the flow's at
@@ -298,8 +391,8 @@ struct HostFields {
 // dissipation cannot say: where the energy a layer dissipates comes FROM. Per
 // node, in the paper's units, with eK = |u|^2/2 and eM = |B|^2/2:
 //
-//    d eK / dt = lor + advK + pres + difK - visc
-//    d eM / dt = S   + advM + difM + cmpM - ohm
+//    d eK / dt = lor + advK + pres + difK - visc  (+ injK = u.F in a forced run)
+//    d eM / dt = S   + advM + difM + cmpM - ohm   (+ injM = B.S in a forced run)
 //
 //    lor  = u.(j x B)            the Lorentz work on the flow
 //    S    = B_i B_j d_j u_i      stretching: the flow's work on the field
@@ -323,9 +416,13 @@ struct HostFields {
 // derivatives are second-order differences, so a layer's terms close only to a
 // residual that the analysis must measure (d eK/dt against their sum) before it
 // reads anything off them.
-enum BudgetTerm : int { BeK, BeM, Bvisc, Bohm, BS, Blor, BadvK, Bpres, BdifK, BadvM, BdifM, BcmpM, NBUD };
+// injK = u.F and injM = B.S, the bulk forces' work (-drive, -bdrive), are written
+// only for a run with that force, so an unforced budget.dat keeps its twelve rows.
+enum BudgetTerm : int { BeK, BeM, Bvisc, Bohm, BS, Blor, BadvK, Bpres, BdifK, BadvM, BdifM, BcmpM, BinjK,
+                        BinjM, NBUD };
 const char* const budget_name[NBUD] = {"eK",   "eM",   "visc", "ohm",  "S",    "lor",
-                                       "advK", "pres", "difK", "advM", "difM", "cmpM"};
+                                       "advK", "pres", "difK", "advM", "difM", "cmpM", "injK",
+                                       "injM"};
 
 // THE PROBE IS PARALLEL OVER z -- the same split as GPU/src/tg_mhd.cu, whose
 // banner at Acc says why. Each thread sums its own z-slab and the slabs merge in
@@ -494,6 +591,9 @@ int main(int argc, char** argv) {
       else if (a == "-threads")  o.threads = std::atoi(next());
       else if (a == "-vamp")     o.vamp = std::atof(next());
       else if (a == "-ramp")     o.ramp = std::atof(next());
+      else if (a == "-drive")    o.drive = std::atof(next());
+      else if (a == "-bdrive")   o.bdrive = std::atof(next());
+      else if (a == "-gap")    { o.gap0 = std::atof(next()); o.gap1 = std::atof(next()); }
     }
 
     const bool hydro = (o.ic == ICKind::Hydro);
@@ -511,6 +611,19 @@ int main(int argc, char** argv) {
       return 2;
     }
 
+    if ((o.drive > 0 || o.bdrive > 0) && !(o.gap0 >= 0 && o.gap1 > o.gap0 && o.gap1 < 0.5 * PI)) {
+      std::fprintf(stderr, "tg_mhd: -gap needs 0 <= D0 < D1 < pi/2.\n");
+      Kokkos::finalize();
+      return 2;
+    }
+    // The field's source has the CONDUCTING parity (TGForce), so it is a source
+    // for that box only -- and a box without a field has nothing to force.
+    if (o.bdrive > 0 && (hydro || (!o.periodic && !o.conducting))) {
+      std::fprintf(stderr, "tg_mhd: -bdrive forces the field with the TG-C pattern; it needs a "
+                   "field and, in a box, -mwall cond.\n");
+      Kokkos::finalize();
+      return 2;
+    }
     // A smooth start moves no-slip walls; anything else has none to move.
     if (o.ramp > 0 && (o.periodic || !o.noslip)) {
       std::fprintf(stderr, "tg_mhd: -ramp brings NO-SLIP walls to rest; this box has none.\n");
@@ -538,6 +651,8 @@ int main(int argc, char** argv) {
     // name -- or, in the tools, the place -- of one without.
     if (o.vamp != 1.0) std::snprintf(tag + std::strlen(tag), sizeof tag - std::strlen(tag), "_va%g", o.vamp);
     if (o.ramp > 0)    std::snprintf(tag + std::strlen(tag), sizeof tag - std::strlen(tag), "_ramp%g", o.ramp);
+    if (o.drive > 0)   std::snprintf(tag + std::strlen(tag), sizeof tag - std::strlen(tag), "_drive%g", o.drive);
+    if (o.bdrive > 0)  std::snprintf(tag + std::strlen(tag), sizeof tag - std::strlen(tag), "_bdrive%g", o.bdrive);
     if (o.out.empty()) o.out = std::string("results/P_tg_mhd/") + tag;
     std::error_code ec;
     std::filesystem::create_directories(o.out, ec);
@@ -563,6 +678,10 @@ int main(int argc, char** argv) {
     if (o.ramp > 0)
       std::printf("  SMOOTH START: the walls move with the flow at t = 0 and come to rest over"
                   " t = %g (cosine ramp)\n", o.ramp);
+    if (o.drive > 0 || o.bdrive > 0)
+      std::printf("  DRIVEN: Taylor-Green force %g on the flow and TG-C source %g on the field, in"
+                  " the bulk: zero within %g of every wall and full beyond %g\n",
+                  o.drive, o.bdrive, o.gap0, o.gap1);
     if (tauf - 0.5 < 0.002)
       std::printf("  NOTE: tau_f - 1/2 = %.2e is below the 2e-3 every established MHD run in "
                   "this tree sat at.\n", tauf - 0.5);
@@ -580,6 +699,49 @@ int main(int argc, char** argv) {
     fc.Bx = mag.Bx(); fc.By = mag.By(); fc.Bz = mag.Bz();
     FluidT fl(d, fc);
     fl.set_geometry([&](Index, Index, Index) -> CellType { return Fluid; });
+    TGForce tgf;
+    if (o.drive > 0 || o.bdrive > 0) tgf.build(L, N, h, o.drive, o.bdrive, o.gap0, o.gap1);
+    // Both in lattice units: a paper acceleration or field source per unit time
+    // times u0^2 h (the field is u0 B in lattice units, and dt = u0 h).
+    const double lat = o.u0 * o.u0 * h;
+    if (o.drive > 0) {
+      View1D<Real> Ex("force_x", d.n_padded), Ey("force_y", d.n_padded);
+      auto hx = Kokkos::create_mirror_view(Ex);
+      auto hy = Kokkos::create_mirror_view(Ey);
+      for (Index n = 0; n < d.n_padded; ++n) hx(n) = hy(n) = Real(0);
+      for (Index z = 0; z < L; ++z)
+        for (Index y = 0; y < L; ++y)
+          for (Index x = 0; x < L; ++x) {
+            double f[3];
+            tgf.at(x, y, z, f);
+            hx(d.id(x, y, z)) = Real(lat * f[0]);
+            hy(d.id(x, y, z)) = Real(lat * f[1]);
+          }
+      Kokkos::deep_copy(Ex, hx);
+      Kokkos::deep_copy(Ey, hy);
+      fl.collision().forcing.Ex = Ex;
+      fl.collision().forcing.Ey = Ey;
+    }
+    if (o.bdrive > 0) {
+      View1D<Real> Sx("bsource_x", d.n_padded), Sy("bsource_y", d.n_padded), Sz("bsource_z", d.n_padded);
+      auto hx = Kokkos::create_mirror_view(Sx);
+      auto hy = Kokkos::create_mirror_view(Sy);
+      auto hz = Kokkos::create_mirror_view(Sz);
+      for (Index n = 0; n < d.n_padded; ++n) hx(n) = hy(n) = hz(n) = Real(0);
+      for (Index z = 0; z < L; ++z)
+        for (Index y = 0; y < L; ++y)
+          for (Index x = 0; x < L; ++x) {
+            double s[3];
+            tgf.field_at(x, y, z, s);
+            hx(d.id(x, y, z)) = Real(lat * s[0]);
+            hy(d.id(x, y, z)) = Real(lat * s[1]);
+            hz(d.id(x, y, z)) = Real(lat * s[2]);
+          }
+      Kokkos::deep_copy(Sx, hx);
+      Kokkos::deep_copy(Sy, hy);
+      Kokkos::deep_copy(Sz, hz);
+      mag.set_source(Sx, Sy, Sz);
+    }
     if (!o.periodic) {
       if (o.noslip) {
         // FD edge closure is incompatible with a Lorentz force (FluidSolver).
@@ -763,6 +925,17 @@ int main(int argc, char** argv) {
               tb[BadvM] = advM;
               tb[BdifM] = eta_tg * (j2 + b[0] * lb[0] + b[1] * lb[1] + b[2] * lb[2]);
               tb[BcmpM] = -b2 * divu + ub * dvb;
+              tb[BinjK] = tb[BinjM] = 0.0;
+              if (tgf.F0 > 0) {
+                double fp[3];
+                tgf.at(x, y, z, fp);
+                tb[BinjK] = u[0] * fp[0] + u[1] * fp[1] + u[2] * fp[2];
+              }
+              if (tgf.FM > 0) {
+                double sp[3];
+                tgf.field_at(x, y, z, sp);
+                tb[BinjM] = b[0] * sp[0] + b[1] * sp[1] + b[2] * sp[2];
+              }
               const std::size_t nl = a.lay_e.size();
               for (int q = 0; q < NBUD; ++q) a.lay_b[std::size_t(q) * nl + lay] += w * tb[q];
             }
@@ -884,8 +1057,8 @@ int main(int argc, char** argv) {
                       "# k cells from the nearest wall, the slab [(k-1/2)h, (k+1/2)h]) and from the rest of\n"
                       "# the box beyond them, so a row sums to the box average. Paper units: energies in\n"
                       "# v0^2, rates in k0 v0^3. With eK = |u|^2/2 and eM = |B|^2/2,\n"
-                      "#   d eK/dt = lor + advK + pres + difK - visc\n"
-                      "#   d eM/dt = S + advM + difM + cmpM - ohm\n"
+                      "#   d eK/dt = lor + advK + pres + difK + injK - visc   (injK = u.F, -drive only)\n"
+                      "#   d eM/dt = S + advM + difM + cmpM + injM - ohm   (injM = B.S, -bdrive only)\n"
                       "# lor = u.(j x B); S = B_i B_j d_j u_i; advK, advM = -u.grad eK, -u.grad eM;\n"
                       "# pres = -u.grad p, p = cs^2 rho/u0^2; difK = nu div(u x w); difM = eta div(B x j);\n"
                       "# cmpM = -|B|^2 div u + (u.B) div B; visc = nu |w|^2; ohm = eta |j|^2. The scheme is\n"
@@ -1100,6 +1273,7 @@ int main(int argc, char** argv) {
             bud_vol = true;
           }
           for (int q = 0; q < NBUD; ++q) {
+            if ((q == BinjK && !(o.drive > 0)) || (q == BinjM && !(o.bdrive > 0))) continue;
             std::fprintf(bud, "%.6f %s", t, budget_name[q]);
             for (std::size_t c = 0; c <= nbw; ++c) std::fprintf(bud, " %.6e", g.bud[std::size_t(q) * (nbw + 1) + c]);
             std::fprintf(bud, "\n");
