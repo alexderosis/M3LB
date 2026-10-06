@@ -1,0 +1,91 @@
+#!/bin/bash --login
+#==============================================================================
+#  RR-MHD paper: three-dimensional Orszag-Tang vortex on one A100 (gpuA), FP64.
+#
+#  -op cm with -wbulk omega IS single-rate recursive regularisation (the paper's
+#  Theorem 1; checked against the paper's own D3Q27 RR code to 3e-13 over a full
+#  run at M = 32, FP64, for both -wbulk omega and -wbulk 1). -fullinit starts
+#  from the complete equilibrium, as that code does.
+#
+#  Submit from the repo root, in two groups by wallclock:
+#      sbatch --array=0-2,5,6,8   --time=1:00:00 GPU/csf3/rr_paper/rr_paper.sub
+#      sbatch --array=3,4,7,9,10  --time=6:00:00 GPU/csf3/rr_paper/rr_paper.sub
+#
+#   idx  Re     M    op   omega_bulk   purpose                               est. A100
+#   0    1000   128  cm   omega        convergence through the peak (t<=3)    ~2 min
+#   1    1000   256  cm   omega        convergence through the peak           ~15 min
+#   2    3000   256  cm   omega        high Re, coarse grid                    ~15 min
+#   3    3000   512  cm   omega        high Re, fine grid                      ~2-3 h
+#   4    3000   512  cm   1            bulk-rate effect (the one omega_b = 1)  ~2-3 h
+#   5    1000   128  bgk  -            BGK at the same settings                ~2 min
+#   6    3000   256  bgk  -            BGK (expected to diverge)               short
+#   7    3000   512  bgk  -            BGK (expected to diverge)               short
+#   8   10000   256  cm   omega        "if it holds up", coarse                ~15 min
+#   9   10000   512  cm   omega        "if it holds up", fine                  ~2-3 h
+#   10  10000   512  bgk  -            BGK (expected to diverge)               short
+#
+#  The estimates assume ~0.7 GLUPS FP64 for D3Q27 + 3 x D3Q7; the log's last
+#  line prints the measured MLUPS. M = 512 in FP64 needs ~60 GB of the 80 GB.
+#
+#  Every run: t <= 3, 60 probes (one every ~0.05), and for cm a .vti frame
+#  every 10th probe (t ~ 0.5, 1, ..., 3; 4.3 GB each at M = 512, 0.5 GB at 256)
+#  for the energy spectra and the 3-D views. A run that diverges prints
+#  "DIVERGED at t = ..." and exits; that time is the result for BGK.
+#
+#  Output: runs/rr_paper/<tag>/log.txt and runs/rr_paper/<tag>/vti/.
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 8
+#SBATCH -t 1:00:00
+#SBATCH -J rr_paper
+#SBATCH -o rr_paper-%A_%a.log
+
+set -euo pipefail
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+BIN="$ROOT/GPU/build64_rr/orszag_tang"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN -- run GPU/csf3/rr_paper/rr_paper_build.sh first" >&2
+  exit 1
+fi
+if [ "$BIN" -ot "$ROOT/GPU/src/orszag_tang.cu" ]; then
+  echo "ERROR: $BIN is older than GPU/src/orszag_tang.cu -- rebuild" >&2
+  exit 1
+fi
+
+#           Re     M    op   wbulk  vti
+CFG=(  "1000   128  cm   omega  10"
+       "1000   256  cm   omega  10"
+       "3000   256  cm   omega  10"
+       "3000   512  cm   omega  10"
+       "3000   512  cm   1      10"
+       "1000   128  bgk  1      0"
+       "3000   256  bgk  1      0"
+       "3000   512  bgk  1      0"
+       "10000  256  cm   omega  10"
+       "10000  512  cm   omega  10"
+       "10000  512  bgk  1      0" )
+read -r RE M OP WB VTI <<< "${CFG[$SLURM_ARRAY_TASK_ID]}"
+TAG="re${RE}_m${M}_${OP}"
+[ "$OP" = "cm" ] && TAG="${TAG}_wb${WB}"
+OUT="$ROOT/runs/rr_paper/$TAG"
+mkdir -p "$OUT"
+cd "$OUT"
+
+echo "rr_paper element $SLURM_ARRAY_TASK_ID: Re=$RE M=$M op=$OP wbulk=$WB vti=$VTI -> $OUT"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+ARGS=(-m "$M" -re "$RE" -ma 0.034 -tmax 3 -probes 60 -op "$OP" -fullinit)
+[ "$OP" = "cm" ] && ARGS+=(-wbulk "$WB")
+[ "$VTI" -gt 0 ] && ARGS+=(-vti "$VTI")
+set +e
+"$BIN" "${ARGS[@]}" > log.txt 2>&1
+STATUS=$?
+set -e
+tail -n 25 log.txt
+echo "exit status $STATUS"
+du -sh "$OUT"

@@ -1,0 +1,39 @@
+#!/bin/bash --login
+#==============================================================================
+#  RR-MHD paper: pseudo-spectral reference for the Re = 1000 runs (elements 0, 1
+#  and 5 of rr_paper.sub), N_s = 256, t <= 3, CPU only.
+#
+#  Incompressible MHD, 2/3 de-aliasing, integrating-factor RK4 (exact diffusion),
+#  dt <= 2.5e-3. It samples at EXACTLY the probe times of the M = 128 and M = 256
+#  LBM runs (PROBES=60, the driver's own formula T/60), and writes, besides the
+#  energies, the peak current evaluated with the lattice's central differences on
+#  the 128^3 and 256^3 nodes (columns Jfd128, Jfd256), and the energy spectra at
+#  the times of the LBM .vti frames (VTI=10).
+#
+#  ~14 GB of memory; the 8 GB per core of the multicore partition makes 32 cores
+#  ample. Estimated 2-4 h on 32 Genoa cores (about 6 h on 8 laptop threads).
+#
+#      sbatch GPU/csf3/rr_paper/rr_paper_spectral.sub
+#
+#  Output: runs/rr_paper/spectral_re1000_ns256/ (ref.txt, ref.log, spec_M*_t*.txt).
+#  Check the last column of ref.txt (tailJ, the share of |j_hat|^2 in the three
+#  shells nearest the cut-off): below ~1e-3 the reference is resolved.
+#==============================================================================
+#SBATCH -p multicore
+#SBATCH -n 32
+#SBATCH -t 12:00:00
+#SBATCH -J rr_spectral
+#SBATCH -o rr_spectral-%j.log
+
+set -euo pipefail
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+KIT="$ROOT/GPU/csf3/rr_paper"
+OUT="$ROOT/runs/rr_paper/spectral_re1000_ns256"
+mkdir -p "$OUT"
+g++ -O3 -march=native -std=c++17 -pthread -o "$OUT/spectral3d_ref" "$KIT/tools/spectral3d_ref.cpp"
+cd "$OUT"
+#   Ns  Re    tmax dt_max  lattices  output   Ma    threads
+PROBES=60 VTI=10 SPEC_PREFIX=spec \
+  ./spectral3d_ref 256 1000 3 2.5e-3 128,256 ref.txt 0.034 "$SLURM_NTASKS" > ref.log 2>&1
+tail -n 3 ref.log
+ls spec_M*_t*.txt | wc -l

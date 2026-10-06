@@ -1,0 +1,55 @@
+#!/bin/bash --login
+#==============================================================================
+#  RR-MHD paper: post-processing on CPU, after the GPU runs (and the spectral
+#  reference) have finished.
+#
+#  For every .vti frame under runs/rr_paper/*/vti/: shell-averaged kinetic and
+#  magnetic energy spectra (physical units) -> runs/rr_paper/<tag>/spec/.
+#  For the frames at t ~ 1 and t ~ 2 of the cm runs, also |j| by spectral
+#  differentiation (2/3 cube mask) for the 3-D isosurface figure, at full
+#  resolution up to M = 256 and every second node at M = 512 (256^3, 67 MB).
+#  Then everything small goes into runs/rr_paper/rr_paper_results.tar.gz
+#  (logs, spectra, |j| volumes, spectral reference): that one file is what to
+#  copy back. The .vti frames stay on scratch (delete them when done).
+#
+#      sbatch GPU/csf3/rr_paper/rr_paper_post.sub
+#
+#  ~20 GB of memory at M = 512 (16 cores x 8 GB is plenty); about a minute per
+#  512^3 frame.
+#==============================================================================
+#SBATCH -p multicore
+#SBATCH -n 16
+#SBATCH -t 6:00:00
+#SBATCH -J rr_post
+#SBATCH -o rr_post-%j.log
+
+set -euo pipefail
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+KIT="$ROOT/GPU/csf3/rr_paper"
+RUNS="$ROOT/runs/rr_paper"
+BIN="$RUNS/spectra_vti"
+g++ -O3 -march=native -std=c++17 -pthread -I"$KIT/tools" -o "$BIN" "$KIT/tools/spectra_vti.cpp"
+
+shopt -s nullglob
+for d in "$RUNS"/re*_m*; do
+  [ -d "$d/vti" ] || continue
+  tag=$(basename "$d")
+  mkdir -p "$d/spec"
+  M=$(echo "$tag" | sed -E 's/.*_m([0-9]+)_.*/\1/')
+  stride=1; [ "$M" -ge 512 ] && stride=2
+  for f in "$d"/vti/ot3d_*.vti; do
+    fr=$(basename "$f" .vti)
+    idx=$((10#${fr#ot3d_}))
+    extra=()
+    # frames 2 and 4 are t ~ 1 and t ~ 2 (one frame every 0.5, frame 0 at t = 0)
+    if [ "$idx" -eq 2 ] || [ "$idx" -eq 4 ]; then extra=(-jraw "$stride"); fi
+    "$BIN" "$f" "$d/spec/$fr" -ma 0.034 -threads "$SLURM_NTASKS" "${extra[@]}"
+  done
+  cp "$d/vti/ot3d.pvd" "$d/spec/" 2>/dev/null || true
+done
+
+cd "$RUNS"
+tar czf rr_paper_results.tar.gz \
+    $(ls -d re*_m*/log.txt re*_m*/spec spectral_re1000_ns256/ref.txt spectral_re1000_ns256/ref.log \
+            spectral_re1000_ns256/spec_M*_t*.txt 2>/dev/null)
+ls -lh rr_paper_results.tar.gz

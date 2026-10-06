@@ -110,6 +110,11 @@ sbatch --array=18-35 --time=0:30:00 GPU/csf3/tg_mhd_pilot.sub       # chained on
 sbatch --array=0-1   --time=16:00:00 GPU/csf3/tg_mhd_pilot2.sub    # its second round, likewise
 sbatch --array=2-13  --time=2:30:00  GPU/csf3/tg_mhd_pilot2.sub
 sbatch --array=14-25 --time=1:00:00  GPU/csf3/tg_mhd_pilot2.sub
+bash --login GPU/csf3/rr_paper/rr_paper_build.sh                  # RR-MHD paper: OT 3-D campaign,
+sbatch --array=0-2,5,6,8  --time=1:00:00 GPU/csf3/rr_paper/rr_paper.sub   # FP64 build first, then
+sbatch --array=3,4,7,9,10 --time=6:00:00 GPU/csf3/rr_paper/rr_paper.sub   # two groups by wallclock
+sbatch GPU/csf3/rr_paper/rr_paper_spectral.sub                    # its spectral reference (CPU)
+sbatch GPU/csf3/rr_paper/rr_paper_post.sub                        # after both: spectra + tarball
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -133,6 +138,14 @@ tree, and it exists because the run does not fit a free Colab session --
 at 62 %, losing every frame. On a gpuA A100 it is minutes. It writes 244
 slice and 244 volume frames for an animation; render them afterwards on any
 machine with the repo, no GPU needed (the commands are in its header).
+
+**`rr_paper/`** is the three-dimensional Orszag–Tang campaign of the RR-MHD paper:
+`orszag_tang -op cm -wbulk omega -fullinit`, which is single-rate recursive
+regularisation (to 2.6e-13 against that paper's own D3Q27 code over a whole M = 32
+run), at Re = 1000, 3000 and 10000 on M = 128 to 512 in FP64, with BGK at the same
+settings, one `-wbulk 1` run, a pseudo-spectral reference on 32 CPU cores and a
+post-processing job that leaves one tarball to copy back. About 10 A100-hours.
+Its own `README.md` has the table of elements and what each is for.
 
 **Ask for the wallclock you need, not the maximum.** SLURM backfills short jobs
 into gaps ahead of long ones, so a 1-day request can only start when a 1-day
