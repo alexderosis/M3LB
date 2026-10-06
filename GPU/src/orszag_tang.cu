@@ -76,7 +76,25 @@
 //
 //    usage: orszag_tang [-m M] [-re RE] [-ma MA] [-tmax T] [-op bgk|cm]
 //                       [-probes N] [-vti K] [-dump K] [-dumpvol K]
-//                       [-volstride S]
+//                       [-volstride S] [-wbulk W|omega] [-fullinit]
+//
+//  -wbulk sets the relaxation rate of the trace of the second-order moments
+//  (default 1, the Solver's default); "-wbulk omega" relaxes it at the shear
+//  rate. With either value the CM operator IS recursive regularisation with the
+//  same second-order map: the RR reconstruction (w/2) a2 : d2F/du du has central
+//  Hermite moments at second order only, so RR == CM in the shifted Hermite basis
+//  with every order above two at equilibrium. Measured, with -fullinit: the FP64
+//  host build and an independent D3Q27 RR code (closed-form reconstruction, swap
+//  streaming) agree to 2.6e-13 in E_u, 1.8e-14 in E_b and 7e-14 in Jmax over
+//  2935 steps at M = 32, Re = 100, for -wbulk omega and -wbulk 1 alike.
+//
+//  -fullinit seeds the populations with the complete equilibrium at rho = 1,
+//  product form PLUS the Maxwell stress (as tg_mhd.cu does). Without it the
+//  start is the equilibrium of u alone: the Maxwell part is missing at t = 0,
+//  the first steps carry an acoustic transient, and the same comparison differs
+//  by 3.4e-4. It does NOT add a non-equilibrium part -- the populations start at
+//  equilibrium, as in the code it was checked against. The defaults (rate 1, the
+//  old start) are unchanged, so earlier runs reproduce.
 //
 //  -vti K writes a ParaView .vti every K-th PROBE, plus a .pvd time series, into
 //  ./vti/. Tying frames to probes rather than to steps is deliberate: a frame
@@ -143,6 +161,19 @@ struct OtUInit {
     u[0] = Real(-2.0 * double(v0) * sin(Y));
     u[1] = Real( 2.0 * double(v0) * sin(X));
     u[2] = Real(0);
+  }
+};
+
+// The complete equilibrium at t = 0 for -fullinit: product form at rho = 1 plus
+// the Maxwell stress, the same populations the collision relaxes towards.
+struct OtPopulations {
+  Real dl, v0, b0;
+  LBM_HD void operator()(int x, int y, int z, Real f[27]) const {
+    Real u[3], B[3];
+    OtUInit{dl, v0}(x, y, z, u);
+    OtBInit{dl, b0}(x, y, z, B);
+    product_equilibrium(Real(1), u, f);
+    for (int i = 0; i < 27; ++i) f[i] += maxwell(i, B);
   }
 };
 
@@ -341,7 +372,8 @@ int main(int argc, char** argv) {
   int M = 64, nprobe = 20;
   double Re = 100.0, Ma = 0.034, tmax = 4.0;
   int vti = 0, dump = 0, dvol = 0, vstride = 1;
-  std::string op = "cm";
+  std::string op = "cm", wbulk = "1";
+  bool fullinit = false;
 
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
@@ -355,6 +387,8 @@ int main(int argc, char** argv) {
     if (a == "-dump"   && i + 1 < argc) dump   = std::atoi(argv[++i]);
     if (a == "-dumpvol"&& i + 1 < argc) dvol   = std::atoi(argv[++i]);
     if (a == "-volstride" && i + 1 < argc) vstride = std::max(1, std::atoi(argv[++i]));
+    if (a == "-wbulk"  && i + 1 < argc) wbulk  = argv[++i];
+    if (a == "-fullinit") fullinit = true;
   }
 
   // Ma on the PEAK initial speed, 2 sqrt(2) v0 -- an assumption, not a reading.
@@ -366,6 +400,12 @@ int main(int argc, char** argv) {
   const double dt = dl * v0;                   // one unit of t per 1/(dl v0) steps
   const std::size_t T = std::size_t(tmax / dt);
   const Op which = (op == "bgk") ? Op::BGK : Op::CentralMoments;
+  const Real omega_bulk = (wbulk == "omega") ? omega_from_viscosity(Real(nu))
+                                             : Real(std::atof(wbulk.c_str()));
+  if (!(omega_bulk > Real(0) && omega_bulk < Real(2))) {
+    std::fprintf(stderr, "-wbulk must be a rate in (0, 2) or 'omega'\n");
+    return 2;
+  }
 
   std::printf("Orszag-Tang 3D   %s   D3Q27 fluid / D3Q7 field   operator %s   %s\n",
               backend::on_device ? "CUDA native" : "HOST reference",
@@ -374,15 +414,20 @@ int main(int argc, char** argv) {
               M, long(M) * M * M, Re, Ma);
   std::printf("  v0 = %.6e   b0 = %.6e   nu = eta = %.6e (tau %.6f)\n",
               v0, b0, nu, 3.0 * nu + 0.5);
+  std::printf("  omega_bulk = %.6f%s   start: %s\n", double(omega_bulk),
+              wbulk == "omega" ? " (= omega)" : "",
+              fullinit ? "complete equilibrium (product form + Maxwell stress)"
+                       : "equilibrium of u only (no Maxwell stress)");
   std::printf("  t up to %.1f  (%zu steps)\n\n", tmax, T);
 
   backend::Magnetic mag(M, M, M, Real(eta));
-  backend::Fluid    fl (M, M, M, which, Real(nu));
+  backend::Fluid    fl (M, M, M, which, Real(nu), omega_bulk);
 
   fl.couple_magnetic(mag.Bx_device(), mag.By_device(), mag.Bz_device());
   mag.advect_with(fl.ux_device(), fl.uy_device(), fl.uz_device());
 
-  fl.initialise_with(OtFluidInit{Real(dl), Real(v0)});
+  if (fullinit) fl.seed_populations_with(OtPopulations{Real(dl), Real(v0), Real(b0)});
+  else          fl.initialise_with(OtFluidInit{Real(dl), Real(v0)});
   mag.initialise_with(OtBInit{Real(dl), Real(b0)}, OtUInit{Real(dl), Real(v0)});
 
   std::vector<Real> rho, ux, uy, uz, bx, by, bz;
