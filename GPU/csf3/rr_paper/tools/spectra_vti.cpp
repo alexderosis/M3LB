@@ -5,6 +5,8 @@
 //   usage: spectra_vti frame.vti out_prefix [-ma 0.034] [-threads 8] [-jraw stride]
 //   writes out_prefix_spec.txt (k E_u E_b) and, with -jraw s, out_prefix_jspec_s.raw: |curl b| (physical) by
 //   spectral differentiation with the 2/3 cube mask |k_a| <= N/3, sampled every s nodes (int32 n,n,n then float32).
+//   For s > 1 the mask is also cut below the Nyquist wavenumber N/(2s) of the sampled grid, so the sampled volume
+//   is not aliased: without that cut a 512^3 field sampled on 256^3 folds k = 128..170 onto grid-scale ripples.
 #include "fft3.hpp"
 #include <cstdint>
 #include <fstream>
@@ -73,7 +75,7 @@ int main(int argc, char** argv) {
   fclose(fo);
   fprintf(stderr, "%s: N = %d, E_u = %.8f, E_b = %.8f (physical)\n", in.c_str(), N, su, sb);
   if (jstride > 0) {
-    const int kmax = N / 3; const cd I(0, 1);
+    const int kmax = (jstride > 1) ? std::min(N / 3, N / (2 * jstride) - 1) : N / 3; const cd I(0, 1);
     vec J[3]; for (int c2 = 0; c2 < 3; ++c2) J[c2].assign(n3, 0);
     for (int iz = 0; iz < N; ++iz) for (int iy = 0; iy < N; ++iy) for (int ix = 0; ix < N; ++ix) {
       const size_t id = ((size_t)iz * N + iy) * N + ix;

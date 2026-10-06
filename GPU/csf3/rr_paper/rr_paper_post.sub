@@ -14,6 +14,12 @@
 #
 #      sbatch GPU/csf3/rr_paper/rr_paper_post.sub
 #
+#  ONLY="<tag> <tag> ..." limits the spectra and |j| volumes to those run
+#  directories (the tarball still collects everything small), e.g. after the
+#  omega_b = 1 follow-up:
+#      ONLY="re3000_m256_cm_wb1 re10000_m512_cm_wb1 re1000_m256_cm_wb1 re3000_m512_cm_wb1" \
+#          sbatch --export=ALL GPU/csf3/rr_paper/rr_paper_post.sub
+#
 #  ~20 GB of memory at M = 512 (16 cores x 8 GB is plenty); about a minute per
 #  512^3 frame.
 #==============================================================================
@@ -34,6 +40,7 @@ shopt -s nullglob
 for d in "$RUNS"/re*_m*; do
   [ -d "$d/vti" ] || continue
   tag=$(basename "$d")
+  if [ -n "${ONLY:-}" ] && [[ " $ONLY " != *" $tag "* ]]; then continue; fi
   mkdir -p "$d/spec"
   M=$(echo "$tag" | sed -E 's/.*_m([0-9]+)_.*/\1/')
   stride=1; [ "$M" -ge 512 ] && stride=2

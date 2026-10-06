@@ -115,6 +115,8 @@ sbatch --array=0-2,5,6,8  --time=1:00:00 GPU/csf3/rr_paper/rr_paper.sub   # FP64
 sbatch --array=3,4,7,9,10 --time=6:00:00 GPU/csf3/rr_paper/rr_paper.sub   # two groups by wallclock
 sbatch GPU/csf3/rr_paper/rr_paper_spectral.sub                    # its spectral reference (CPU)
 sbatch GPU/csf3/rr_paper/rr_paper_post.sub                        # after both: spectra + tarball
+sbatch --array=11,13 --time=1:00:00 GPU/csf3/rr_paper/rr_paper.sub         # its omega_b = 1 follow-up,
+sbatch --array=12    --time=3:00:00 GPU/csf3/rr_paper/rr_paper.sub         # then ONLY="<tags>" post
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a

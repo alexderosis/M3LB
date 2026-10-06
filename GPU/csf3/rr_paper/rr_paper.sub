@@ -7,25 +7,36 @@
 #  run at M = 32, FP64, for both -wbulk omega and -wbulk 1). -fullinit starts
 #  from the complete equilibrium, as that code does.
 #
-#  Submit from the repo root, in two groups by wallclock:
+#  Submit from the repo root, in groups by wallclock:
 #      sbatch --array=0-2,5,6,8   --time=1:00:00 GPU/csf3/rr_paper/rr_paper.sub
 #      sbatch --array=3,4,7,9,10  --time=6:00:00 GPU/csf3/rr_paper/rr_paper.sub
+#      sbatch --array=11,13       --time=1:00:00 GPU/csf3/rr_paper/rr_paper.sub   # the omega_b = 1
+#      sbatch --array=12          --time=3:00:00 GPU/csf3/rr_paper/rr_paper.sub   # follow-up
 #
-#   idx  Re     M    op   omega_bulk   purpose                               est. A100
-#   0    1000   128  cm   omega        convergence through the peak (t<=3)    ~2 min
-#   1    1000   256  cm   omega        convergence through the peak           ~15 min
-#   2    3000   256  cm   omega        high Re, coarse grid                    ~15 min
-#   3    3000   512  cm   omega        high Re, fine grid                      ~2-3 h
-#   4    3000   512  cm   1            bulk-rate effect (the one omega_b = 1)  ~2-3 h
-#   5    1000   128  bgk  -            BGK at the same settings                ~2 min
-#   6    3000   256  bgk  -            BGK (expected to diverge)               short
-#   7    3000   512  bgk  -            BGK (expected to diverge)               short
-#   8   10000   256  cm   omega        "if it holds up", coarse                ~15 min
-#   9   10000   512  cm   omega        "if it holds up", fine                  ~2-3 h
-#   10  10000   512  bgk  -            BGK (expected to diverge)               short
+#   idx  Re     M    op   omega_bulk   purpose                              A100 (measured)
+#   0    1000   128  cm   omega        convergence through the peak (t<=3)   17 s
+#   1    1000   256  cm   omega        convergence through the peak          232 s
+#   2    3000   256  cm   omega        high Re, coarse grid                   diverged t = 0.85
+#   3    3000   512  cm   omega        high Re, fine grid                     diverged t = 0.65
+#   4    3000   512  cm   1            bulk-rate effect                       3475 s, to t = 3
+#   5    1000   128  bgk  -            BGK at the same settings               diverged t = 0.70
+#   6    3000   256  bgk  -            BGK                                    diverged t = 0.35
+#   7    3000   512  bgk  -            BGK                                    diverged t = 0.25
+#   8   10000   256  cm   omega        "if it holds up", coarse               diverged t = 0.65
+#   9   10000   512  cm   omega        "if it holds up", fine                 diverged t = 0.35
+#   10  10000   512  bgk  -            BGK                                    diverged t = 0.15
+#   11   3000   256  cm   1            omega_b = 1: the coarse grid at 3000   est. ~4 min
+#   12  10000   512  cm   1            omega_b = 1: does it hold at 10000?    est. ~1 h
+#   13   1000   256  cm   1            omega_b = 1: its accuracy cost against
+#                                      the spectral reference at Re = 1000    est. ~4 min
 #
-#  The estimates assume ~0.7 GLUPS FP64 for D3Q27 + 3 x D3Q7; the log's last
-#  line prints the measured MLUPS. M = 512 in FP64 needs ~60 GB of the 80 GB.
+#  Measured on gpuA (2026-10-06): 1.08, 1.27 and 1.36 GLUPS FP64 at M = 128, 256
+#  and 512 (the log's last line), probes and frames included; M = 512 in FP64
+#  needs ~60 GB of the 80 GB. Elements 11-13 exist because of 0-10: BGK and
+#  single-rate RR (-wbulk omega) diverged before the current peak at Re = 3000
+#  and 10000 -- earlier on the finer grid, after a jump of max|div b| at
+#  unchanged Jmax, i.e. a local instability, not under-resolution -- while
+#  -wbulk 1 ran to t = 3 at Re = 3000 on M = 512. See README.md.
 #
 #  Every run: t <= 3, 60 probes (one every ~0.05), and for cm a .vti frame
 #  every 10th probe (t ~ 0.5, 1, ..., 3; 4.3 GB each at M = 512, 0.5 GB at 256)
@@ -67,7 +78,10 @@ CFG=(  "1000   128  cm   omega  10"
        "3000   512  bgk  1      0"
        "10000  256  cm   omega  10"
        "10000  512  cm   omega  10"
-       "10000  512  bgk  1      0" )
+       "10000  512  bgk  1      0"
+       "3000   256  cm   1      10"
+       "10000  512  cm   1      10"
+       "1000   256  cm   1      10" )
 read -r RE M OP WB VTI <<< "${CFG[$SLURM_ARRAY_TASK_ID]}"
 TAG="re${RE}_m${M}_${OP}"
 [ "$OP" = "cm" ] && TAG="${TAG}_wb${WB}"
