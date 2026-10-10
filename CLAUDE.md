@@ -343,6 +343,24 @@ python3 tools/osm_city.py --lat 53.4729842 --lon -2.2502070 \
   default because it is what the existing Manchester and Manhattan rasters were
   built with, and a cross-check whose two sides differ in the model checks
   nothing. **Use `type` for new work and say which one a figure used.**
+- **`--fallback type` HAS ITS OWN REFERENCE, AND IT IS `mcr2`, NOT `mcr`.** The
+  Pollutant folder holds both: `mcr2_heights.npy` is the SAME snapshot on the
+  SAME grid with only the fallback model changed (`src_type_calibrated` 3299 +
+  `src_city_median` 437 = `mcr`'s `src_default` 3736 -- the same buildings
+  reassigned), and it is what `mcr_collage_youtube.mp4` was rendered from, its
+  subtitle saying "type-calibrated heights". Against it, `--fallback type`
+  reproduces the GEOMETRY exactly -- 47,787 built cells, not one gained or lost
+  -- and 97.89 % of heights, mean |dh| 0.034 m.
+  **Every differing cell is on the CITY-MEDIAN rung**, 11.20 m here against
+  9.60 m there, i.e. 3.5 storeys against 3.0. It is NOT the median tie-break
+  (numpy averages the two middle values of an even list, this takes the upper
+  one) -- that was the first hypothesis and it is wrong: the two conventions
+  agree on all ten calibrated types AND on the city median of this pool. It is
+  the POOL: 6,174 footprints here against osmnx's 6,058, which moves the
+  city-wide median by half a storey. So it reaches only the 437 buildings that
+  reach neither a height tag, nor levels, nor a type with 20 examples -- 2.1 %
+  of the domain. Quote `flat` for a cell-exact cross-check and `type` for a
+  model, and do not expect the bottom rung to agree.
 - **THE INDEX ORDER IS `i*ny + j`, EASTING SLOW.** The contiguous-looking
   `j*nx + i` is the same array transposed: it rotates the city and leaves every
   cell count, built fraction and mass budget unchanged. This file's importer
