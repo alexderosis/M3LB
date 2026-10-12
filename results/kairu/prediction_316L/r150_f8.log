@@ -1,0 +1,61 @@
+conduction-mode melt pool vs Eagar & Tsai (1983)
+backend Threads   precision FP64
+
+  TIER (d): COUPLED FLOW ON.  mu = 6.4000e-03 Pa s  nu = 8.0503e-07 m^2/s
+    fluid sub-cycling: 8 steps per scalar step, dt_f = 2.5000e-07 s (scalar dt = 2.0000e-06 s)
+    nu_lat = 0.005590  tau_f = 0.516771   d(gamma)/dT = 4.300e-04 N/(m K)
+    mushy sink: C = 8.0444e+06 kg/(m^3 s) -> A_lat = 0.2530 (A_lat/nu_lat = 45.25, invariant under -fsub)
+    WARNING: tau_f is close to the 1/2 floor; the fluid is under-relaxed at this dx and dt.
+  seed: liquidus enthalpy inverts to T_l               1748.000000 K    (want 1748.000000 +/- 0.001000)   PASS
+  seed: solidus enthalpy inverts to T_s                1698.000000 K    (want 1698.000000 +/- 0.001000)   PASS
+
+melt_pool: EnthalpyRegularised  D3Q7  TIER (b): latent heat ON -- a measured increment, NOT validated
+  P = 150.0 W   v = 500 mm/s   1/e^2 diameter = 150.0 um -> sigma = 37.5000 um   A = 0.350
+  grid 200x80x40 = 0.64 M nodes   dx = 6.00 um   dt = 2.000000e-06 s   K = 6   steps = 960
+  alpha_s = 5.352603e-06  alpha_l = 4.716981e-06 m^2/s   cp_l = 1.702128  La = 574.4681 K
+  D_lat  s 0.297367  l 0.262055    tau  s 1.689467  l 1.548218    cs2 = 0.2500
+  T_ref = -1398.0000 (an enthalpy)   rate_from_solver = 0   Pe = 1.751484
+  KEYHOLE CRITERION (conduction reference, no evaporation or convection):
+    peak surface T = 7547 K against a boiling point near 3315 K -- ABOVE for the REFERENCE. Tier (a) is unaffected (both sides solve the same linear problem). Whether tier (c) is invalid depends on the SIMULATED peak -- run -evap and read the tier (e) report.
+  q_peak = 5.9418e+09 W/m^2   flux_to_K = 8.9210e-08   peak dH/step = 530.07 K (37.92 % of T_s-T_0)
+
+reference self-checks:
+  R1 static peak / closed form                            1.000000      (want 1.000000 +/- 0.000000)   PASS
+  R2 static surface field, worst of four radii            0.000000      (want 0.000000 +/- 0.000000)   PASS
+  R3 surface flux delivers A*P, worst over v and x        0.000163      (want 0.000000 +/- 0.001000)   PASS
+  R6 lateral symmetry                                  4956.270955      (want 4956.270955 +/- 0.000000)   PASS
+
+analytic pool at the RUN's own time t = 1.9200 ms = 7.31 thermal times:
+  on the SAMPLED planes (z = dx/2 for width and length, z = 0 datum for depth):
+    2w = 158.536 um   d = 53.594 um   L = 316.040 um   (xi_w = -47.04, xi_d = -112.57 um)
+  on z = 0 (the physical pool, NOT the comparison):
+    2w = 160.592 um   d = 53.594 um   L = 320.377 um
+  quasi-steady limit: 2w = 160.592 um   d = 53.594 um   L = 320.377 um
+  a centre SLICE of the limit reads 2w = 148.91, d = 33.09 um -- the envelope is not a slice
+  depth resolved by 8.9 cells at this dx -- the depth, not the beam, is the resolution constraint
+
+energy balance (no reference needed, so it separates an amplitude error from a shape error):
+  deposited A*P*t = 1.008000e-01 J   field holds nan J   ratio nan
+    + evaporated 5.626694e-03 J (5.6 %)   + removed with the voided cells 0.000000e+00 J (0.0 %)
+    field + evaporated + removed = nan J
+  (field + evaporated + removed) / A*P*t                       nan      (want 1.000000 +/- 0.050000)   FAIL
+
+  TIER (d) flow report:
+    peak |u| = 0.0000e+00 lattice = 0.0000 m/s   surface peak = 0.0000e+00
+    Mach = 0.0000   rho in [1000000000000000019884624838656.0000, 0.0000] (-100000000000000005366162204393472.0 % excursion)
+    THE FLOW IS NOT MOVING -- check that the surface force is not
+    being written into a non-colliding node.
+
+  TIER (e) evaporation report:
+    simulated peak surface T = 0 K   (boiling 3100 K)
+    worst q_evap / q_peak = 0.0000   beta_r = 0.18
+
+simulated pool (envelope over x, sub-cell on the isotherm):
+  2w = 0.000 um   d = 0.000 um   L = 0.000 um
+  widest at i = 0, deepest at i = 0  (they differ: the envelope is real)
+
+acceptance:
+  TIER (b): no analytic reference contains latent heat. The numbers above
+  are an INCREMENT against the -la0 row and are reported, not asserted.
+
+[melt_pool] 7 checks, 1 failures

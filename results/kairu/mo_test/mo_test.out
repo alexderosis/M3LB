@@ -1,0 +1,87 @@
+Mo removal-law test (rule: mo_test_PREREG.txt)
+
+== primary: A = 0.38, k = 138 W/m/K ==
+steady peak T (K), A/k x 1.00:  G 1720/2620/3163   LG3 972/1388/1902   LG5 776/1064/1344
+  fit on G  91.8 + G  151, hold out G  202:  E = 57 kJ/mol   -> FAIL
+     held-out G  202   pred   96.1 um   meas  91.4 um   (+5 %)  ok
+     LG3 91.8 pred    0.905 um  (none   )   meas none               ok
+     LG3 151  pred    8.479 um  (removal)   meas none               WRONG
+     LG3 202  pred   32.953 um  (removal)   meas 26.9/26.8          ok
+     LG5 91.8 pred    0.204 um  (none   )   meas none               ok
+     LG5 151  pred    2.471 um  (none   )   meas none               ok
+     LG5 202  pred    9.960 um  (removal)   meas 0 / 7.4 (marginal) 
+     groove widths at 2.5 um: G 97 / 173 / 238 um (meas 77 / 133 / 145)
+  fit on G  91.8 + G  202, hold out G  151:  E = 56 kJ/mol   -> FAIL
+     held-out G  151   pred   50.2 um   meas  52.1 um   (-4 %)  ok
+     LG3 91.8 pred    0.986 um  (none   )   meas none               ok
+     LG3 151  pred    8.707 um  (removal)   meas none               WRONG
+     LG3 202  pred   32.606 um  (removal)   meas 26.9/26.8          ok
+     LG5 91.8 pred    0.234 um  (none   )   meas none               ok
+     LG5 151  pred    2.646 um  (removal)   meas none               WRONG
+     LG5 202  pred   10.274 um  (removal)   meas 0 / 7.4 (marginal) 
+     groove widths at 2.5 um: G 98 / 175 / 241 um (meas 77 / 133 / 145)
+  fit on G  151 + G  202, hold out G  91.8:  E = 51 kJ/mol   -> FAIL
+     held-out G  91.8  pred   13.0 um   meas  11.1 um   (+17 %)  ok
+     LG3 91.8 pred    1.500 um  (none   )   meas none               ok
+     LG3 151  pred   11.039 um  (removal)   meas none               WRONG
+     LG3 202  pred   36.845 um  (removal)   meas 26.9/26.8          ok
+     LG5 91.8 pred    0.415 um  (none   )   meas none               ok
+     LG5 151  pred    3.819 um  (removal)   meas none               WRONG
+     LG5 202  pred   13.206 um  (removal)   meas 0 / 7.4 (marginal) 
+     groove widths at 2.5 um: G 109 / 191 / 265 um (meas 77 / 133 / 145)
+  => 0 of 3 fits pass: DOES NOT EXTEND
+
+== sensitivity: A/k x 0.80 ==
+  fit on G  91.8 + G  151, hold out G  202:  E = 50 kJ/mol   -> FAIL
+     held-out G  202   pred   97.0 um   meas  91.4 um   (+6 %)  ok
+     LG3 91.8 pred    1.043 um  (none   )   meas none               ok
+     LG3 151  pred    8.680 um  (removal)   meas none               WRONG
+     LG3 202  pred   32.821 um  (removal)   meas 26.9/26.8          ok
+     LG5 91.8 pred    0.278 um  (none   )   meas none               ok
+     LG5 151  pred    2.726 um  (removal)   meas none               WRONG
+     LG5 202  pred   10.256 um  (removal)   meas 0 / 7.4 (marginal) 
+  fit on G  91.8 + G  202, hold out G  151:  E = 48 kJ/mol   -> FAIL
+     held-out G  151   pred   49.8 um   meas  52.1 um   (-4 %)  ok
+     LG3 91.8 pred    1.148 um  (none   )   meas none               ok
+     LG3 151  pred    8.948 um  (removal)   meas none               WRONG
+     LG3 202  pred   32.421 um  (removal)   meas 26.9/26.8          ok
+     LG5 91.8 pred    0.324 um  (none   )   meas none               ok
+     LG5 151  pred    2.945 um  (removal)   meas none               WRONG
+     LG5 202  pred   10.625 um  (removal)   meas 0 / 7.4 (marginal) 
+  fit on G  151 + G  202, hold out G  91.8:  E = 43 kJ/mol   -> FAIL
+     held-out G  91.8  pred   13.3 um   meas  11.1 um   (+20 %)  ok
+     LG3 91.8 pred    1.837 um  (none   )   meas none               ok
+     LG3 151  pred   11.733 um  (removal)   meas none               WRONG
+     LG3 202  pred   37.347 um  (removal)   meas 26.9/26.8          ok
+     LG5 91.8 pred    0.612 um  (none   )   meas none               ok
+     LG5 151  pred    4.452 um  (removal)   meas none               WRONG
+     LG5 202  pred   14.148 um  (removal)   meas 0 / 7.4 (marginal) 
+  => 0 of 3 fits pass: DOES NOT EXTEND
+
+== sensitivity: A/k x 1.25 ==
+  fit on G  91.8 + G  151, hold out G  202:  E = 67 kJ/mol   -> FAIL
+     held-out G  202   pred   95.4 um   meas  91.4 um   (+4 %)  ok
+     LG3 91.8 pred    0.797 um  (none   )   meas none               ok
+     LG3 151  pred    8.307 um  (removal)   meas none               WRONG
+     LG3 202  pred   33.066 um  (removal)   meas 26.9/26.8          ok
+     LG5 91.8 pred    0.153 um  (none   )   meas none               ok
+     LG5 151  pred    2.263 um  (none   )   meas none               ok
+     LG5 202  pred    9.709 um  (removal)   meas 0 / 7.4 (marginal) 
+  fit on G  91.8 + G  202, hold out G  151:  E = 65 kJ/mol   -> FAIL
+     held-out G  151   pred   50.4 um   meas  52.1 um   (-3 %)  ok
+     LG3 91.8 pred    0.860 um  (none   )   meas none               ok
+     LG3 151  pred    8.504 um  (removal)   meas none               WRONG
+     LG3 202  pred   32.764 um  (removal)   meas 26.9/26.8          ok
+     LG5 91.8 pred    0.173 um  (none   )   meas none               ok
+     LG5 151  pred    2.406 um  (none   )   meas none               ok
+     LG5 202  pred    9.978 um  (removal)   meas 0 / 7.4 (marginal) 
+  fit on G  151 + G  202, hold out G  91.8:  E = 60 kJ/mol   -> FAIL
+     held-out G  91.8  pred   12.7 um   meas  11.1 um   (+14 %)  ok
+     LG3 91.8 pred    1.252 um  (none   )   meas none               ok
+     LG3 151  pred   10.472 um  (removal)   meas none               WRONG
+     LG3 202  pred   36.427 um  (removal)   meas 26.9/26.8          ok
+     LG5 91.8 pred    0.292 um  (none   )   meas none               ok
+     LG5 151  pred    3.334 um  (removal)   meas none               WRONG
+     LG5 202  pred   12.441 um  (removal)   meas 0 / 7.4 (marginal) 
+  => 0 of 3 fits pass: DOES NOT EXTEND
+

@@ -925,6 +925,24 @@ struct Opts {
   double rho_l = 4130.0;    // kg/m^3 liquid density at Tm, for m_dot -> v_rec
 };
 
+// THE EVAPORATION SET FOLLOWS THE MATERIAL, FROM ONE PLACE. It was built twice
+// (`ev` in the run, `ev2` in the tier (e) report) and the keyhole-criterion
+// line hard-coded Ti-6Al-4V's 3315 K, so a -steel run compared its conduction
+// peak against the WRONG ALLOY'S boiling point -- printing "near 3315 K" beside
+// a simulated "(boiling 3100 K)". Found 2026-10-12 on a 316L prediction run;
+// harmless there (7547 K is above both) and wrong on any borderline case. This
+// is the same mistake as the evaporation constants that once did not travel
+// with -steel at all, and the same cure: one source.
+Evap evap_for(const Opts& o) {
+  Evap e;
+  if (o.steel) {                  // Muhammad table 1 + Fe molar mass
+    e.Lv = 2.6e6;                 // J/kg, table 1
+    e.Tb = 3100.0;                // K, table 1
+    e.Rs = 8.314 / 0.055845;      // Fe
+  }
+  return e;
+}
+
 }  // namespace
 
 //==============================================================================
@@ -1170,7 +1188,7 @@ int run(const Opts& o, const Mat& m) {
     double Tpk = m.T_0;
     for (double s2 = -6.0; s2 <= 2.0; s2 += 0.02)
       Tpk = std::max(Tpk, rq.T(s2 * sigma, 0.0, 0.0, t_end_for_peak));
-    const double T_boil = 3315.0;   // Ti-6Al-4V, approximate; Mills (2002)
+    const double T_boil = evap_for(o).Tb;   // the material's own, not Ti's
     // THIS CRITERION IS THE ANALYTIC REFERENCE'S PEAK, AND THE REFERENCE HAS
     // NEITHER EVAPORATION NOR CONVECTION -- so on its own it CONDEMNS operating
     // points that the fuller model permits. Measured at this point: the
@@ -1356,12 +1374,7 @@ int run(const Opts& o, const Mat& m) {
   Kokkos::deep_copy(Hs, Index(nz - 1));
   auto flags_v = s.flags();
 
-  Evap ev;
-  if (o.steel) {                  // Muhammad table 1 + Fe molar mass
-    ev.Lv = 2.6e6;                // J/kg, table 1
-    ev.Tb = 3100.0;               // K, table 1
-    ev.Rs = 8.314 / 0.055845;     // Fe
-  }
+  const Evap ev = evap_for(o);
   const bool do_evap = o.evap;
   const bool do_rec = o.recede;
   const double rho_liq = o.rho_l;
@@ -1771,6 +1784,13 @@ int run(const Opts& o, const Mat& m) {
     auto hux = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->ux());
     auto huy = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->uy());
     auto huz = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs->uz());
+    // NaN IS COUNTED, NOT SKIPPED. std::max and std::min silently pass over a
+    // NaN, so a DIVERGED fluid used to read as peak |u| = 0, the density range
+    // as the initial sentinels, and the report then said "THE FLOW IS NOT
+    // MOVING" -- pointing at a wiring fault when the run had blown up. Found
+    // 2026-10-12 on two 316L runs with d(gamma)/dT reversed (inward flow at a
+    // cell Reynolds number ~10), whose only other sign was a nan energy total.
+    long nonfinite = 0;
     double um = 0, usurf = 0;
     for (Index i = 0; i < nx; ++i)
       for (Index j = 0; j < ny; ++j)
@@ -1779,6 +1799,7 @@ int run(const Opts& o, const Mat& m) {
           const double q = std::sqrt(double(hux(n)) * double(hux(n)) +
                                      double(huy(n)) * double(huy(n)) +
                                      double(huz(n)) * double(huz(n)));
+          if (!std::isfinite(q)) { ++nonfinite; continue; }
           um = std::max(um, q);
           if (kk == nz - 1) usurf = std::max(usurf, q);
         }
@@ -1788,6 +1809,7 @@ int run(const Opts& o, const Mat& m) {
       for (Index j = 0; j < ny; ++j)
         for (Index kk = 0; kk < nz; ++kk) {
           const double r = double(hr(d.id(i, j, kk)));
+          if (!std::isfinite(r)) { ++nonfinite; continue; }
           rmin = std::min(rmin, r); rmax = std::max(rmax, r);
         }
     const double Ma = um / std::sqrt(double(cs2<LF, Real>()));
@@ -1808,7 +1830,12 @@ int run(const Opts& o, const Mat& m) {
                   Ma / std::ceil(Ma / 0.05), int(std::ceil(Ma / 0.05)));
     // Physical, so dt_f -- with the scalar dt this reads 1/nsub of the real
     // speed and fires on a healthy sub-cycled flow.
-    if (um * dx / dt_f <= 1e-3)
+    if (nonfinite > 0)
+      std::printf("    THE FLUID WENT NON-FINITE: %ld velocity/density values are NaN or\n"
+                  "    inf, so this run DIVERGED and every flow number above is what\n"
+                  "    survived, not a result. Suspect the cell Reynolds number (refine\n"
+                  "    dx) before the relaxation margin.\n", nonfinite);
+    else if (um * dx / dt_f <= 1e-3)
       std::printf("    THE FLOW IS NOT MOVING -- check that the surface force is not\n"
                   "    being written into a non-colliding node.\n");
   }
@@ -1870,8 +1897,7 @@ int run(const Opts& o, const Mat& m) {
     // statement about the OPERATING POINT and not a number to suppress.
     s.compute_field();
     auto he = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.temperature());
-    Evap ev2;                     // MUST follow the material, like `ev` above;
-    if (o.steel) { ev2.Lv = 2.6e6; ev2.Tb = 3100.0; ev2.Rs = 8.314 / 0.055845; }
+    const Evap ev2 = evap_for(o);   // the same set as `ev`, by construction
     Tmax_surf = 0; qfrac = 0;
     double& Tmax = Tmax_surf; double& fr = qfrac;
     for (Index i = 0; i < nx; ++i)

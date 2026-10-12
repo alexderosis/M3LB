@@ -271,6 +271,24 @@ double assist_pressure(double gamma, double Pi, double rb, double dn, double zn)
 // And it carries NO temperature clamp, NO Vm_max and NO recession cap -- those
 // three were added downstream because Ti-6Al-4V's Lv/R is about three times
 // steel's, so the same overshoot that is harmless here diverges there.
+//
+// THE MUHAMMAD MODE IS NOT GRID-CONVERGED, AND ITS YES/NO ANSWER FLIPS.
+// Measured 2026-10-12: the Cunningham ladder above was never run on this mode,
+// so -muhammad at three resolutions with the foil held at 150 um (-n/-nz
+// rescaled with -dx; -muhammad alone pins 61x61x60, i.e. dx = 2.5 um):
+//
+//     dx (um)   d(25 us)   d(50 us)   d(75 us)   breaks the 150 um foil
+//     5.00      12.3 um    56.9 um    99.3 um    yes, at 0.102 ms
+//     2.50      16.9       52.1       85.2       yes, at 0.126 ms
+//     1.25      16.7       48.6       76.0       NO: 143.4 um at 0.15 ms
+//
+// Depth falls 11-14 % per halving and is not settling -- the Cunningham
+// ladder's signature again -- and at the finest grid the pulse no longer
+// drills through. So any agreement with Muhammad's figure 8 belongs to the
+// 2.5 um grid, not to the model, and the reported endpoint hides it: depth is
+// SATURATED at the foil, so rungs 1 and 2 both print 150.000 um over raw
+// recessions of 373 and 253 um. Compare trajectories (-every N with -out),
+// never the endpoint.
 Mat muhammad_material() {
   Mat m;
   m.rho0 = 7950.0; m.cp = 470.0; m.k = 20.0;
@@ -286,6 +304,103 @@ Mat muhammad_material() {
   m.thickness = 150.0e-6;
   m.pulse = 0.15e-3;
   m.clampT = false;             // the ancestor clamps nothing
+  m.T_cap = 0.0; m.Vm_max = 0.0;
+  return m;
+}
+
+// KAIRU'S TWO MATERIALS, for a comparison this model was not built for.
+// Kairu (MSc, Manchester 2026; supervisor O. Allegre) made single tracks at
+// 2 mm/s on 316L and on molybdenum with Gaussian and annular beams. This case
+// has no scan speed, so a track is approximated by a STATIONARY exposure of the
+// moving beam's dwell, sqrt(pi/2) w0/v ~ 47 ms -- defensible for the thermal
+// field at Pe << 1 and an UPPER BOUND on removal, since a stationary beam keeps
+// drilling the spot a moving one leaves. Both run the ANCESTOR physics (no
+// ignition latch, no decay, no clamps), as -muhammad does; -mat selects them.
+//
+// 316L as a PLATE: Muhammad's material without the 150 um foil, the 0.15 ms
+// pulse or the assist gas, none of which Kairu had.
+Mat steel_plate() {
+  Mat m = muhammad_material();
+  m.thickness = 0.0; m.pulse = 0.0; m.Peff = 0.0;
+  return m;
+}
+
+// MOLYBDENUM. rho, cp and k are the values Kairu's dissertation uses (IMOA;
+// Haynes 2016) -- room-temperature figures; at 2000 K k is nearer 100 and cp
+// nearer 330. The rest are HANDBOOK VALUES WRITTEN FROM MEMORY AND NOT CHECKED
+// against a source (CLAUDE.md's rule on references): Tm 2896 K, Tb 4912 K,
+// 37.48 kJ/mol fusion and 598 kJ/mol vaporisation at 95.95 g/mol, liquid
+// density 9330 kg/m^3; rho_slp is an estimate. eff = 0.80 is the ancestor's
+// calibration for 316L, carried over because nothing exists for Mo. NOT
+// MODELLED, and the dissertation names it: MoO3 volatilises above ~550-700 C
+// in air (Kairu sec. 2.6), so Mo can be removed by oxidation far below its
+// melting point. An evaporation-driven model cannot see that removal at all.
+//
+// MEASURED 2026-10-12, KAIRU'S CONDITIONS: THE MODEL FAILS IN OPPOSITE
+// DIRECTIONS ON THE TWO MATERIALS, AND NO ABSORPTIVITY RESCUES 316L.
+// Logs, traces and run.sh in results/kairu/keyhole/. 10 um cells.
+//
+//  316L, Gaussian D86 150 um, stationary 47 ms dwell, 161x161x120 box:
+//     P (W)   Kairu: track / removal   as calibrated: melt / removal
+//     102          863 um / none           30 um / none   (centre dip, below)
+//     123          941 um / none           60 um / none
+//     150         1001 um / none          110 um / none
+//  As calibrated (eta_min 0.12 on the P/2 beam, i.e. 6 % absorbed) it gets the
+//  one thing it can see right -- no removal -- and the melt 9-29x too narrow.
+//  With physical inputs (A = 0.35, full 150 W) it DRILLS: 3.4 mm by the first
+//  trace sample at 3.1 ms, through the 1.2 mm box, then a steady ~1.3 m/s; the
+//  printed depth (60 mm) is the counter running on below the box floor. So an
+//  absorptivity low enough not to drill gives a bead ten times too narrow, and
+//  a realistic one drills where Kairu removed nothing. What is missing is the
+//  pool's CONVECTION, which spreads the heat and holds the surface below
+//  boiling; this model has no flow (melt_pool's tier (d) does).
+//
+//  Mo, 2 ms quasi-steady (91 % of the semi-infinite peak), 121x121x80 box;
+//  LG3/LG5 run as Gaussians of their Table 4 D86, which is how Kairu describes
+//  them on that system. NO REMOVAL AT ANY CONDITION in either variant, against
+//  Gaussian grooves of 11/52/91 um. As calibrated the surface peaks at
+//  497/621/697 K; with physical inputs (A = 1 - R = 0.38, full power):
+//                 91.8 W         151 W          202 W
+//     Gaussian    1546 K grooved 2336 K grooved 2817 K grooved
+//     LG3          881 K none    1239 K none    1691 K grooved
+//     LG5          697 K none     936 K none    1171 K marginal (1 of 2, late)
+//  EVERY CONDITION THAT GROOVED IS HOTTER THAN EVERY ONE THAT DID NOT: clean
+//  removal from 1546 K, none up to 1239 K, the marginal case just below -- a
+//  gap ~1300 K below Mo's melting point, so the removal is not by melting or
+//  evaporation, consistent with MoO3. The ORDERING is independent of A and k,
+//  which scale every temperature alike; where the gap sits is not.
+//  BUT NO ONE TEMPERATURE LAW CAN BE FITTED TO IT, and that was tested, not
+//  assumed. Pre-registered (results/kairu/mo_test/mo_test_PREREG.txt, written
+//  before any fit): v = V0 exp(-E/RT) on the STEADY field (Pe << 1), fitted
+//  exactly on two Gaussian grooves, predicting the third and all six LG cases,
+//  three leave-one-out fits. 0 of 3 pass, at A/k x 0.8, 1 and 1.25 alike. The
+//  held-out Gaussian is fine (+5 / -4 / +17 %); the transfer is not: every fit
+//  puts an 8-12 um groove under LG3 at 151 W, where Kairu saw a flat surface,
+//  and the grooves come out 25-80 % too wide. The two requirements conflict:
+//  the Gaussian ladder wants E = 51-57 kJ/mol, silencing LG3@151 needs 87, and
+//  at 87 the ladder is off by -51 % (91.8 W) and +33 % (202 W). So removal
+//  here is NOT a function of the beam's surface temperature alone -- and her
+//  defocused Gaussian at 91.8 W, a slightly LARGER beam that cut ~3x deeper,
+//  already says the same, which she records as unexplained. The plate's
+//  history (24 tracks, order unrecorded) is the leading unmeasured variable.
+//
+//  THE APPARENT-cp BAND MAKES THE HOTTEST CELL DIP. At 102 W the centre column
+//  read 1696.4 K, 1.6 K below the solidus, between neighbours at 1730.7 K, and
+//  a width rule requiring the melt to run through the centre printed 0 um. The
+//  readout now takes the outermost extent and says when the centre dips.
+Mat mo_material() {
+  Mat m;
+  m.rho0 = 10220.0; m.cp = 250.0; m.k = 138.0;
+  m.Tm = 2896.0;  m.band = 25.0;
+  m.Tb = 4912.0;
+  m.L_fus = 37.48e3 / 0.09595;
+  m.Lv    = 598.0e3 / 0.09595;
+  m.Rs    = 8.314 / 0.09595;
+  m.rho_lq = 9330.0; m.rho_slp = 0.5;
+  m.eff = 0.80;
+  m.ramp = 6.0e-6;
+  m.Peff = 0.0; m.thickness = 0.0; m.pulse = 0.0;
+  m.clampT = false;
   m.T_cap = 0.0; m.Vm_max = 0.0;
   return m;
 }
@@ -312,6 +427,7 @@ struct Opts {
   std::string ref;              // reference CSV to diff against
   std::string out;              // depth trace to write
   bool   muhammad = false;
+  std::string mat;              // "" (Ti, or 316L foil under -muhammad), "steel", "mo"
 };
 
 // The shipped seven-case power laws (run_final_calibrated_v2.py). Both are
@@ -360,7 +476,12 @@ double trace_at(const Trace& tr, double t) {
 //==============================================================================
 template <class L, class Coll, bool Enth>
 int run(const Opts& o) {
-  const Mat m = o.muhammad ? muhammad_material() : Mat{};
+  const Mat m = o.muhammad          ? muhammad_material()
+              : o.mat == "steel"     ? steel_plate()
+              : o.mat == "mo"        ? mo_material()
+              :                        Mat{};
+  // -muhammad and -mat both run the ANCESTOR model: no cap, no latch, no decay.
+  const bool ancestor = o.muhammad || !o.mat.empty();
   const double dx    = o.dx;
   const double alpha = m.k / (m.rho0 * m.cp);
   const double dt    = o.a_lat * dx * dx / alpha;
@@ -377,7 +498,7 @@ int run(const Opts& o) {
   double v_cap = o.v_cap > 0 ? o.v_cap : v_ref;
   if (o.cap_free > 0) v_cap = o.cap_free;
   // <= 0 means no cap at all, which is what the ancestor has.
-  const double cap_cells = o.muhammad ? 1e30
+  const double cap_cells = ancestor ? 1e30
                          : (o.cap_cells ? o.cap_val : v_cap * dt / dx);
 
   const Index nx = o.nx ? o.nx : (o.spot < 120.0 ? 61 : 91);
@@ -476,7 +597,7 @@ int run(const Opts& o) {
   // The ancestor has no ignition latch: eta is the opening ramp evaluated on
   // TOTAL depth from step one. Seeding the latch closed with dign = 0 makes the
   // same code path reproduce it exactly, rather than adding a second branch.
-  if (o.muhammad) Kokkos::deep_copy(ign, char(1));
+  if (ancestor) Kokkos::deep_copy(ign, char(1));
 
   // Clamp census counters, in the same shape the Python was instrumented with.
   View1D<long> cen("census", 8);   // 0 Vm_max, 1 Tcap_hi, 2 T0_lo, 3 rec_cap,
@@ -803,6 +924,55 @@ int run(const Opts& o) {
   std::printf("  first ignition at t = %.6f ms  (step %ld)\n",
               (steps - h_cen(6)) * dt * 1e3, steps - h_cen(6));
 
+  // THE WIDTHS, because a track is measured by its width and this case only
+  // ever reported a depth. Read on the final surface along the row through the
+  // beam centre: MELT width = the contiguous run of columns whose surface node
+  // is at or above the solidus; CRATER width = the run of columns that have
+  // lost at least one cell (rec >= 0.5, the round-off the geometry uses). The
+  // box's halo is bounce-back, i.e. INSULATED, so the final state is the
+  // hottest the run reached and its extents are the largest.
+  {
+    auto fld  = s.temperature();
+    auto h_f  = Kokkos::create_mirror_view_and_copy(HostSpace{}, fld);
+    auto h_Hs = Kokkos::create_mirror_view_and_copy(HostSpace{}, Hs);
+    auto h_rc = Kokkos::create_mirror_view_and_copy(HostSpace{}, rec);
+    auto Tsurf = [&](Index x, Index y) {
+      const Real Hn = h_f(d.id(x, y, h_Hs(x * ny + y)));
+      if constexpr (Enth) { Real f2v, Tv, Ev, cv; pc.invert(Hn, f2v, Tv, Ev, cv); return double(Tv); }
+      else return double(Hn);
+    };
+    double Tpk = 0;
+    for (Index x = 0; x < nx; ++x)
+      for (Index y = 0; y < ny; ++y) Tpk = std::max(Tpk, Tsurf(x, y));
+    const Index xc_idx = nx / 2;
+    // THE OUTERMOST EXTENT, NOT A RUN THROUGH THE CENTRE. The first version
+    // required the melt to be contiguous through the beam centre, and the
+    // apparent-cp path broke it: at 102 W on 316L the centre column sat at
+    // 1696.4 K, 1.6 K BELOW the solidus, while both neighbours read 1730.7 K --
+    // the latent-heat bump in c_app stalling the hottest cell in the band, a
+    // ~35 K dip -- so the width printed 0 um over a melt three cells wide.
+    auto extent = [&](auto pred) {
+      Index lo = nx, hi = -1;
+      for (Index x = 0; x < nx; ++x)
+        if (pred(x)) { lo = std::min(lo, x); hi = std::max(hi, x); }
+      return hi >= lo ? double(hi - lo + 1) * dx : 0.0;
+    };
+    auto molten  = [&](Index x) { return Tsurf(x, yc_idx) >= m.Ts(); };
+    const double wmelt = extent(molten);
+    const double wcrat = extent([&](Index x) { return double(h_rc(x * ny + yc_idx)) >= 0.5; });
+    if (wmelt > 0.0 && !molten(xc_idx))
+      std::printf("  NOTE: the centre column is BELOW the solidus (%.1f K) inside a "
+                  "molten ring -- the apparent-cp band artefact; the width is the "
+                  "outer extent.\n", Tsurf(xc_idx, yc_idx));
+    std::printf("  surface at the end: peak T %.0f K (solidus %.0f, boiling %.0f)\n",
+                Tpk, m.Ts(), m.Tb);
+    std::printf("  widths through the beam centre: melt %.0f um, crater %.0f um "
+                "(cell %.1f um)\n", wmelt * 1e6, wcrat * 1e6, dx * 1e6);
+    if (wmelt >= double(nx - 2) * dx)
+      std::printf("  WARNING: the melt reaches the box edge -- the insulated box is "
+                  "too small for this run and the width is a floor.\n");
+  }
+
   if (fev && !fr_t.empty()) {
     const std::size_t F = fr_t.size();
     const std::string D = o.frames + "/";
@@ -914,8 +1084,27 @@ int main(int argc, char** argv) {
       o.nx = o.ny = 61; o.nz = 60;       // 150 um / 2.5 um, the exact foil
       o.eta_min = 0.12; o.d_ign = 0.0; o.decay = 0.0;
     }
+    else if (!std::strcmp(argv[i], "-mat")) {
+      const std::string v = (i + 1 < argc) ? argv[++i] : "";
+      if (v != "steel" && v != "mo") {
+        std::fprintf(stderr, "keyhole: -mat takes steel or mo, not '%s'. "
+                             "NOTHING WAS RUN.\n", v.c_str());
+        return 2;
+      }
+      o.mat = v;
+      o.d_ign = 0.0; o.decay = 0.0;      // the ancestor: no latch, no decay
+    }
     else if (!std::strncmp(argv[i], "--kokkos", 8)) { /* Kokkos' own flags */ }
-    else { std::fprintf(stderr, "keyhole: unknown option %s\n", argv[i]); }
+    // FATAL, NOT A WARNING -- the trap melt_pool and the -lat d3q19 entry in
+    // CLAUDE.md both record: a mistyped flag used to run the DEFAULT case.
+    else {
+      std::fprintf(stderr, "keyhole: unknown option '%s'. NOTHING WAS RUN.\n"
+        "  -P W  -spot um  -dx um  -t ms  -n N  -nz N  -etamin e  -dignite um\n"
+        "  -decay um  -capfree m/s  -capcells c  -enthalpy  -d3q27  -every N\n"
+        "  -out f  -ref f  -frames DIR  -fevery N  -muhammad  -mat steel|mo\n",
+        argv[i]);
+      return 2;
+    }
   }
   if (o.enthalpy && o.d3q27) {
     std::fprintf(stderr,

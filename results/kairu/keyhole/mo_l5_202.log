@@ -1,0 +1,22 @@
+reduced keyhole model, ported from the Python twin
+backend Threads   precision FP64
+  seed: H_amb = 300.0000  ->  T = 300.00 K  (ambient 300.00 K)
+
+keyhole: apparent-cp  D3Q7  P = 202 W  spot = 425 um
+  grid 121x121x80   dx = 1e-05 m   dt = 3.086366e-07 s   steps = 6483
+  alpha = 5.401174e-05 m^2/s   alpha_lat = 0.166700   cs2 = 0.2500   tau = 1.166800
+  eta_min = 0.1200  d_ignite = 0.0000 um  decay = 0.0000 um
+  beam: peak 1.423914e+09 W/m^2, DELIVERED 101.000 W = P/2 (the Python's missing factor of 2, reproduced)
+  recession cap: NONE (the ancestor model carries no cap, no Vm_max and no temperature clamp)
+
+  final depth at t = 2.0009 ms : 0.000 um
+  clamp census (counts are node/column-steps over the whole run):
+    Vm_max                       0
+    T_cap upper                  0
+    T0 floor                     0
+    recession cap                0   of 0 receding column-steps (0.0 %)
+    steps with >=1 ignited column 6483 of 6483
+  first ignition at t = 0.000000 ms  (step 0)
+  surface at the end: peak T 438 K (solidus 2871, boiling 4912)
+  widths through the beam centre: melt 0 um, crater 0 um (cell 10.0 um)
+  trace -> /Users/alessandroderosis/Desktop/M3LB/build/kairu_keyhole/mo_l5_202.csv (32 samples)

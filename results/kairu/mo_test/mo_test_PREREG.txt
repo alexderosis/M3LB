@@ -1,0 +1,41 @@
+MO REMOVAL-LAW TEST -- pre-registered 2026-10-12, BEFORE any fit or prediction
+was computed. Question: does a two-parameter, temperature-activated removal law,
+fitted on Kairu's Gaussian grooves, extend to conditions it never saw?
+
+DATA (Kairu MSc 2026, Tables 4 and 6; mid-track depths, which she uses for her
+own fit and whose repeats agree to 2-8 %):
+  Gaussian  91.8 W  D86 142 um   11.1 um          (one repeat imaged)
+  Gaussian  151  W  D86 143 um   52.6, 51.6 -> 52.1 um
+  Gaussian  202  W  D86 155 um   93.9, 88.9 -> 91.4 um
+  LG3 91.8/151/202 W  D86 300/305/277 um   none / none / 26.9, 26.8 um
+  LG5 91.8/151/202 W  D86 424/434/425 um   none / none / 0 and 7.4 um (marginal)
+  "none" = flat within 2.5 um, her resolution.
+
+MODEL (fixed):
+  temperature: steady surface field of a Gaussian source of 1/e^2 diameter D86
+    on a semi-infinite body, dT(r) = (q0 a sqrt(pi)/2k) e^{-z} I0(z),
+    z = r^2/(2a^2), a = D86/(2 sqrt 2), q0 = A P/(pi a^2): the steady limit of
+    keyhole's conduction. A = 0.38 (1 - R, clean Mo), k = 138 W/m/K, T0 = 300 K.
+    LG3/LG5 as Gaussians of their D86, as Kairu describes them on this system.
+  removal: v(T) = V0 exp(-E / (R T)), two parameters V0, E.
+  depth at lateral offset y: d(y) = (1/v) integral over x of v(T(sqrt(x^2+y^2)))
+    dx, v = 2 mm/s -- the rate integrated as the beam passes, valid at Pe << 1.
+
+PROCEDURE: three leave-one-out fits. Each solves (V0, E) exactly from two
+Gaussian grooves and predicts the third Gaussian groove and all six LG cases.
+
+PASS for a fit iff ALL of:
+  1. held-out Gaussian depth within +-25 % of the measured mid-track value;
+  2. LG3@91.8, LG3@151, LG5@91.8, LG5@151 predicted < 2.5 um;
+  3. LG3@202 predicted >= 2.5 um.
+  LG5@202 (0 and 7.4 um) is not scored; reported.
+VERDICT: "extends" if all three fits pass, "partly" if one or two do, "does not"
+if none.
+
+SENSITIVITY (reported, verdict rule unchanged): the steady field scales exactly
+with A/k, so the whole test is repeated at A/k x 0.8 and x 1.25 -- covering an
+oxidised surface's higher absorptivity and molybdenum's lower conductivity at
+high temperature.
+
+KNOWN, NOT MODELLED: plate preheating (2 mm plate, alpha/v = 27 mm, 24 tracks in
+an unrecorded order), the groove's own effect on absorption, oxide on A.
