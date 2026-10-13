@@ -146,13 +146,18 @@ diverges for the first three, survives with a compressive burst at 125 and is cl
 
 * `rr_paper_divu.sub` (array 0-3, ~2 h each at most): single rate and `-wbulk 1` at
   Re = 3000 on M = 512 and 256, with the driver's new `-divu` column and a probe every
-  ~0.005. It tests the CPU finding where the failure comes earliest.
+  ~0.005. It tests the CPU finding where the failure comes earliest. Elements 4-5 (~10 min
+  each) halve the lattice velocity on M = 256 (`-ma 0.017`): omega as at M = 128, field and
+  flow halved in lattice units. The paper's linear analysis predicts that the single rate
+  (4) still fails, its threshold with the mean flow being 0.0041 against a peak field of
+  0.0127, and that `-wbulk 1` (5, threshold 0.0222) runs.
 * `rr_paper_spectral3000.sub`: the N_s = 512 pseudo-spectral reference at Re = 3000, at the
   probe times of elements 4 and 11. Check tailJ before trusting it; ~110 GB, about a day
   on 64 cores.
 
 ```
     sbatch --array=0-3 GPU/csf3/rr_paper/rr_paper_divu.sub
+    sbatch --array=4-5 GPU/csf3/rr_paper/rr_paper_divu.sub
     sbatch GPU/csf3/rr_paper/rr_paper_spectral3000.sub
 ```
 
