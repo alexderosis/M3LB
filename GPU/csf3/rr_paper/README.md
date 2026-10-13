@@ -26,6 +26,11 @@ identical to before, checked for `-op cm` and `-op bgk`), so existing scripts ar
 * `-fullinit` — start from the complete equilibrium (product form + Maxwell stress) via
   `seed_populations_with`, as `tg_mhd.cu` does. Without it the Maxwell part is missing at
   t = 0 (an acoustic start-up transient; this was the 3.4e-4 residual seen before).
+* `-divu` (follow-up 2) — an eighth probe column, max|div u| / k max|u|. Opt-in because
+  `results/G_orszag_tang_3d/make_ot3d_animation.py` reads the probe lines by their seven
+  columns; without it the output is byte-identical to the build before it (host FP64,
+  M = 32). The column agrees with the paper's CPU code to its 4 printed digits (M = 32,
+  Re = 100, single rate, 21 probes).
 
 ## On CSF3
 
@@ -119,8 +124,43 @@ those nodes. Its last column (tailJ) says whether it is resolved.
 Elements 11-13 complete the omega_b = 1 row: its coarse grid at Re = 3000, whether it holds
 at Re = 10000, and what it costs in accuracy at Re = 1000, where the reference exists.
 
+## Outcome of elements 11-13 (2026-10-08)
+
+* Re = 1000, M = 256, `-wbulk 1`: max errors against the N_s = 256 reference 0.049 / 0.060 /
+  4.0 % in E_k / E_m / Jmax, against 0.090 / 0.063 / 4.0 % for single-rate RR; the two
+  differ by at most 0.1 %. The unit bulk rate costs nothing in accuracy here.
+* Re = 3000, M = 256, `-wbulk 1`: runs to t = 3. Its energies agree with M = 512 to 0.24 %
+  (kinetic) and 0.07 % (magnetic); the peak current is 222 against 296 on M = 512, both at
+  t ~ 2.3 -- the sheets need the finer grid.
+* Re = 10000, M = 512, `-wbulk 1`: diverges at t = 0.90 (single rate 0.35, BGK 0.15), again
+  before the peak and again after a jump of max|div b| (sevenfold between t = 0.75 and 0.80).
+
+## Follow-up 2 (2026-10-13): where the failure starts, and a reference at Re = 3000
+
+The paper's CPU code (D3Q27 RR, Re = 3000, M = 128) located the start of the single-rate
+failure: max|div u| doubles between t = 1.38 and 1.45 while Jmax, the vorticity and div b
+stay within 0.5 % of the `-wbulk 1` run; div b follows from t = 1.45, the current from
+1.64. A bulk-rate scan there (bulk viscosity 0.67, 20, 42, 125, 375 times the shear one)
+diverges for the first three, survives with a compressive burst at 125 and is clean at 375
+(`-wbulk 1`). So the jump of div b seen here is the second symptom, not the first.
+
+* `rr_paper_divu.sub` (array 0-3, ~2 h each at most): single rate and `-wbulk 1` at
+  Re = 3000 on M = 512 and 256, with the driver's new `-divu` column and a probe every
+  ~0.005. It tests the CPU finding where the failure comes earliest.
+* `rr_paper_spectral3000.sub`: the N_s = 512 pseudo-spectral reference at Re = 3000, at the
+  probe times of elements 4 and 11. Check tailJ before trusting it; ~110 GB, about a day
+  on 64 cores.
+
+```
+    sbatch --array=0-3 GPU/csf3/rr_paper/rr_paper_divu.sub
+    sbatch GPU/csf3/rr_paper/rr_paper_spectral3000.sub
+```
+
+Rebuild first (`rr_paper_build.sh`): the job refuses a binary older than orszag_tang.cu.
+
 ## Files
 
 * `rr_paper_build.sh`, `rr_paper.sub`, `rr_paper_spectral.sub`, `rr_paper_post.sub`
+* `rr_paper_divu.sub`, `rr_paper_spectral3000.sub` (follow-up 2)
 * `tools/spectral3d_ref.cpp` — the pseudo-spectral solver (probe-time sampling, spectra)
 * `tools/spectra_vti.cpp`, `tools/fft3.hpp` — spectra and |j| volumes from the .vti frames

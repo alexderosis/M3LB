@@ -76,7 +76,7 @@
 //
 //    usage: orszag_tang [-m M] [-re RE] [-ma MA] [-tmax T] [-op bgk|cm]
 //                       [-probes N] [-vti K] [-dump K] [-dumpvol K]
-//                       [-volstride S] [-wbulk W|omega] [-fullinit]
+//                       [-volstride S] [-wbulk W|omega] [-fullinit] [-divu]
 //
 //  -wbulk sets the relaxation rate of the trace of the second-order moments
 //  (default 1, the Solver's default); "-wbulk omega" relaxes it at the shear
@@ -95,6 +95,18 @@
 //  by 3.4e-4. It does NOT add a non-equilibrium part -- the populations start at
 //  equilibrium, as in the code it was checked against. The defaults (rate 1, the
 //  old start) are unchanged, so earlier runs reproduce.
+//
+//  -divu adds an eighth column, max|div u| / (k max|u|), normalised like div B.
+//  WHY: the RR-MHD paper's CPU code (D3Q27 RR, Re = 3000, M = 128) found that
+//  single-rate RR (-wbulk omega) fails through the COMPRESSIVE modes: max|div u|
+//  of that run doubles between t = 1.38 and 1.45 while J_max, the vorticity and
+//  max|div B| stay within 0.5 % of the -wbulk 1 run; div B follows from t = 1.45
+//  and the current from t = 1.64, and -wbulk 1 runs to the end. Here the same
+//  failure at M = 512 was seen only through div B, because div u was not
+//  printed. This column tests the CPU finding at the resolution where the
+//  failure comes earliest. It is OPT-IN because results/G_orszag_tang_3d/
+//  make_ot3d_animation.py reads the probe lines by their seven columns; without
+//  -divu the output is unchanged byte for byte.
 //
 //  -vti K writes a ParaView .vti every K-th PROBE, plus a .pvd time series, into
 //  ./vti/. Tying frames to probes rather than to steps is deliberate: a frame
@@ -182,7 +194,7 @@ struct OtPopulations {
 // the field's own gradient scale k|B|, which is the only normalisation that
 // stays meaningful as the grid refines.
 //------------------------------------------------------------------------------
-struct Diag { double eu, eb, jmax, divb, finite; };
+struct Diag { double eu, eb, jmax, divb, finite, divu; };
 
 static Diag measure(const std::vector<Real>& ux, const std::vector<Real>& uy,
                     const std::vector<Real>& uz, const std::vector<Real>& bx,
@@ -191,8 +203,8 @@ static Diag measure(const std::vector<Real>& ux, const std::vector<Real>& uy,
     return std::size_t(node_id(((x % M) + M) % M, ((y % M) + M) % M,
                                ((z % M) + M) % M, M, M));
   };
-  Diag d{0, 0, 0, 0, 1};
-  double bscale = 0;
+  Diag d{0, 0, 0, 0, 1, 0};
+  double bscale = 0, uscale = 0;
   for (int z = 0; z < M; ++z)
     for (int y = 0; y < M; ++y)
       for (int x = 0; x < M; ++x) {
@@ -203,12 +215,17 @@ static Diag measure(const std::vector<Real>& ux, const std::vector<Real>& uy,
         d.eu += 0.5 * (a * a + b * b + c * c);
         d.eb += 0.5 * (p * p + q * q + r * r);
         bscale = std::fmax(bscale, std::sqrt(p * p + q * q + r * r));
+        uscale = std::fmax(uscale, std::sqrt(a * a + b * b + c * c));
 
         // Central differences, spacing 1 in lattice units.
         const double dxbx = 0.5 * (double(bx[id(x + 1, y, z)]) - double(bx[id(x - 1, y, z)]));
         const double dyby = 0.5 * (double(by[id(x, y + 1, z)]) - double(by[id(x, y - 1, z)]));
         const double dzbz = 0.5 * (double(bz[id(x, y, z + 1)]) - double(bz[id(x, y, z - 1)]));
         d.divb = std::fmax(d.divb, std::fabs(dxbx + dyby + dzbz));
+        const double dxux = 0.5 * (double(ux[id(x + 1, y, z)]) - double(ux[id(x - 1, y, z)]));
+        const double dyuy = 0.5 * (double(uy[id(x, y + 1, z)]) - double(uy[id(x, y - 1, z)]));
+        const double dzuz = 0.5 * (double(uz[id(x, y, z + 1)]) - double(uz[id(x, y, z - 1)]));
+        d.divu = std::fmax(d.divu, std::fabs(dxux + dyuy + dzuz));
 
         const double jx = 0.5 * (double(bz[id(x, y + 1, z)]) - double(bz[id(x, y - 1, z)]))
                         - 0.5 * (double(by[id(x, y, z + 1)]) - double(by[id(x, y, z - 1)]));
@@ -221,6 +238,7 @@ static Diag measure(const std::vector<Real>& ux, const std::vector<Real>& uy,
   // Normalise div B by k |B|: the gradient the field itself carries.
   const double k = 2.0 * M_PI / M;
   if (bscale > 0) d.divb /= k * bscale;
+  if (uscale > 0) d.divu /= k * uscale;
   return d;
 }
 
@@ -373,7 +391,7 @@ int main(int argc, char** argv) {
   double Re = 100.0, Ma = 0.034, tmax = 4.0;
   int vti = 0, dump = 0, dvol = 0, vstride = 1;
   std::string op = "cm", wbulk = "1";
-  bool fullinit = false;
+  bool fullinit = false, divu_col = false;
 
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
@@ -389,6 +407,7 @@ int main(int argc, char** argv) {
     if (a == "-volstride" && i + 1 < argc) vstride = std::max(1, std::atoi(argv[++i]));
     if (a == "-wbulk"  && i + 1 < argc) wbulk  = argv[++i];
     if (a == "-fullinit") fullinit = true;
+    if (a == "-divu") divu_col = true;
   }
 
   // Ma on the PEAK initial speed, 2 sqrt(2) v0 -- an assumption, not a reading.
@@ -439,10 +458,14 @@ int main(int argc, char** argv) {
 
   const Diag d0 = sample();
   const double e0 = d0.eu + d0.eb;
-  std::printf("  %8s %12s %12s %12s %14s %13s %11s\n", "t", "E/E0", "E_u/E0",
+  std::printf("  %8s %12s %12s %12s %14s %13s %11s", "t", "E/E0", "E_u/E0",
               "E_b/E0", "max|divB|/k|B|", "Jmax(lat)", "Jmax");
-  std::printf("  %8.3f %12.6f %12.6f %12.6f %14.3e %13.4e %11.4f\n", 0.0, 1.0,
+  if (divu_col) std::printf(" %14s", "max|divu|/k|u|");
+  std::printf("\n");
+  std::printf("  %8.3f %12.6f %12.6f %12.6f %14.3e %13.4e %11.4f", 0.0, 1.0,
               d0.eu / e0, d0.eb / e0, d0.divb, d0.jmax, d0.jmax / dt);
+  if (divu_col) std::printf(" %14.3e", d0.divu);
+  std::printf("\n");
 
   std::vector<std::pair<double, std::string>> pvd;
   int frame = 0, probe_no = 0;
@@ -496,9 +519,11 @@ int main(int argc, char** argv) {
       worst_rise = std::fmax(worst_rise, e - prev_e);
       prev_e = e;
       worst_div = std::fmax(worst_div, d.divb);
-      std::printf("  %8.3f %12.6f %12.6f %12.6f %14.3e %13.4e %11.4f\n",
+      std::printf("  %8.3f %12.6f %12.6f %12.6f %14.3e %13.4e %11.4f",
                   double(t) * dt, e, d.eu / e0, d.eb / e0, d.divb,
                   d.jmax, d.jmax / dt);
+      if (divu_col) std::printf(" %14.3e", d.divu);
+      std::printf("\n");
       std::fflush(stdout);
       ++probe_no;
       if (vti > 0 && probe_no % vti == 0) {

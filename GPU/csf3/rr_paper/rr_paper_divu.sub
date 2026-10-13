@@ -1,0 +1,73 @@
+#!/bin/bash --login
+#==============================================================================
+#  RR-MHD paper, follow-up 2: WHERE THE FAILURE OF SINGLE-RATE RR STARTS, on the
+#  grids where it comes earliest (one A100, FP64).
+#
+#  Elements 2 and 3 of rr_paper.sub diverged at t = 0.85 (M = 256) and 0.65
+#  (M = 512) after a jump of max|div b| at unchanged Jmax. The paper's CPU code
+#  then found, at M = 128, that the jump is not where it starts: max|div u| of
+#  single-rate RR doubles between t = 1.38 and 1.45 while Jmax, the vorticity and
+#  div b stay within 0.5 % of the -wbulk 1 run; div b follows from t = 1.45 and
+#  the current from 1.64. These four runs repeat that comparison at M = 256 and
+#  512 with the driver's -divu column (max|div u| / k max|u|, opt-in, checked
+#  against the CPU code to the 4 printed digits at M = 32).
+#
+#  Probes every ~0.005 (the departure took ~0.07 at M = 128), no frames. Each
+#  probe at M = 512 copies 3.2 GB to the host and walks 134M nodes there, so the
+#  probes cost about as much as the steps; 2 h is ample for either grid.
+#
+#      sbatch --array=0-3 GPU/csf3/rr_paper/rr_paper_divu.sub
+#
+#   idx  Re    M    omega_bulk  tmax  probes  expected
+#   0    3000  512  omega       0.8   160     diverges near t = 0.65
+#   1    3000  512  1           0.8   160     runs; the baseline of 0
+#   2    3000  256  omega       1.0   200     diverges near t = 0.85
+#   3    3000  256  1           1.0   200     runs; the baseline of 2
+#
+#  Output: runs/rr_paper/divu_<tag>/log.txt with eight columns; the last one is
+#  max|div u| / k max|u|. Compare 0 with 1 and 2 with 3 probe by probe (same M,
+#  same steps): the question is whether div u departs before div b and Jmax.
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 8
+#SBATCH -t 2:00:00
+#SBATCH -J rr_divu
+#SBATCH -o rr_divu-%A_%a.log
+
+set -euo pipefail
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+BIN="$ROOT/GPU/build64_rr/orszag_tang"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN -- run GPU/csf3/rr_paper/rr_paper_build.sh first" >&2
+  exit 1
+fi
+if [ "$BIN" -ot "$ROOT/GPU/src/orszag_tang.cu" ]; then
+  echo "ERROR: $BIN is older than GPU/src/orszag_tang.cu -- rebuild (the -divu column is new)" >&2
+  exit 1
+fi
+
+#           Re    M    wbulk  tmax  probes
+CFG=(  "3000  512  omega  0.8   160"
+       "3000  512  1      0.8   160"
+       "3000  256  omega  1.0   200"
+       "3000  256  1      1.0   200" )
+read -r RE M WB TMAX NP <<< "${CFG[$SLURM_ARRAY_TASK_ID]}"
+TAG="divu_re${RE}_m${M}_cm_wb${WB}"
+OUT="$ROOT/runs/rr_paper/$TAG"
+mkdir -p "$OUT"
+cd "$OUT"
+
+echo "rr_paper divu element $SLURM_ARRAY_TASK_ID: Re=$RE M=$M wbulk=$WB tmax=$TMAX probes=$NP -> $OUT"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+set +e
+"$BIN" -m "$M" -re "$RE" -ma 0.034 -tmax "$TMAX" -probes "$NP" -op cm -wbulk "$WB" -fullinit -divu > log.txt 2>&1
+STATUS=$?
+set -e
+tail -n 25 log.txt
+echo "exit status $STATUS"

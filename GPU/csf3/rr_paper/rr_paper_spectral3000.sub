@@ -1,0 +1,45 @@
+#!/bin/bash --login
+#==============================================================================
+#  RR-MHD paper, follow-up 2: pseudo-spectral reference at Re = 3000, N_s = 512,
+#  t <= 3, CPU only -- the reference the omega_b = 1 runs at Re = 3000 (elements
+#  4 and 11 of rr_paper.sub, M = 512 and 256) have lacked. Without it their
+#  accuracy at Re = 3000 is known only grid against grid.
+#
+#  Same tool and settings as rr_paper_spectral.sub (incompressible MHD, 2/3
+#  de-aliasing, integrating-factor RK4), sampling at EXACTLY the probe times of
+#  those two runs (PROBES=60, the driver's T/60) with the lattice-stencil peak
+#  current on the 256^3 and 512^3 nodes (Jfd256, Jfd512) and the spectra at their
+#  frame times (VTI=10). N_s must be a power of two (radix-2 FFT).
+#
+#  Resolution is the open question, not a formality: N_s = 256 resolved Re = 1000
+#  with tailJ <= 1.1e-4, and the dissipation scale shrinks like Re^(3/4), i.e. by
+#  2.3 from 1000 to 3000 -- so N_s = 512 is about as resolved at Re = 3000 as 256
+#  was at 1000, perhaps marginally less. READ THE LAST COLUMN OF ref.txt (tailJ,
+#  the share of |j_hat|^2 in the three shells nearest the cut-off): below ~1e-3
+#  the reference is resolved, and the comparison should stop where it is not.
+#
+#  Cost, scaled from the N_s = 256 run (8x the grid, about 2x the steps at the
+#  halved dt): ~110 GB of memory and of the order of a day on 64 Genoa cores.
+#
+#      sbatch GPU/csf3/rr_paper/rr_paper_spectral3000.sub
+#
+#  Output: runs/rr_paper/spectral_re3000_ns512/ (ref.txt, ref.log, spec_M*_t*.txt).
+#==============================================================================
+#SBATCH -p multicore
+#SBATCH -n 64
+#SBATCH -t 3-00:00:00
+#SBATCH -J rr_spec3000
+#SBATCH -o rr_spec3000-%j.log
+
+set -euo pipefail
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+KIT="$ROOT/GPU/csf3/rr_paper"
+OUT="$ROOT/runs/rr_paper/spectral_re3000_ns512"
+mkdir -p "$OUT"
+g++ -O3 -march=native -std=c++17 -pthread -o "$OUT/spectral3d_ref" "$KIT/tools/spectral3d_ref.cpp"
+cd "$OUT"
+#   Ns  Re    tmax dt_max   lattices  output   Ma    threads
+PROBES=60 VTI=10 SPEC_PREFIX=spec \
+  ./spectral3d_ref 512 3000 3 1.25e-3 256,512 ref.txt 0.034 "$SLURM_NTASKS" > ref.log 2>&1
+tail -n 3 ref.log
+ls spec_M*_t*.txt | wc -l
