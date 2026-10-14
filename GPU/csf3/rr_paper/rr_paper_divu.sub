@@ -20,11 +20,12 @@
 #  velocity, -ma 0.017, on M = 256: diffusive scaling from M = 128, so omega is
 #  that of the M = 128 runs while the field and the flow halve in lattice units
 #  (peak field 0.0127). Do they decide the failure, rather than the bulk rate?
-#  The paper's linear analysis of the coupled scheme puts the threshold, with
-#  the mean flow, at 0.0041 for the single rate -- below the halved peak
-#  field, so 4 should still fail -- and at 0.0222 for omega_b = 1, so 5 should
-#  run. Without the mean flow the single-rate threshold is 0.013, which is why
-#  "half v0 survives" is a fair guess; these two runs decide. ~10 min each.
+#  The paper's linear analysis of uniform states says the single rate should
+#  still fail: threshold 0.0041 with the mean flow, below the halved peak
+#  field, and 58 e-folds per unit time there. But the CPU code at M = 128 with
+#  v0/2 (same analysis: 35 e-folds, as at full v0) ran to t = 2 WITHOUT the
+#  compressive departure that kills the full-v0 run at t = 1.78. Element 4
+#  tests that on the finer grid; 5 (omega_b = 1) should run. ~10 min each.
 #
 #      sbatch --array=0-3 GPU/csf3/rr_paper/rr_paper_divu.sub      (elements 0-3)
 #      sbatch --array=4-5 GPU/csf3/rr_paper/rr_paper_divu.sub      (elements 4-5, the half-velocity test)
