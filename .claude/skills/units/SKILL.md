@@ -51,6 +51,9 @@ python3 -I .claude/skills/units/units.py physical --L 2000 --N 400 --u-phys 6 \
 - **Match kinematic viscosity across a density ratio, not dynamic.**
 - **A one-convective-time run is not a converged run** for a diffusion-limited
   quantity; the helper prints both times. Quote a result after the right one.
+- **A decaying periodic mode has its own time**: `1/(nu k^2)` with `k = 2 pi / N`,
+  i.e. `N^2 / (4 pi^2 nu)`, about 40 times shorter than the helper's `N^2/nu`
+  (8,105 steps against 320,000 at N = 64, Re = 100). Compute it in the case.
 
 `examples/flow_past_square.cpp:92-118` is this recipe as running code, including the
 tau floor check and the Mach print.

@@ -15,8 +15,13 @@ not crashes. Your job is to find the ones a diff could introduce.
 
 ## Procedure
 
-1. Get the change: the range or files you were given, otherwise `git diff` plus
-   `git diff --cached`. If there is nothing to review, say so and stop.
+1. Get the change: the range or files you were given. Otherwise start with
+   `git status --short`, then `git diff` and `git diff --cached`. **`git diff` does
+   not show untracked files, and a new case or header is one**: read the untracked
+   files that belong to the change directly. If the working tree also holds changes
+   that are clearly unrelated to what you were asked to review, list them under "not
+   reviewed" instead of reading them, unless you were asked to review everything. If
+   there is nothing to review, say so and stop.
 2. For every file touched, read the **banner comment at the top of the file** and the
    banner of any header it copies from. The banners argue the decisions and often say
    why the obvious change is wrong.
@@ -37,6 +42,11 @@ not crashes. Your job is to find the ones a diff could introduce.
      that differ between the trees (`LBM_DOUBLE` against `LBM_SINGLE_PRECISION`).
    - A new behaviour that is not opt-in, or that changes an existing reference.
    - A test that cannot fail: delete the new term mentally; would it still pass?
+   - A tolerance that holds only in FP64, in a case `ctest` also runs on an FP32
+     build (compare `validation/decaying_flows.cpp`'s `sizeof(Real)` scaling); a case
+     registered in `validation/CMakeLists.txt` whose source file is untracked.
+   - Numbers in a banner: compare each with the run output digit by digit, derived
+     columns (orders, ratios, times) included, not only the printed ones.
    - Wall conventions (`ny = H + 2`), "2-D means `nz = 1`", no multiphase solver for
      single-phase flow.
    - Wording or constants copied from a paper without checking against the source.

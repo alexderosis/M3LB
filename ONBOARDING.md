@@ -49,6 +49,8 @@ diff or the data, not your conclusion:
 - `claim-auditor`: recomputes a number from the raw files and tests its definition.
 
 They are specialists you call one at a time when you need a second opinion, not a swarm.
+A review is not cheap: one of a 200-line case cost about 130k tokens and four minutes in
+the dry run, so ask for it before you report a change done, not after every edit.
 
 ## What Claude will stop and ask about
 
@@ -81,6 +83,9 @@ mistakes. The first two sentences of each are the rule:
 - Include `validation/Campaign.hpp` first in a case: the headers are not self-contained.
 - `cs2` is 1/4 on D3Q7, so `tau = 3 nu + 1/2` is wrong for a D3Q7 scalar.
 - "Two-dimensional" means a 3-D lattice with `nz = 1`, not D2Q9.
+- `ctest` also runs on FP32 builds (`-DLBM_PRECISION=float`), and FP32 cannot resolve the
+  finest convergence rows. Run a new case on both, and scale its tolerances by
+  `sizeof(Real)` or skip under float.
 - In zsh a command held in a variable does not word-split; flags silently fall back to
   defaults. Use a bash array.
 - On macOS a backgrounded run (`nohup ... &`) can be throttled to a fraction of its
