@@ -62,6 +62,10 @@ GPU/vti/
 __pycache__/
 GPU/build*/
 
+# Personal Claude Code overrides. .claude/settings.json, skills/ and agents/ are
+# shared and tracked; this one is each person's own.
+.claude/settings.local.json
+
 # CSF3 job output. GPU/csf3/*.sub write field planes under runs/ and SLURM
 # writes its logs into the submit directory; neither belongs in history.
 runs/
