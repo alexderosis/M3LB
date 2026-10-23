@@ -112,6 +112,72 @@
 //  Treat it as something to test, not as a result.
 //  ===========================================================================
 //
+//  ==== THE DEFAULT SCALAR HAS AN ADVECTIVE LIMIT OF ITS OWN (2026-10-16) =====
+//  ScalarRegularised is the TRT member Lambda = 2D. For an axial mode its
+//  one-step map reduces exactly to a 2x2 on (T, j), and to first order in
+//  2 - omega that is stable only for
+//
+//      |u| <= sqrt(8D/3) = 1.633 sqrt(D),   first lost at cos k = -3/5
+//
+//  (a 2.84-cell wave; 2 sqrt(D) on D2Q5). tools/scalar_stability.py gives the
+//  same on the full 7x7 map, 1.634 sqrt(D) in the k_z = 0 plane this driver
+//  runs. Here D = U_f H / sqrt(Pr Ra), so the limit is a FRACTION OF U_f --
+//  0.25 at H = 98, Ra = 1e10; 0.14 at 1e11; 0.025 at 1e14; 0.32 at H = 498,
+//  Ra = 1e11 -- and the header prints it for `-sop reg`. A flow reaching
+//  alpha U_f is inside it only for Ra < (8H / (3 alpha^2 U_f))^2 / Pr.
+//
+//  MEASURED at H = 98 (200 x 100, FP64, this driver's defaults otherwise),
+//  changing only -sop; Nu is the t = 50..100 mean:
+//
+//    Ra    IC     reg                       trt (Lambda = 1/4)     bgk
+//    1e6   cond   8.63 / 8.56, in bounds    8.35 / 8.30            8.29 / 8.21
+//    1e10  cond   NON-FINITE at t = 23      halted, t = 21         halted, t = 24
+//    1e11  cold   ran 64 t_ff, T >= -0.947  halted, t = 15         halted, t = 24
+//    1e14  cond   T EXPLODED to -34, t = 22 halted, t = 21         halted, t = 24
+//
+//  The instability is real here: at Ra = 1e14 the three operators carry the
+//  same flow to three digits through t = 21, and at t = 22 reg's T is in
+//  [-34, 26] where BGK's is in [-0.59, 0.60]; at Ra = 1e10, in the first dump
+//  past the limit, reg's T holds 95x TRT's share of the k_x > 2 band. But it
+//  does not decide these runs. The onset burst from the conductive state
+//  (max|u| 0.064 = 1.3 U_f) kills all three operators within three free-fall
+//  times of each other, and at Ra = 1e11 the undershoot sits in rows 2-3 above
+//  the hot plate at |u| far below the limit, which is under-resolution.
+//  H = 498, where the limit is 0.32 U_f and the recorded halt was abrupt, is
+//  the case it could decide, and it is untested. GPU/'s twin agreeing there
+//  proves nothing either way: collide_scalar_regularised is the same map with
+//  the same limit.
+//
+//  `-sop trt` IS HERE TO SHOW THAT, NOT AS A REMEDY. ScalarTRT is stable to
+//  |u| = 0.5 under a uniform velocity, but at omega -> 2 its ghosts relax at
+//  omega_plus ~ 4D/Lambda (2.9e-4 at Ra = 1e11) and it is the WORST bounded of
+//  the three: with the halt relaxed (-slack 4) its T reached 9.1 at Ra = 1e10
+//  (max|u| <= 0.064) and 5.1 at Ra = 1e11 (max|u| <= 0.016), all far inside
+//  its linear limit, and with -wbulk -1 it left [-3, 3] at t = 5, during
+//  conduction. In a FROZEN periodic Taylor-Green flow at D = 1.84e-5, no walls
+//  and no coupling, it overshot to +-2.0 at U0 = 0.004 where reg and BGK stayed
+//  within +-0.66, and to +-2.9 at U0 = 0.010 where BGK stayed within +-0.74
+//  (reg, past its limit there, grew to +-12) -- so this is the scheme rather
+//  than the driver. Mechanism not diagnosed.
+//
+//  THE RECORDED Ra = 1e10 CEILING ABOVE (46.57 / 46.79) IS, BY ELIMINATION, AN
+//  FP32 RESULT, and that is where the instability does decide a run.
+//  `-wbulk -1` restores the pre-alignment omega_bulk, and with `-sop bgk` it
+//  reproduces commit 3450db8's own code to every printed digit, in FP64 and in
+//  FP32. In FP64 that code HALTS at t = 27, as every operator here fails at this
+//  Ra. In FP32 its onset burst is gentler (max|u| <= 0.048) and it settles at
+//  46.93 / 46.90 -- within the scatter of the record, not digit for digit (its
+//  t = 100 row reads 46.52 / 48.66; the commit names neither the precision nor
+//  the window) -- in a state whose own max|u| is 0.035-0.046, three to four
+//  times reg's limit. Change only -sop to reg there and it halts at t = 19;
+//  relax the halt and T runs to 5.3 at t = 20, where BGK's was within +-0.68
+//  and back inside [-1/2, 1/2] from t = 25 (18 of its 101 rows out of bounds
+//  in all). So the ceiling is real for BGK, unreachable for the current
+//  default, and in either case one precision away from not surviving at all.
+//  The 1e6 and 1e14 rows of that table came from the same configuration and
+//  have not been re-measured in it.
+//  ===========================================================================
+//
 //  ONE CALIBRATION NOTE ON THE STARTUP WARNING. It prints UNDER-RESOLVED below
 //  ten cells in the layer, and Ra = 1e6 above got within 7% on 6.37 cells. Ten
 //  is a comfort criterion, not a correctness cliff; treat the warning as "check
@@ -135,7 +201,7 @@
 //
 //    usage: rb_high_ra [-ny NY] [-nx NX] [-nz NZ] [-ra RA] [-pr PR] [-u U_F]
 //                      [-amp A] [-tf N] [-out N] [-ic cond|cold] [-dump PREFIX]
-//                      [-sop reg|bgk] [-slack S] [-grace G]
+//                      [-sop reg|bgk|trt] [-slack S] [-grace G] [-wbulk W]
 //                      [--kokkos-num-threads=4]
 //
 //  ============ ALIGNED WITH GPU/src/rb_high_ra.cu (2026-09-04) =============
@@ -174,6 +240,7 @@
 #include "collision/MomentCollision.hpp"
 #include "collision/ScalarBGK.hpp"
 #include "collision/ScalarRegularised.hpp"
+#include "collision/ScalarTRT.hpp"
 #include "core/Types.hpp"
 #include "forcing/Forcing.hpp"
 #include "memory/EsotericPull.hpp"
@@ -186,6 +253,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 using namespace lbm;
@@ -202,7 +270,7 @@ using FluidColl = MomentCollision<FL, BoussinesqGuo, ShiftedPopulations, true>;
 // note for the same restriction.
 struct Opts {
   Index nx, ny, nz;
-  double Ra, Pr, U, amp, tf, out_every, slack, grace;
+  double Ra, Pr, U, amp, tf, out_every, slack, grace, wbulk;
   std::string ic, dump;
 };
 
@@ -275,10 +343,27 @@ static int run(const Opts& o) {
     std::printf("  Ra = %.3e   Pr = %.4f   U_f = %.4g   Ma = %.4f\n",
                 Ra, Pr, U, U * std::sqrt(3.0));
     std::printf("  g beta = %.6e   nu = %.6e   D = %.6e\n", gb, nu, D);
-    std::printf("  tau_f  = %.10f (omega %.8f)   [%s, cs2 = 1/3]\n",
-                nu * 3.0 + 0.5, 1.0 / (nu * 3.0 + 0.5), FL::name);
+    std::printf("  tau_f  = %.10f (omega %.8f)   [%s, cs2 = 1/3]   omega_bulk = %g\n",
+                nu * 3.0 + 0.5, 1.0 / (nu * 3.0 + 0.5), FL::name, o.wbulk);
     std::printf("  tau_g  = %.10f (omega %.8f)   [%s, cs2 = 1/4 -- NOT 3D+1/2]\n",
                 D * 4.0 + 0.5, 1.0 / (D * 4.0 + 0.5), SL::name);
+    // The scalar operators are one two-relaxation-time family and differ only
+    // in Lambda (ScalarTRT.hpp). ScalarRegularised is Lambda = (tau_g - 1/2)/2
+    // = 2D, which goes to zero with D, and with it the largest velocity it can
+    // advect stably: about 1.63 sqrt(D) along an axis for small D
+    // (tools/scalar_stability.py, the k_z = 0 plane this driver runs). Printed
+    // so it can be read against the max|u| column before believing a run.
+    if constexpr (std::is_same_v<ScalColl, ScalarTRT<SL>>) {
+      ScalColl c;
+      c.omega = ScalColl::omega_from_diffusivity(Real(D));
+      std::printf("  ghosts: Lambda = %.4g -> omega_plus = %.6e   [ScalarTRT; stable "
+                  "to |u| = 0.5 at any D]\n", double(c.Lambda),
+                  double(c.omega_plus(c.omega)));
+    } else if constexpr (std::is_same_v<ScalColl, ScalarRegularised<SL>>) {
+      std::printf("  ghosts: Lambda = 2D = %.3e   [ScalarRegularised; linearly UNSTABLE "
+                  "above |u| ~ 1.63 sqrt(D) = %.4f = %.2f U_f]\n",
+                  2.0 * D, 1.63 * std::sqrt(D), 1.63 * std::sqrt(D) / U);
+    }
     if (sizeof(Real) == 4) {
       const double ulps = nu * 3.0 / 5.96e-8;
       std::printf("  ** FP32: tau - 1/2 = %.3e is %.1f ulp at 0.5, so nu and Ra are\n"
@@ -419,8 +504,10 @@ static int run(const Opts& o) {
     // omega", so the bulk viscosity was relaxed at 1.9984 while both siblings
     // relaxed it at 1 -- a third configuration belonging to neither. The trace
     // carries no shear physics here, so sending it to equilibrium is both the
-    // reference's choice and the better-damped one.
-    fcoll.omega_bulk = Real(1);
+    // reference's choice and the better-damped one. `-wbulk -1` restores the
+    // pre-2026-09-04 setting, so the runs recorded before the alignment can be
+    // repeated with only this changed.
+    fcoll.omega_bulk = Real(o.wbulk);
     fcoll.forcing = force;
     FluidSolver<FL, EsotericPull<FL>, FluidColl> fl(d, fcoll);
     fl.set_geometry([&](Index, Index y, Index) -> CellType {
@@ -719,6 +806,7 @@ int main(int argc, char** argv) {
   o.tf = 40.0; o.out_every = 1.0;
   o.slack = 0.5;                 // max-principle halt margin, in units of dT
   o.grace = -1.0;                // < 0 means "choose from the IC"
+  o.wbulk = 1.0;                 // the trace to equilibrium; -1 follows omega
   o.ic = "cond";                 // matches GPU/rb_high_ra; `cold` is the reference's
   std::string sop = "reg";       // ScalarRegularised, matching GPU/'s default
 
@@ -735,17 +823,28 @@ int main(int argc, char** argv) {
     if (a == "-out"   && i + 1 < argc) o.out_every = std::atof(argv[++i]);
     if (a == "-slack" && i + 1 < argc) o.slack     = std::atof(argv[++i]);
     if (a == "-grace" && i + 1 < argc) o.grace     = std::atof(argv[++i]);
+    if (a == "-wbulk" && i + 1 < argc) o.wbulk     = std::atof(argv[++i]);
     if (a == "-dump"  && i + 1 < argc) o.dump      = argv[++i];
     if (a == "-ic"    && i + 1 < argc) o.ic        = argv[++i];
     if (a == "-sop"   && i + 1 < argc) sop         = argv[++i];
   }
 
+  // An unknown -sop used to fall through to the regularised operator, so a typo
+  // ran the control while the header named it correctly. A comparison of
+  // operators is worthless if one arm silently is the other.
+  if (sop != "reg" && sop != "bgk" && sop != "trt") {
+    std::fprintf(stderr, "rb_high_ra: -sop %s is not one of reg|bgk|trt. Nothing was run.\n",
+                 sop.c_str());
+    return 1;
+  }
+
   Kokkos::initialize(argc, argv);
-  // The scalar operator is a TEMPLATE parameter, so the flag dispatches to two
-  // instantiations rather than switching a branch. That is the parent tree's
-  // convention -- collision operators are types, not enums -- and it is why
-  // `run` is a template and `Opts` sits at namespace scope.
+  // The scalar operator is a TEMPLATE parameter, so the flag dispatches to
+  // three instantiations rather than switching a branch. That is the parent
+  // tree's convention -- collision operators are types, not enums -- and it is
+  // why `run` is a template and `Opts` sits at namespace scope.
   const int rc = (sop == "bgk") ? run<ScalarBGK<SL>>(o)
+               : (sop == "trt") ? run<ScalarTRT<SL>>(o)
                                 : run<ScalarRegularised<SL>>(o);
   Kokkos::finalize();
   return rc;
