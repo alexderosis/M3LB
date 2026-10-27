@@ -1,4 +1,4 @@
-foreach(t lattice streaming equilibrium collision moments boundary multiphase phase_field body rigid3d colour_gradient free_surface enthalpy)
+foreach(t lattice streaming equilibrium collision moments boundary multiphase phase_field body rigid3d colour_gradient free_surface enthalpy scalar_trt)
   add_executable(test_${t} test_${t}.cpp)
   target_link_libraries(test_${t} PRIVATE lbm)
   target_include_directories(test_${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

@@ -50,7 +50,7 @@ namespace lbm {
 //------------------------------------------------------------------------------
 namespace npy {
 
-struct Header { std::string descr; std::size_t elements; };
+struct Header { std::string descr; std::size_t elements; std::vector<std::size_t> shape; };
 
 inline Header read_header(std::ifstream& f, const std::string& path) {
   char magic[6];
@@ -86,9 +86,35 @@ inline Header read_header(std::ifstream& f, const std::string& path) {
   for (char& ch : dims) if (ch == ',') ch = ' ';
   std::istringstream is(dims);
   std::size_t d; bool any = false;
-  while (is >> d) { h.elements *= d; any = true; }
+  while (is >> d) { h.elements *= d; h.shape.push_back(d); any = true; }
   if (!any) h.elements = 0;
   return h;
+}
+
+// For a caller to whom the AXIS ORDER matters. read_f32 checks the element
+// count only, which suits a raster whose caller knows its grid -- and lets a
+// 3-D array whose axes are permuted through with the right count, rotated. The
+// mixer's design files are such arrays (topopt/Mixer.hpp), so this checks the
+// shape tuple exactly.
+inline std::vector<float> read_f32_shaped(const std::string& path,
+                                          const std::vector<std::size_t>& shape) {
+  std::ifstream f(path, std::ios::binary);
+  if (!f) throw std::runtime_error("cannot open " + path);
+  const Header h = read_header(f, path);
+  if (h.descr != "<f4")
+    throw std::runtime_error(path + ": expected float32 ('<f4'), found '" + h.descr + "'");
+  auto str = [](const std::vector<std::size_t>& s) {
+    std::string out = "(";
+    for (std::size_t i = 0; i < s.size(); ++i) out += (i ? ", " : "") + std::to_string(s[i]);
+    return out + ")";
+  };
+  if (h.shape != shape)
+    throw std::runtime_error(path + ": shape " + str(h.shape) + ", expected " + str(shape) +
+                             " -- same count with permuted axes is NOT accepted");
+  std::vector<float> out(h.elements);
+  f.read(reinterpret_cast<char*>(out.data()), std::streamsize(out.size() * 4));
+  if (!f) throw std::runtime_error(path + ": truncated body");
+  return out;
 }
 
 inline std::vector<float> read_f32(const std::string& path, std::size_t expect) {

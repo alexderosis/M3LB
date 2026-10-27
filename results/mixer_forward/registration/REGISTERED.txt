@@ -1,0 +1,179 @@
+GATES REGISTERED FOR validation/mixer_forward.cpp (doc/mixer_adjoint_plan.md, P1)
+registered (UTC): 2026-10-15T12:25:46Z
+branch: optimisation   HEAD: a86a96f (the new files are uncommitted)
+state: built, NEVER RUN. The only edit since the first draft was a compile fix
+       (a std::vector declaration C++ parsed as a function); no gate was touched.
+the gates are the constexpr block 'GATES -- registered 2026-10-15' in the copy beside this file.
+sha256 of the files as registered:
+  1c81b80f61dab94b8ea091d920c52e5cb26ac908d8c0a0b5353ad17739346d22  validation/mixer_forward.cpp
+  7600948cb028c228eac0722ec4925fbb5737f51b580301c57436fc5bec649a8d  src/topopt/Mixer.hpp
+  6e207a2ecf7f6653aba0649a02715c735ab9d03e846fc39efda3d608a354a81f  src/topopt/DuctFlow.hpp
+  cff1eb8260c75ae89150aed4b51c9726bafff0092870467c7039b1367679baff  demonstrator/mixer_topopt.cpp
+
+AFTER REGISTRATION:
+  2026-10-15T12:26:38Z  first run aborted in duct_self_check (src/topopt/DuctFlow.hpp), before
+    any gate was evaluated: the exact profile's midpoint-rule mean read 1.0001186 against a
+    1e-4 tolerance. That is the rule's own O(h^2) error at 100 points a side; the check now
+    Richardson-extrapolates 64 and 128 points and asks 1e-6. DuctFlow.hpp changed; no gate did.
+    new sha256: b13f825b3973873a9170b8cd8347b68c5fab15974af7a4af9c933e8b6ce12916
+  2026-10-15T12:35:26Z  run 2 (all three ctest anchors) read: 1 PASS; 2 FAIL (variance growth 1.0327
+    against 1e-2); 3 FAIL (Darcy ratio 1.141476 against 1e-2). After it, a '-diag' option was added
+    to anchor 3 (profiles through the slab centre, and continued stepping). Instrumentation only:
+    no gate and no gated measurement changed. new sha256 of validation/mixer_forward.cpp:
+    925977ae8b20017389ede3df5a8f9c9ad75252efa97830e5c9c04b8c2b8e1355
+  2026-10-15T12:35:49Z-12:57:41Z  anchor 4 (-band) under ScalarRegularised: the concentration
+    DIVERGED on both grids (Phi 0.176 -> 1e49 -> 4.7e271 at L = 40; the same at L = 60; stopped
+    by overflow). Flow side: Dp/Dp0 = 3.92972 / 3.94161, 0.30% apart. Gates: converged FAIL,
+    M FAIL (nan), Dp/Dp0 PASS. Cause (von Neumann, two independent derivations): the regularised
+    D3Q7 scalar is unstable for |u| > 0.052 at omega_c = 1.98413; the grooves run at ~3.9 U.
+  12:57:41Z-13:19:22Z  anchor 3 -full: L = 16 as before (Darcy 1.141476 FAIL); L = 40 leak
+    9.811652e-04 PASS, Darcy 0.999959 PASS. The L = 16 miss is an odd-even layer decaying
+    x(-0.42)/cell from the solid surface (x(-0.19)/cell at L = 40); the 8-cell slab is too thin.
+  13:19:22Z-14:07:46Z  anchor 1 -full: L = 64 err +1.3838e-04; orders 2.357, 2.099, 2.030. PASS.
+
+  2026-10-15T14:13:46Z  CHANGES BEFORE THE NEXT RUN (none of them moves a threshold):
+    * the evaluator's scalar operator is now ScalarTRT<D3Q7> at Lambda = 1/4 (new,
+      src/collision/ScalarTRT.hpp, tests/test_scalar_trt.cpp: 68 checks pass). Chosen by
+      the user 2026-10-15 over lowering U or Pe. Anchors 2 and 4 re-run under it; anchor 2
+      also prints the regularised rows ungated.
+    * GATES ADDED, registered now, before their first run (copy: mixer_forward.cpp.registered-2):
+        G4_PHI = 0.10   |Phi(60) - Phi(40)| / Phi(60) -- the plan's quantity
+        G5 (anchor 5)   grooves at L = 16: evaluator's scalar converged and in [-0.05, 1.05];
+                        the regularised control must halt
+    * review fixes: spec validation (H, lengths); exact-shape .npy reader; NaN design aborts;
+      solid T_relax 4H^2/(pi^2 D); max|u|, Ma, density drop, c range reported; scalar halts
+      outside [-0.05, 1.05]; flow r_odd (one odd step); duct check's vacuous wall test
+      replaced by a finite-difference Poisson comparison; FP32 exits 77 = SKIPPED in ctest.
+    sha256 now:
+      fc8bd70bfb75fbdec739b3b5a81d28921e425d6b31c4af8d208d18d4bdc27863  validation/mixer_forward.cpp
+      21bae58246395b6db2a2bd1e03b4a2bbd0255c8d71ae446804a8eb8bcc04de8e  src/topopt/Mixer.hpp
+      40ce37072c50d0ee40f8b5fdf789c7acafbbf9c937908ca52fe1725f14c23aab  src/topopt/DuctFlow.hpp
+      11a07711ab6df9d81df4b1543dff3288152ac9c358effd31f15b9ac2551add39  src/collision/ScalarTRT.hpp
+      d109429fd564c31702d2cef16c212410ce8d9a655ac7037980836b63ee61c60b  tests/test_scalar_trt.cpp
+      cf920d55a1e5481a293f267c7ae384a4572bb7fdaa7d59c2bb06ba209f8e33f6  demonstrator/mixer_topopt.cpp
+  2026-10-15T14:21:21Z  run 3 (ctest anchors, ScalarTRT): 1 PASS (unchanged); 2 FAIL
+    (variance growth 0.984564 against 1e-2; pointwise 2.9934e-03 PASS, orders 1.960/1.977;
+    c in [0, 1]; ungated 4-sigma-window ratio 0.994500, regularised 1.006114); 3 FAIL at L = 16
+    as before; 5 FAIL: ScalarTRT HALTED at the first probe, c in [-0.01754, 1.57401]; the
+    regularised control halted too (PASS). Then two changes, both after seeing that failure:
+    * ScalarSolver::initialize_field_in_flow (new, opt-in): the evaluator reseeds the scalar
+      at the equilibrium of the converged flow. It did NOT change the outcome: c in
+      [-0.01747, 1.57296]. Kept because a rest seed in a moving flow is the documented trap.
+    * anchor 5 prints, ungated, where the extreme c sits: c = 1.573 at a grey node (A = 1.30,
+      |u| = 0.17 U) where the D3Q7 central divergence of u is -39% of |u| per cell. The
+      fluid velocity is not discretely solenoidal for the scalar's stencil where the drag
+      varies over a cell, and the conservative scheme piles c up where it converges.
+    sha256 now:
+      f04404c7a139cc1f334bcb261b326d5f88c9e77573d0aa668fe96b7fb28c1f22  validation/mixer_forward.cpp
+      9ec9bdaff433afa61ae1ee37b1684cfd071223702cace69a47281149a3d767d9  src/topopt/Mixer.hpp
+      2b119b788d5276b6f66904744860c7500c4e9744248890045a1cbb961fcc5d2f  src/solver/ScalarSolver.hpp
+  14:20:35Z-14:49:00Z  anchor 4 under ScalarTRT: HALTED on both grids at the first probe --
+    c in [-0.01017, 1.38892] (L = 40, 724 steps) and [-0.00370, 1.24156] (L = 60, 1084 steps).
+    Flows converged: Dp/Dp0 3.92972 / 3.94161 (0.30%), max|u| 4.03 U, density drop 7.95%,
+    r_odd 1.7e-10. 'converged' FAIL; the M, Phi and Dp bands printed PASS, but M and Phi were
+    read from halted states ~1000 steps from the seed (Phi 0.2093 vs 0.2095): VACUOUS.
+  14:31Z  no-halt diagnosis (L = 40, band widened to 1.0): the overshoot is STEADY, c_max
+    settling at 1.4171 by 44k steps, c_min -0.0070. Uniform inlet c = 1 (exact: c = 1 everywhere):
+    L = 16 [0.27, 2.08] by 876 steps; L = 40 [0.699, 1.438] at 66k steps with an outlet-plane
+    Phi of 7.3e-5 (exact 0) -- the artefact sits in the drag regions, ~5e-4 of the real Phi.
+  2026-10-15T14:50:16Z  fix to the CHECK, not a threshold: anchor 4's M and Phi bands are
+    now 'NOT EVALUATED' unless both concentrations converged. sha256 of validation/mixer_forward.cpp:
+    db413c0f55aed6ec4e28b87c84c18bb5bea0da5549e980b6a6f05c1d07eadefa
+
+  2026-10-15T14:56:22Z  THE UNIFORM-PRESERVING CORRECTION (chosen by the user over 'accept and
+    monitor' and 'soften the designs'): ScalarSolver::set_uniform_correction (new, opt-in) and
+    MixerEvaluator::calibrate_uniform, which runs before every concentration solve (spec
+    uniform_fix, default on). e_phi gains an absolute floor of 1e-14.
+    GATE ADDED, registered now, before any run with the correction (copy: .registered-3):
+      G6_EXACT   = 1e-9   max |c - 1| for a uniform inlet, L = 16 grooves, correction on
+      G6_CONTROL = 0.1    the same with it off must miss by at least this
+    No earlier threshold moved. sha256 now:
+      47bf8b0ff2ef9b34222d0fcd36e82cc071c2bd40926a73da206c4f0071a143fb  validation/mixer_forward.cpp
+      01a4b2957bdd3bedf80423d26b7df49bd53451309db3c655f516c4ae23584a8d  src/topopt/Mixer.hpp
+      2ed7483ce8d31b10e9c99076b6217a069092b34a89367ac45441c8404f54954f  src/solver/ScalarSolver.hpp
+      a040005bdfebf9c01154340c73b9cd33f748dca60a32bab4f22d48f4fb41b0aa  demonstrator/mixer_topopt.cpp
+  14:56:51Z  uncorrected uniform inlet at L = 40 stopped at 254k steps, effectively steady: c in [0.6978, 1.4382], outlet Phi 6.7314e-05 (e_phi 8e-4).
+  2026-10-15T15:01:11Z  run 4 (ctest anchors, correction on): 1 PASS; 2 FAIL as before (identical
+    numbers -- uniform u gives fix = 0); 3 FAIL at L = 16 as before; 5 FAIL (halted at the first
+    probe, c in [-0.02204, 1.18610], was [-0.01747, 1.57296] uncorrected); 6 FAIL: correction on
+    halted at 292 steps, max|c - 1| = 6.17e-02, calibration converged (6200 steps, change 9.7e-14,
+    fix in [-0.0042, 0.0052]); control PASS (max|c - 1| = 1.24). Diagnosis: the corrected run was
+    RESEEDED at the plain in-flow equilibrium, whose fluxes are not the scheme's steady ones, and the
+    [-0.05, 1.05] halt ended the transient. Two code changes, no threshold moved:
+    * a uniform inlet of 1 continues from the calibrated state (the last top-up undone);
+    * the in-run halt is a divergence guard, [-1, 2]; the converged range is what G5 gates.
+    sha256 of src/topopt/Mixer.hpp: 887a3aa3c98f6386fb71a9ebe8bac7de5c3947ef351db2e85b2d9caaf9fdd6c4
+  2026-10-15T15:03:24Z  run 5 (anchor 6 only): correction on CONVERGED (78256 steps) with max|c - 1| =
+    5.141e-03 and outlet Phi 1.728e-09 -> FAIL; control PASS (1.24). Probe-by-probe the field sat at
+    [0.9949, 1.0042] from the first probe: exactly 1/(1 + fix). The STATE was uniform; the REPORT was
+    not -- ScalarSolver::field_kernel recomputed the loaded sum without the correction the step
+    applies. Fixed there (bulk nodes report T (1 + fix) when a correction is set). No threshold moved.
+    sha256 of src/solver/ScalarSolver.hpp: 18764333b2b59d4c665004cfa6451b5dbccc952b1c75cdd39072b9a9bfef9ed9
+  2026-10-15T15:07:13Z  run 6 (all ctest anchors, correction on, halt [-1, 2]): 1 PASS; 2 FAIL (unchanged:
+    uniform u gives fix = 0); 3 FAIL at L = 16 (unchanged); 5 FAIL: ScalarTRT CONVERGED (118552 steps)
+    with c in [-0.08440, 1.72722] -- the maximum at a near-stagnant solid node (A = 15.41, |u| = 0.0099 U,
+    D3Q7 div u 310% of |u| per cell), the minimum in open fluid at local cell Pe ~190; regularised
+    control halted at [-24.9, 28.4] (PASS). 6 PASS: max|c - 1| = 2.318e-10, outlet Phi 1.9e-22;
+    control 1.24 (PASS).
+  15:52:28Z  full ctest after every header change: 49/50 pass; the one failure is mixer_forward (anchors 2, 3 at L = 16 and 5, as registered). tests/scalar_trt passes.
+  15:07:25Z-17:00:40Z  anchor 4 (-band), ScalarTRT + uniform-preserving correction: PASS on every gate.
+    L = 40: 385168 scalar steps, Phi 1.743615e-01, M 0.164867, cbar 0.499508, Dp/Dp0 3.92972,
+    c in [-0.00273, 1.09269]. L = 60: 573436 steps, Phi 1.746236e-01, M 0.164240, cbar 0.499800,
+    Dp/Dp0 3.94161, c in [-0.00002, 1.00225]. |dM|/M 0.0038, |dPhi|/Phi 0.0015, |dr|/r 0.0030.
+    For comparison, the UNCORRECTED L = 40 run read Phi 0.1468 at 44k steps against 0.1720 corrected.
+  2026-10-15T17:05:01Z  measured numbers written into the banners (comments only); run 7 of the ctest
+    anchors matches run 6 line for line apart from wall-clock times. Final sha256:
+      c2907ecbc1e93e659358bda0a0877deafa22e1a463952946d158dc8447ffaee3  validation/mixer_forward.cpp
+      13ee4c62e326cada7d1e8ae52e86a107abedc4522dbdbc924f02f20dd3ba1a48  src/topopt/Mixer.hpp
+      40ce37072c50d0ee40f8b5fdf789c7acafbbf9c937908ca52fe1725f14c23aab  src/topopt/DuctFlow.hpp
+      11a07711ab6df9d81df4b1543dff3288152ac9c358effd31f15b9ac2551add39  src/collision/ScalarTRT.hpp
+      e020ff6afb723f752cc08f2567e09778062d1ec9c4ead2a102e6e0f07f9163a8  src/collision/ScalarRegularised.hpp
+      18764333b2b59d4c665004cfa6451b5dbccc952b1c75cdd39072b9a9bfef9ed9  src/solver/ScalarSolver.hpp
+      eaa828d404d2dae6692ad02ef69887626dcef6a72b34cf4956cdee1bc8a243a2  src/io/HeightField.hpp
+      d109429fd564c31702d2cef16c212410ce8d9a655ac7037980836b63ee61c60b  tests/test_scalar_trt.cpp
+      a040005bdfebf9c01154340c73b9cd33f748dca60a32bab4f22d48f4fb41b0aa  demonstrator/mixer_topopt.cpp
+
+  2026-10-16T02:28:24Z  SECOND REVIEW (trap-reviewer, read-only plus scratch runs) and the changes it led to.
+    No threshold moved. Code:
+    * the calibration runs on its OWN ScalarSolver (calib_scalar), so run_scalar(reseed = false) is a
+      real warm start (the reviewer measured the old code restarting from c = 1); the calibration
+      warm-starts across flows; an unconverged calibration makes the solve unconverged;
+    * e_hat's T_relax uses the design box's LONGEST side (a dead-end pocket along x can be 25x slower
+      than the height H); the run's cap still uses H;
+    * driver: halt default 1.0 (it was 0.05 and stopped its own documented example on a transient);
+      results of an unconverged/halted run printed 'NOT A RESULT'; the bad-design exit no longer
+      aborts (exit 2 checked); a missing option value is an error; -s0 defaults to L/40; the location
+      of max c is printed; set_uniform_correction checks the View length; validate() refuses a duct
+      inlet profile without walls; tools/scalar_stability.py added (the TRT banner cited it).
+    * ctest: mixer_forward registered once per anchor (mixer_forward_1, 2, 3, 5, 6).
+    * wording: 'exactly'/'round-off' -> the calibration's accuracy; '-39% at the extreme' -> 0.145 U per
+      cell max and >|u| at stagnant drag nodes; '~15%' -> 'at the same unconverged step'; the
+      registered prediction 4 restored and marked contradicted.
+    Run 8 (all ctest anchors, final code): 1-3 identical to run 7; 5 converges in 150964 steps (was
+    118552) to the same c range; 6 converges in 311856 steps (it now reseeds), max|c - 1| 2.319e-10.
+    Per-anchor ctest: 1 PASS, 2 FAIL, 3 FAIL, 5 FAIL, 6 PASS. sha256 now:
+      6f1e0bdd54ed951e4aad954905e779e60bdfdf4a9dfeb6885b114550ff3b52c0  validation/mixer_forward.cpp
+      d507f49074112826e9206e76e5e230f2f0bd8b182c5b47004717622292b0703a  src/topopt/Mixer.hpp
+      d41796445fdef598f6c0241b7150ede027049f101659cb579adb5b17c90476a3  src/solver/ScalarSolver.hpp
+      a535c3274cd179173e97e1ea526327f2ccd51c1a4ec6da02646d31f39d04ebdc  demonstrator/mixer_topopt.cpp
+      1fe0b1dd78f2b9ab06ede2dc72905050940dc223183a7eb3737840035f2161ca  src/collision/ScalarTRT.hpp
+      1b92b105848f0cd4cfff8c8f9879f7e980d2bbff83c0fffd8d12de2cb4e91999  tools/scalar_stability.py
+
+  02:28Z-04:09Z  GRID SWEEP (driver, grooves, s0 = L/40, both settings converged, e_hat < 1e-6):
+    L   correction ON: Phi / M / cbar / c range        correction OFF: Phi / M / cbar / c range
+    16  0.1744345 0.164679 0.497135 [-0.0844, 1.7272]   0.1520905 0.217689 0.461396 [-0.1337, 2.4894]
+    24  0.1741617 0.165343 0.498635 [-0.0341, 1.3051]   0.1493404 0.224788 0.461342 [-0.0552, 1.9000]
+    32  0.1742319 0.165177 0.499254 [-0.0100, 1.1856]   0.1487235 0.226372 0.461191 [-0.0151, 1.6130]
+    40  0.1743615 0.164867 0.499508 [-0.0027, 1.0927]   0.1486797 0.226485 0.461181 [-0.0071, 1.4169]
+    Phi_on/Phi_off over (cbar_on/cbar_off)^2 = 0.98794, 0.99829, 0.99969, 0.99967: the 15% difference is
+    the density drop diluting the scalar (compressibility); the drag part refines away. Max c with the
+    correction sits at a grey edge from L = 32 (A 0.65 / 0.52, |u| 0.20 / 0.22 U); without it in drag
+    regions (A 2.6-14). The earlier attribution of the Phi difference to the drag was WRONG; corrected
+    in Mixer.hpp, mixer_forward.cpp, the plan and m3lb.tex.
+  04:08:48Z-09:55:25Z  anchor 4 on the FINAL code: L = 40 reproduced every printed digit (Phi 1.743615e-01,
+    M 0.164867, cbar 0.499508, Dp/Dp0 3.92972, c in [-0.00273, 1.09269]; 460464 steps against 385168 under the
+    old T_relax). The L = 60 half was KILLED (exit 143, SIGTERM) at 44k scalar steps; the machine was
+    loaded (load ~6, ~67 MB free) and the L = 40 scalar ran ~10x slower than in the sweep. The L = 60 row
+    therefore stays the 17:00:40Z run's (code before the second review's changes: stopping rule and the
+    calibration's solver, neither of which moved a converged value at L = 40).
+    Final sha256 of validation/mixer_forward.cpp (banner note): c8b49ab2f8232d7181afc04de0a9731405a867736fa9af4a2b6e3f08aa7787aa

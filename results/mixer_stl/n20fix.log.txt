@@ -1,0 +1,66 @@
+MIXER FROM STL -- Nianzhi's OpenLB case (D3Q27 CM, D3Q7 ScalarTRT, FP64)
+  geometry      /private/tmp/claude-501/-Users-alessandroderosis-Desktop-M3LB/73f0efea-c41e-4e27-8e21-4d7c9ccbfc6e/scratchpad/geom/mixer1.npy: 90 x 20 x 20 voxels of 10 um, 5030 solid; duct side W = 200 um, length 900 um
+                obstacles x in [200, 700) um, z < 100 um: sections 1 + 2.5 + 1 W, H = 0.5 W
+  physics       U = 0.01 m/s  nu = 1e-06 m^2/s  D = 1e-09 m^2/s  rho = 1000 kg/m^3
+                Re_W = 2  Pe_W = 2000  (on charL = 100 um: Re = 1, Pe = 1000)  Sc = 1000
+  lattice       N = 20 per charL, dx = 5 um, 2 cells per voxel; tau = 0.875 -> dt = 3.125e-06 s, u_lat = 0.00625
+                check: nu = 1e-06, D = 1e-09 m^2/s back from the lattice
+  duct          L = 40   grid 181 x 42 x 42   design box 100 x 40 x 20
+  flow          U = 0.00625  Ma = 0.0108  Re = 2  nu = 0.125  tau = 0.8750  omega_bulk = 1
+  concentration ScalarTRT  Pe = 2000  D = 1.2500e-04  omega_c = 1.99800  Lambda = 0.25  cell Pe = U/D = 50  layer after one pass ~ 1.90 cells
+  design        SHARP: gamma < 0.5 is a halfway bounce-back wall for both fields, no drag
+  planes        pressure x = 20, 160   mixing x = 175   (outlet x = 180)
+  inlet split   c = 1 for y > W/2 (mixer3d.cpp: y < W/2; M is invariant), erf width s0 = 1e-09 cells
+  connected     fluid path inlet -> outlet: yes
+      flow   step     1280  t/T =  0.100  r = 2.501e-02  e_hat = 1.251e+00
+      flow   step     2304  t/T =  0.180  r = 5.873e-03  e_hat = 2.936e-01
+      flow   step     3328  t/T =  0.260  r = 1.489e-03  e_hat = 7.445e-02
+      flow   step     4352  t/T =  0.340  r = 3.340e-04  e_hat = 1.670e-02
+      flow   step     5376  t/T =  0.420  r = 6.861e-05  e_hat = 3.430e-03
+      flow   step     6400  t/T =  0.500  r = 1.320e-05  e_hat = 6.599e-04
+      flow   step     7424  t/T =  0.580  r = 2.396e-06  e_hat = 1.198e-04
+      flow   step     8448  t/T =  0.660  r = 4.117e-07  e_hat = 2.058e-05
+      flow   step     9472  t/T =  0.740  r = 6.665e-08  e_hat = 3.333e-06
+  flow          9730 steps (t/T = 0.760, T = L^2/nu; 0.03041 s)  e_hat 6.60e-07  r_odd 4.5e-11  267.4 s
+      scalar t/t_res =  0.500  dM/t_res = nan  field change/t_res = nan  M_flux(outlet) = 0.085819  c in [-0.6541, 1.1194]
+      scalar t/t_res =  1.000  dM/t_res = nan  field change/t_res = nan  M_flux(outlet) = 0.098018  c in [-0.6565, 1.2534]
+      scalar t/t_res =  1.500  dM/t_res = 1.53e-02  field change/t_res = 1.25e-01  M_flux(outlet) = 0.098112  c in [-0.6570, 1.1082]
+      scalar t/t_res =  2.000  dM/t_res = 8.45e-03  field change/t_res = 5.62e-02  M_flux(outlet) = 0.097454  c in [-0.6571, 1.1204]
+      scalar t/t_res =  2.500  dM/t_res = 8.21e-03  field change/t_res = 3.26e-02  M_flux(outlet) = 0.096909  c in [-0.6572, 1.1151]
+      scalar t/t_res =  3.000  dM/t_res = 6.96e-03  field change/t_res = 2.12e-02  M_flux(outlet) = 0.096510  c in [-0.6572, 1.1016]
+      scalar t/t_res =  3.500  dM/t_res = 5.33e-03  field change/t_res = 1.47e-02  M_flux(outlet) = 0.096228  c in [-0.6572, 1.0847]
+      scalar t/t_res =  4.000  dM/t_res = 3.98e-03  field change/t_res = 1.07e-02  M_flux(outlet) = 0.096028  c in [-0.6572, 1.0679]
+      scalar t/t_res =  4.500  dM/t_res = 2.97e-03  field change/t_res = 8.05e-03  M_flux(outlet) = 0.095887  c in [-0.6572, 1.0532]
+      scalar t/t_res =  5.000  dM/t_res = 2.21e-03  field change/t_res = 6.20e-03  M_flux(outlet) = 0.095786  c in [-0.6572, 1.0408]
+      scalar t/t_res =  5.500  dM/t_res = 1.64e-03  field change/t_res = 4.88e-03  M_flux(outlet) = 0.095712  c in [-0.6572, 1.0402]
+      scalar t/t_res =  6.000  dM/t_res = 1.21e-03  field change/t_res = 3.91e-03  M_flux(outlet) = 0.095658  c in [-0.6572, 1.0402]
+      scalar t/t_res =  6.500  dM/t_res = 8.94e-04  field change/t_res = 3.18e-03  M_flux(outlet) = 0.095617  c in [-0.6572, 1.0402]
+      scalar t/t_res =  7.000  dM/t_res = 6.57e-04  field change/t_res = 2.60e-03  M_flux(outlet) = 0.095587  c in [-0.6572, 1.0402]
+      scalar t/t_res =  7.500  dM/t_res = 4.83e-04  field change/t_res = 2.14e-03  M_flux(outlet) = 0.095564  c in [-0.6572, 1.0402]
+      scalar t/t_res =  8.000  dM/t_res = 3.55e-04  field change/t_res = 1.76e-03  M_flux(outlet) = 0.095546  c in [-0.6572, 1.0402]
+      scalar t/t_res =  8.500  dM/t_res = 2.62e-04  field change/t_res = 1.45e-03  M_flux(outlet) = 0.095532  c in [-0.6572, 1.0402]
+      scalar t/t_res =  9.000  dM/t_res = 1.94e-04  field change/t_res = 1.19e-03  M_flux(outlet) = 0.095522  c in [-0.6572, 1.0402]
+      scalar t/t_res =  9.500  dM/t_res = 1.44e-04  field change/t_res = 9.82e-04  M_flux(outlet) = 0.095513  c in [-0.6572, 1.0402]
+      scalar t/t_res = 10.000  dM/t_res = 1.07e-04  field change/t_res = 8.08e-04  M_flux(outlet) = 0.095507  c in [-0.6572, 1.0402]
+      scalar t/t_res = 10.500  dM/t_res = 8.01e-05  field change/t_res = 6.63e-04  M_flux(outlet) = 0.095502  c in [-0.6572, 1.0402]
+      scalar t/t_res = 11.000  dM/t_res = 6.00e-05  field change/t_res = 5.45e-04  M_flux(outlet) = 0.095498  c in [-0.6572, 1.0402]
+      scalar t/t_res = 11.500  dM/t_res = 4.50e-05  field change/t_res = 4.47e-04  M_flux(outlet) = 0.095495  c in [-0.6572, 1.0402]
+      scalar t/t_res = 12.000  dM/t_res = 3.39e-05  field change/t_res = 3.66e-04  M_flux(outlet) = 0.095493  c in [-0.6572, 1.0402]
+      scalar t/t_res = 12.500  dM/t_res = 2.55e-05  field change/t_res = 3.00e-04  M_flux(outlet) = 0.095491  c in [-0.6572, 1.0402]
+      scalar t/t_res = 13.000  dM/t_res = 1.93e-05  field change/t_res = 2.46e-04  M_flux(outlet) = 0.095490  c in [-0.6572, 1.0402]
+      scalar t/t_res = 13.500  dM/t_res = 1.46e-05  field change/t_res = 2.01e-04  M_flux(outlet) = 0.095489  c in [-0.6572, 1.0402]
+      scalar t/t_res = 14.000  dM/t_res = 1.10e-05  field change/t_res = 1.64e-04  M_flux(outlet) = 0.095488  c in [-0.6572, 1.0402]
+  concentration 410400 steps (14.25 residence times, 1.283 s)  dM/t_res 9.62e-06  field change/t_res 1.49e-04  1290.5 s
+  correction    calibration converged in 19800 steps, fix in [-2.859e-03, 2.383e-03]
+  MIXING  (node planes; c in [-0.65723, 1.04023] over the bulk)
+    x from inlet [um]  plane | flux weighted: cbar     M        (pts) | area weighted: cbar     M        (pts)
+       100.0           20 |               0.50005  0.024587 (1600) |               0.47794  0.021780 (1600)
+       200.0           40 |               0.49986  0.040900 (1200) |               0.44875  0.031932 (1200)
+       400.0           80 |               0.49989  0.064209 (1200) |               0.47234  0.071128 (1200)
+       600.0          120 |               0.49976  0.077932 (1000) |               0.48080  0.060017 (1000)
+       800.0          160 |               0.49964  0.090828 (1600) |               0.50276  0.070674 (1600)
+       880.0          176 |               0.49962  0.095488 (1600) |               0.50456  0.074248 (1600)
+  PRESSURE  planes 20 and 880 um (x = 4, 176): dp = 17.411 Pa   empty duct (exact) 6.1176 Pa   dp/dp_ref = 2.8461
+  EVALUATOR     Phi = 2.045653e-01  M = 0.095422 at x = 175;  Dp/Dp0 = 3.19413 (planes 20, 160)
+  LIMITS        max|u| = 0.02509 (4.01 U = 0.04014 m/s)  Ma_max = 0.0435  density drop 1.902%  cell Pe at max|u| = 201
+  wrote         /private/tmp/claude-501/-Users-alessandroderosis-Desktop-M3LB/73f0efea-c41e-4e27-8e21-4d7c9ccbfc6e/scratchpad/runs/n20fix_{c,ux,uy,uz}.npy (nz, ny, nx), /private/tmp/claude-501/-Users-alessandroderosis-Desktop-M3LB/73f0efea-c41e-4e27-8e21-4d7c9ccbfc6e/scratchpad/runs/n20fix_series.dat

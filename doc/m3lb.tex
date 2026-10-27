@@ -10747,6 +10747,38 @@ the fitted rate is blamed on the scheme.
   hydrodynamic force cases (\code{forcing\_3d}, \code{forcing\_transverse})
   cannot see it even in principle --- a steady balance has no $k_{222}$ in it.
 
+\item \textbf{The regularised D3Q7 scalar is linearly unstable under advection
+  once $|u|$ exceeds about $1.64\sqrt{D}$, and that limit falls as $D\to0$.}
+  Measured 2026-10-15 on the passive mixer of \code{validation/mixer\_forward}:
+  at $D=10^{-3}$ ($\omega=1.98413$) a von Neumann scan of the $7\times7$ one-step
+  map gives $|u|<0.052$ along an axis ($0.087$ on a body diagonal), below the
+  empty duct's own centreline speed, and the two-grid run diverged on both grids.
+  \code{ScalarRegularised} is the TRT member with $\Lambda=(\tau-\tfrac12)/2$,
+  which vanishes as $D\to0$; \code{ScalarTRT} at $\Lambda=\tfrac14$ is stable to
+  $|u|=0.5$ in every direction at any $D$ (its banner has the table, and
+  \code{tests/test\_scalar\_trt.cpp} the differential test). Every case below the
+  limit is unaffected; one that advects a scalar at small $D$ should check it.
+\item \textbf{A conservative scalar keeps a uniform field uniform only where the
+  velocity it is given is divergence-free in \emph{its own} stencil, and a
+  Brinkman drag that varies over a cell breaks that.} Measured on the same mixer:
+  next to \code{DarcyGuo} drag regions the D3Q7 central divergence of the fluid's
+  velocity reached $0.145\,U$ per cell, and exceeded $|u|$ itself at
+  near-stagnant nodes, and a \emph{uniform} inlet $c=1$ came out between $0.70$
+  and $1.44$ at $L=40$. The opt-in \code{ScalarSolver::set\_uniform\_correction},
+  calibrated per velocity field, restores it to the calibration's accuracy
+  ($2.3\times10^{-10}$ at $L=16$; an error in the factor acts as a source for a
+  residence time, so not to round-off) at the price of conservation where the
+  correction acts --- and only for \emph{uniform} fields. Most of what it changed
+  on the mixer was not the drag but \emph{compressibility}: the density falls
+  $8.5\,\%$ along the duct at $\mathrm{Ma}_{\max}=0.175$, the fluid conserves
+  $\rho\bm{u}$ rather than $\bm{u}$, and a scalar advected by $\bm{u}$ is diluted
+  by the density ratio --- the outlet's flux-weighted mean was $0.461$ for an
+  inlet mean of $0.5$, and the mixing variance $15\,\%$ low, grid-independently.
+  The drag part refined away ($1.2\,\%$ at $L=16$, $0.03\,\%$ at $L=32$). With two
+  streams the $L=16$ case still converges to $c\in[-0.084,1.727]$, the maximum
+  inside a near-stagnant drag region. Any scalar advected through a penalised
+  body inherits this; it is invisible in uniform or smooth flow.
+
 \end{enumerate}
 
 %==============================================================================

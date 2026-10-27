@@ -1,0 +1,40 @@
+MIXER FROM STL -- Nianzhi's OpenLB case (D3Q27 CM, D3Q7 ScalarTRT, FP64)
+  geometry      /private/tmp/claude-501/-Users-alessandroderosis-Desktop-M3LB/73f0efea-c41e-4e27-8e21-4d7c9ccbfc6e/scratchpad/geom/empty.npy: 90 x 20 x 20 voxels of 10 um, 0 solid; duct side W = 200 um, length 900 um
+                obstacles x in [450, 450) um, z < 0 um: sections 2.25 + 0 + 2.25 W, H = 0 W
+  physics       U = 0.01 m/s  nu = 1e-06 m^2/s  D = 1e-09 m^2/s  rho = 1000 kg/m^3
+                Re_W = 2  Pe_W = 2000  (on charL = 100 um: Re = 1, Pe = 1000)  Sc = 1000
+  lattice       N = 20 per charL, dx = 5 um, 2 cells per voxel; tau = 0.875 -> dt = 3.125e-06 s, u_lat = 0.00625
+                check: nu = 1e-06, D = 1e-09 m^2/s back from the lattice
+  duct          L = 40   grid 181 x 42 x 42   design box 0 x 40 x 0
+  flow          U = 0.00625  Ma = 0.0108  Re = 2  nu = 0.125  tau = 0.8750  omega_bulk = 1
+  concentration ScalarTRT  Pe = 2000  D = 1.2500e-04  omega_c = 1.99800  Lambda = 0.25  cell Pe = U/D = 50  layer after one pass ~ 1.90 cells
+  design        SHARP: gamma < 0.5 is a halfway bounce-back wall for both fields, no drag
+  planes        pressure x = 45, 135   mixing x = 175   (outlet x = 180)
+  inlet split   c = 1 for y > W/2 (mixer3d.cpp: y < W/2; M is invariant), erf width s0 = 1e-09 cells
+  connected     fluid path inlet -> outlet: yes
+      flow   step     2304  t/T =  0.180  r = 9.253e-04  e_hat = 4.627e-02
+      flow   step     4352  t/T =  0.340  r = 9.893e-05  e_hat = 4.947e-03
+      flow   step     6400  t/T =  0.500  r = 2.862e-06  e_hat = 1.431e-04
+      flow   step     8448  t/T =  0.660  r = 1.342e-06  e_hat = 6.710e-05
+      flow   step    10496  t/T =  0.820  r = 1.934e-07  e_hat = 9.671e-06
+  flow          11778 steps (t/T = 0.920, T = L^2/nu; 0.03681 s)  e_hat 9.46e-07  r_odd 1.5e-10  365.0 s
+      scalar t/t_res =  1.000  dM/t_res = nan  field change/t_res = nan  M_flux(outlet) = 0.086010  c in [-0.0000, 1.0000]
+      scalar t/t_res =  2.000  dM/t_res = 5.62e-03  field change/t_res = 1.03e-02  M_flux(outlet) = 0.088666  c in [-0.0000, 1.0000]
+      scalar t/t_res =  3.000  dM/t_res = 2.02e-03  field change/t_res = 2.76e-03  M_flux(outlet) = 0.089439  c in [-0.0000, 1.0000]
+      scalar t/t_res =  4.000  dM/t_res = 6.40e-04  field change/t_res = 6.59e-04  M_flux(outlet) = 0.089648  c in [-0.0000, 1.0000]
+      scalar t/t_res =  5.000  dM/t_res = 1.55e-04  field change/t_res = 1.22e-04  M_flux(outlet) = 0.089690  c in [-0.0000, 1.0000]
+      scalar t/t_res =  6.000  dM/t_res = 2.97e-05  field change/t_res = 1.77e-05  M_flux(outlet) = 0.089697  c in [-0.0000, 1.0000]
+  concentration 194400 steps (6.75 residence times, 0.6075 s)  dM/t_res 8.46e-06  field change/t_res 4.56e-06  833.6 s
+  correction    calibration converged in 12800 steps, fix in [-3.244e-06, 5.908e-06]
+  MIXING  (node planes; c in [-0.00000, 1.00000] over the bulk)
+    x from inlet [um]  plane | flux weighted: cbar     M        (pts) | area weighted: cbar     M        (pts)
+       100.0           20 |               0.50000  0.025090 (1600) |               0.50000  0.021752 (1600)
+       200.0           40 |               0.50000  0.039217 (1600) |               0.50000  0.032767 (1600)
+       400.0           80 |               0.50000  0.058415 (1600) |               0.50000  0.047689 (1600)
+       600.0          120 |               0.50000  0.072968 (1600) |               0.50000  0.058964 (1600)
+       800.0          160 |               0.50000  0.085249 (1600) |               0.50000  0.068457 (1600)
+       880.0          176 |               0.50000  0.089698 (1600) |               0.50000  0.071889 (1600)
+  PRESSURE  planes 20 and 880 um (x = 4, 176): dp = 6.1653 Pa   empty duct (exact) 6.1176 Pa   dp/dp_ref = 1.0078
+  EVALUATOR     Phi = 2.071894e-01  M = 0.089639 at x = 175;  Dp/Dp0 = 0.99953 (planes 45, 135)
+  LIMITS        max|u| = 0.01319 (2.11 U = 0.02111 m/s)  Ma_max = 0.0229  density drop 0.377%  cell Pe at max|u| = 106
+  wrote         /private/tmp/claude-501/-Users-alessandroderosis-Desktop-M3LB/73f0efea-c41e-4e27-8e21-4d7c9ccbfc6e/scratchpad/runs/n20empty_{c,ux,uy,uz}.npy (nz, ny, nx), /private/tmp/claude-501/-Users-alessandroderosis-Desktop-M3LB/73f0efea-c41e-4e27-8e21-4d7c9ccbfc6e/scratchpad/runs/n20empty_series.dat

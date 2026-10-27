@@ -6,6 +6,22 @@ foreach(v claudemd_skeleton_check density_anomaly ice_equilibrium mhd_cm_shifted
   endif()
 endforeach()
 
+# mixer_forward (doc/mixer_adjoint_plan.md, P1) is registered ONCE PER ANCHOR, so
+# an anchor that fails by registration -- 2, 3 at L = 16 and 5 do, for measured
+# reasons recorded in results/mixer_forward/registration/ -- cannot hide a
+# regression in another. Anchor 4 (-band) takes hours and is not a test. Its
+# gates are FP64 gates: on an FP32 build every entry exits 77, which
+# SKIP_RETURN_CODE makes ctest report as SKIPPED rather than as a pass of gates
+# that never ran.
+add_executable(mixer_forward mixer_forward.cpp)
+target_link_libraries(mixer_forward PRIVATE lbm)
+if(LBM_BUILD_TESTS)
+  foreach(k 1 2 3 5 6)
+    add_test(NAME mixer_forward_${k} COMMAND mixer_forward -only ${k} ${LBM_TEST_ARGS})
+    set_tests_properties(mixer_forward_${k} PROPERTIES SKIP_RETURN_CODE 77)
+  endforeach()
+endif()
+
 #------------------------------------------------------------------------------
 #  THE IMPORTER AGAINST THE SOLVER.  tools/osm_city.py writes a small
 #  non-square city; height_field reads it back and checks the writer's own

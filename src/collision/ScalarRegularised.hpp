@@ -61,6 +61,15 @@
 //  but does not resolve the layer. See the Nu ceiling of H/2 in
 //  demonstrator/rb_high_ra.cpp.
 //
+//  A STABILITY LIMIT UNDER ADVECTION, measured 2026-10-15 (topopt/Mixer.hpp).
+//  Annihilating the ghosts is the TRT choice Lambda = (tau - 1/2)/2, and that
+//  goes to zero with the diffusivity. A von Neumann scan of the 7x7 one-step map
+//  with a uniform velocity gives a largest stable |u| of about 1.64 sqrt(D)
+//  along an axis: 0.052 at D = 1e-3 (omega = 1.98413), 0.037 at 5e-4, 0.026 at
+//  2.5e-4 -- below the centreline speed of a duct at Pe = 1e3, where the mixer's
+//  two-grid run diverged on both grids. Below the limit nothing changes; above
+//  it use ScalarTRT at Lambda = 1/4, stable to |u| = 0.5 at any D (its banner).
+//
 //  Interface, storage reference, per-node omega, omega_from_diffusivity: all
 //  inherited from ScalarBGK unchanged. Only `collide` differs.
 //==============================================================================

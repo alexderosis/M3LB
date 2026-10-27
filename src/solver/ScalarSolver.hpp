@@ -174,6 +174,46 @@ class ScalarSolver {
     ux_ = ux; uy_ = uy; uz_ = uz;
   }
 
+  //--------------------------------------------------------------------------
+  // UNIFORM-PRESERVING CORRECTION -- opt-in, empty by default.
+  //
+  // The scheme is CONSERVATIVE: it transports div(T u), and keeps a uniform T
+  // uniform only where the velocity it is handed is solenoidal in ITS OWN
+  // discrete sense. A velocity from another lattice is solenoidal in that
+  // lattice's sense, which agrees with this one to O(dx^2) where u is smooth --
+  // and not at all where u has structure on the cell scale. Measured on the
+  // mixer (topopt/Mixer.hpp): next to a Brinkman drag that varies over a cell
+  // the D3Q7 central divergence of u reached 0.145 U per cell and exceeded |u|
+  // itself at near-stagnant drag nodes, and a UNIFORM inlet c = 1 came out
+  // between 0.70 and 1.44 at L = 40.
+  //
+  // `fix` is a per-node factor applied at bulk nodes to the concentration a node
+  // has just LOADED, before it collides: T -> (1 + fix) T, the difference
+  // injected at rest (w_i, as add_source does). The caller calibrates it, once
+  // per velocity field, as fix = 1/f - 1, where f is the loaded concentration of
+  // the scheme's own steady state for T = 1 held at every bulk node. A uniform
+  // field is then a steady state of the corrected scheme for ANY velocity, to the
+  // accuracy of that calibration -- not to round-off: an error d in fix acts as
+  // a source for a node's residence time, so the mixer's calibration to 1e-13
+  // held c = 1 to 2.3e-10 at L = 16. The price is
+  // stated rather than hidden: where fix != 0 the scheme no longer conserves the
+  // scalar -- with a velocity that is not discretely solenoidal, exact
+  // conservation and exact preservation of a uniform field cannot both hold.
+  // With fix empty the step pays one pointer test per node and nothing else.
+  //--------------------------------------------------------------------------
+  void set_uniform_correction(View1D<Real> fix) {
+    // One value per PADDED node, as every per-node field here; a short View
+    // would be read past its end by the step, silently.
+    if (fix.extent(0) != std::size_t(dom_.n_padded)) {
+      std::printf("ScalarSolver::set_uniform_correction: %zu values for %lld padded nodes\n",
+                  std::size_t(fix.extent(0)), (long long)dom_.n_padded);
+      std::abort();
+    }
+    fix_ = fix;
+  }
+  void clear_uniform_correction() { fix_ = View1D<Real>(); }
+  bool has_uniform_correction() const { return fix_.data() != nullptr; }
+
   void initialize(Real T0) {
     initialize_field(KOKKOS_LAMBDA(Index) { return T0; });
   }
@@ -192,6 +232,39 @@ class ScalarSolver {
       field(n) = T;    // so compute_field is meaningful before the first step
       for (int i = 0; i < Q; ++i)
         acc.scatter(nb, i, coll.eq(i, T - coll.T_ref, Real(0), Real(0), Real(0)));
+    });
+    Kokkos::fence();
+  }
+
+  //--------------------------------------------------------------------------
+  // The same, but seeded at the equilibrium of the velocity set_velocity()
+  // handed in. initialize_field seeds at u = 0, which is the equilibrium of a
+  // scalar AT REST: in a moving flow the flux starts at zero against an
+  // equilibrium flux T u, and near omega = 2 the collision over-relaxes that
+  // mismatch -- (1 - omega) ~ -1, so it flips sign every step and decays over
+  // ~1/(2 - omega) steps. A seed that is not the coupled equilibrium is the
+  // trap CLAUDE.md records twice. Opt-in: initialize_field is unchanged, and
+  // without a velocity this is identical to it.
+  //--------------------------------------------------------------------------
+  template <class Fn>
+  void initialize_field_in_flow(Fn fn) {
+    t_ = 0;
+    const auto acc = pop_.template access<0>();
+    const auto coll = coll_;
+    const Domain d = dom_;
+    auto wall = wall_; auto flags = flags_; auto field = field_;
+    auto ux = ux_, uy = uy_, uz = uz_;
+    const bool have_u = ux.data() != nullptr;
+    Kokkos::parallel_for("sinit_flow", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+      Neighbours<L> nb;
+      d.template fill_neighbours<L, NF, NS>(n, nb);
+      const Real T = (flags(n) == ScalarDirichlet) ? wall(n) : fn(n);
+      field(n) = T;
+      const Real vx = have_u ? ux(n) : Real(0);
+      const Real vy = have_u ? uy(n) : Real(0);
+      const Real vz = have_u ? uz(n) : Real(0);
+      for (int i = 0; i < Q; ++i)
+        acc.scatter(nb, i, coll.eq(i, T - coll.T_ref, vx, vy, vz));
     });
     Kokkos::fence();
   }
@@ -365,6 +438,8 @@ class ScalarSolver {
     auto spec = spec_nrm_;
     auto ux = ux_, uy = uy_, uz = uz_;
     const bool have_u = ux.data() != nullptr;
+    auto fix = fix_;
+    const bool have_fix = fix.data() != nullptr;
 
     Kokkos::parallel_for("scalar_stream_collide", Range(0, dom_.n_padded),
       KOKKOS_LAMBDA(Index n) {
@@ -418,6 +493,13 @@ class ScalarSolver {
         // node. See boundary/Specular.hpp for why this is not bounce-back.
         if (flag == ScalarSpecular) mirror_unknowns_faces<L>(g, spec(n));
 
+        // The uniform-preserving correction, if the caller set one (see
+        // set_uniform_correction): scale the loaded concentration, at rest.
+        if (have_fix && flag == ScalarBulk) {
+          const Real sT = fix(n) * (coll.T_ref + Collision::deviation(g));
+          for (int i = 0; i < Q; ++i) g[i] += weight<L, Real>(i) * sT;
+        }
+
         const Real dT = Collision::deviation(g);
         const Real vx = have_u ? ux(n) : Real(0);
         const Real vy = have_u ? uy(n) : Real(0);
@@ -436,6 +518,8 @@ class ScalarSolver {
     const auto coll = coll_;
     auto flags = flags_; auto wall = wall_; auto field = field_;
     auto spec = spec_nrm_;
+    auto fix = fix_;
+    const bool have_fix = fix.data() != nullptr;
     Kokkos::parallel_for("scalar_field", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
       const std::uint8_t flag = flags(n);
       if (flag == ScalarExcluded) { field(n) = Real(0); return; }
@@ -458,7 +542,12 @@ class ScalarSolver {
       // sum is only the field once the mirror has been reapplied -- the same
       // reconstruction the step uses, and it has to stay the same one.
       if (flag == ScalarSpecular) mirror_unknowns_faces<L>(g, spec(n));
-      field(n) = coll.temperature(g);
+      // The field is what the node COLLIDES with, so it carries the uniform-
+      // preserving correction exactly as the step applies it. Without this line
+      // the first corrected run read a field off by the correction itself --
+      // c in [0.9949, 1.0042] for a state the step held at 1 to 2.3e-10.
+      const Real T = coll.temperature(g);
+      field(n) = (have_fix && flag == ScalarBulk) ? T * (Real(1) + fix(n)) : T;
     });
     Kokkos::fence();
   }
@@ -527,6 +616,7 @@ class ScalarSolver {
   Domain dom_;
   Collision coll_;
   Streaming pop_;
+  View1D<Real> fix_;                  // uniform-preserving correction; empty = off
   View1D<std::uint8_t> flags_;
   View1D<std::uint32_t> unk_;
   View1D<Index> don_;
