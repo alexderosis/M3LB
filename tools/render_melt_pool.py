@@ -59,6 +59,7 @@ t, w2, dd, LL, xb, meta = (ld("t.npy"), ld("w2.npy"), ld("d.npy"),
 (dx, dt, nx, ny, nz, jc, T_s, T_l, T_0, P, v, spot, A,
  w2_an, d_an, L_an, t_therm, la0, steps) = [float(q) for q in meta][:19]
 _EVAP = bool(meta[20]) if len(meta) > 20 else False
+_dgdT = float(meta[21]) if len(meta) > 21 else 0.0
 _REC = os.path.exists(os.path.join(D, "recess.npy"))
 # MEASURED IN THIS RUN, not transcribed from another. The evaporative fraction
 # of the peak beam flux and the peak surface temperature both come from the
@@ -68,6 +69,15 @@ _REC = os.path.exists(os.path.join(D, "recess.npy"))
 _Tsurf = float(meta[24]) if len(meta) > 24 else None
 _qfrac = float(meta[25]) if len(meta) > 25 else None
 _betar = float(meta[26]) if len(meta) > 26 else None
+# 27 T_boil, 28 material (0 Ti-6Al-4V, 1 SS316L), 29 the conduction reference's
+# peak surface T. FROM THE RUN, like the three above: this file used to title
+# every film Ti-6Al-4V, judge boiling against Ti's 3315 K and quote a 115 W Ti
+# run's "conduction alone reaches 4710 K", which a 316L film then said in
+# three wrong places. A dump older than 2026-10-12 carries none of them; it
+# keeps the Ti labels it was made with and omits the conduction peak.
+_TB = float(meta[27]) if len(meta) > 27 else 3315.0
+_MAT = "SS316L" if (len(meta) > 28 and int(meta[28]) == 1) else "Ti-6Al-4V"
+_Tcond = float(meta[29]) if len(meta) > 29 else None
 nx, ny, nz = int(nx), int(ny), int(nz)
 F = len(t)
 um = dx * 1e6
@@ -79,6 +89,12 @@ if _REC:
     removed_ng = ld("removed.npy")
 
 # crop the centreline panel: the pool is ~13 cells deep in a 120-cell domain
+# DEPTH IS MEASURED FROM THE FREE SURFACE, AND CELL k's CENTRE SITS AT
+# (nz - 1 - k + 1/2) dx BELOW IT -- melt_pool's halfway closure, the convention
+# its reported d uses. This panel used to put the top centre dx/2 ABOVE zero,
+# so every section read one cell shallow: the 150 W 316L film drew its melt
+# contour at -24 um beside a reported d of 29.8 um at dx = 6. z = 0 is the
+# surface, the image's top edge.
 melt = T_xz >= T_l
 z_lo = max(0, int(np.argmax(melt.any(axis=(0, 1)))) - 6) if melt.any() else nz - 30
 T_xzc = T_xz[:, :, z_lo:]
@@ -120,7 +136,7 @@ cb.ax.tick_params(colors="w", labelsize=7)
 cb.outline.set_color("#39405a")
 
 im_xz = ax_xz.imshow(T_xzc[0].T, origin="lower",
-                     extent=[0, nx * um, (z_lo - (nz - 1)) * um, um],
+                     extent=[0, nx * um, (z_lo - nz) * um, 0.0],
                      cmap=cmap, norm=norm, aspect="auto", interpolation="bilinear")
 ax_xz.set_title("Centreline section (y = y$_c$): melt depth" +
                 (", Marangoni flow" if FLOW else "") +
@@ -148,13 +164,16 @@ lg = ax_tr.legend(loc="lower right", fontsize=7, facecolor=BG, edgecolor="#39405
 
 _phys = (("Marangoni" if FLOW else "conduction") + (" + evaporation" if _EVAP else "")
          + (" + recession" if _REC else ""))
-fig.suptitle(f"M3LB melt pool: {_phys}   Ti-6Al-4V, {P:.0f} W, {v*1e3:.0f} mm/s, "
-             f"dx = {um:.1f} $\mu$m", color="w", fontsize=10.5, y=(0.982 if PLAIN else 0.988))
+fig.suptitle(f"M3LB melt pool: {_phys}   {_MAT}, {P:.0f} W, {v*1e3:.0f} mm/s, "
+             f"dx = {um:.1f} $\\mu$m", color="w", fontsize=10.5, y=(0.982 if PLAIN else 0.988))
 # TIER (d) IS NOT A PREDICTION AND THE FIGURE MUST NOT SAY IT IS. With the flow
 # on, the analytic solution is no longer the right reference -- Eagar & Tsai
 # contains no Marangoni -- so the deviation from it is the EFFECT, not an error,
 # and quoting it as agreement would invert the meaning.
 _dev = max(abs(1 - w2[-1] / w2_an), abs(1 - dd[-1] / d_an)) * 100
+# It says NOT VALIDATED, not "not a prediction": a run committed before its
+# experiment IS a forecast (results/kairu/), and the claim this figure must
+# not make is that anything has checked it.
 # THE "PREDICTION" CLAIM BELONGS TO PURE CONDUCTION ONLY. Once evaporation or
 # recession is on, Eagar & Tsai is no longer the right reference -- it contains
 # neither -- so the deviation from it is the EFFECT and quoting it as agreement
@@ -166,7 +185,7 @@ _missing = ", ".join(x for x, on in (("Marangoni", FLOW), ("evaporation", _EVAP)
 if not PLAIN:
     fig.text(0.5, 0.9615,
          (f"Departs the conduction analytic by {_dev:.0f} % BY DESIGN: Eagar & Tsai "
-          f"has no {_missing}.  A MEASURED INCREMENT, not a prediction."
+          f"has no {_missing}.  A MEASURED INCREMENT, NOT VALIDATED."
           if _extra else
           f"ZERO FITTED CONSTANTS -- 2w and d within {_dev:.1f} % of the analytic "
           f"solution.  This one is a PREDICTION."),
@@ -186,12 +205,19 @@ if not PLAIN:
 # frames gave 5142 K beside the report's 5162 K -- two values for one quantity
 # on one figure, which is the inconsistency this file keeps having to fix.
 _pk = _Tsurf if (_Tsurf and _Tsurf > 0) else float(T_top.max())
-_TB = 3315.0
+# WITH EVAPORATION ON, "ABOVE" IS NOT "A SOLVER CHECK ONLY": the cooling is
+# what holds the surface there, a few per cent past boiling. What such a run
+# cannot follow is the recoil pressure, which dents the surface; say that.
+_cond = (f"  (conduction alone: {_Tcond:.0f} K)"
+         if (_Tcond and (FLOW or _EVAP)) else "")
 if not PLAIN:
     fig.text(0.5, 0.9435,
-         (f"Peak surface T = {_pk:.0f} K, BELOW the ~{_TB:.0f} K boiling point"
-          + ("  (conduction alone reaches 4710 K here)" if (FLOW or _EVAP) else "")
+         (f"Peak surface T = {_pk:.0f} K, BELOW the ~{_TB:.0f} K boiling point" + _cond
           if _pk < _TB else
+          f"Peak surface T = {_pk:.0f} K, {100 * (_pk / _TB - 1):.0f} % past the "
+          f"~{_TB:.0f} K boiling point, held by evaporation; the recoil dent is "
+          f"NOT modelled" + _cond
+          if _EVAP else
           f"Peak surface T = {_pk:.0f} K, ABOVE the ~{_TB:.0f} K boiling point: a solver "
           f"check only, NOT comparable to a real track"),
          color=("#8fffa3" if _pk < _TB else "#ffd39a"), fontsize=7.5, ha="center")
@@ -215,8 +241,13 @@ if _extra and not PLAIN:
               if (_EVAP and _betar is not None) else ""),
              color="#9be7ff", fontsize=7.5, ha="center")
     fig.text(0.5, 0.9105,
-             ("d(gamma)/dT is UNVERIFIED for this alloy and its sign inverts the "
-              "aspect ratio -- the depth change is not quotable yet." if FLOW else
+             (("d(gamma)/dT = %+.1e N/(m K): %s; the plate's sulfur sets the "
+               "sign, which inverts the aspect ratio." % (
+                   _dgdT, "clean 316L, outward flow" if _dgdT < 0
+                   else "sulfur-rich 316L, inward flow")
+               if _MAT == "SS316L" else
+               "d(gamma)/dT is UNVERIFIED for this alloy and its sign inverts the "
+               "aspect ratio -- the depth change is not quotable yet.") if FLOW else
               "No recoil pressure and no melt ejection: pure evaporative removal, "
               "which is a LOWER BOUND on what a real keyhole loses."),
              color="#ffd39a", fontsize=7.5, ha="center")
@@ -256,7 +287,7 @@ def update(i):
     im_xz.set_data(T_xzc[i].T)
     for k, ax, fld, gy in (("top", ax_top, T_top[i], (np.arange(ny) + 0.5) * um),
                            ("xz", ax_xz, T_xzc[i],
-                            (np.arange(nzc) + z_lo - (nz - 1) + 0.5) * um)):
+                            (np.arange(nzc) + z_lo - nz + 0.5) * um)):
         if cont[k] is not None:
             cont[k].remove()
         cont[k] = ax.contour((np.arange(nx) + 0.5) * um, gy, fld.T,
@@ -270,7 +301,7 @@ def update(i):
         st = max(1, nx // 26)
         gx = (np.arange(nx) + 0.5) * um
         gyt = (np.arange(ny) + 0.5) * um
-        gyc = (np.arange(nzc) + z_lo - (nz - 1) + 0.5) * um
+        gyc = (np.arange(nzc) + z_lo - nz + 0.5) * um
         # only where it is molten: an arrow on cold solid is noise
         mt = (T_top[i] >= T_l)
         holder["qt"] = ax_top.quiver(

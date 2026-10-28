@@ -1183,11 +1183,16 @@ int run(const Opts& o, const Mat& m) {
               double(cs2<L, Real>()), o.la0 ? "   (-la0: liquid == solid)" : "");
   std::printf("  T_ref = %.4f (an enthalpy)   rate_from_solver = %d   Pe = %.6f\n",
               double(coll.T_ref), int(coll.rate_from_solver()), ref.Pe());
+  // Kept past the block because the frame dump carries it: the render prints
+  // the conduction peak THIS run was checked against, not one typed in from
+  // another (it carried a Ti-6Al-4V run's 4710 K into every film).
+  double Tpk_ref = m.T_0;
   {
     et::Field rq = ref;
     double Tpk = m.T_0;
     for (double s2 = -6.0; s2 <= 2.0; s2 += 0.02)
       Tpk = std::max(Tpk, rq.T(s2 * sigma, 0.0, 0.0, t_end_for_peak));
+    Tpk_ref = Tpk;
     const double T_boil = evap_for(o).Tb;   // the material's own, not Ti's
     // THIS CRITERION IS THE ANALYTIC REFERENCE'S PEAK, AND THE REFERENCE HAS
     // NEITHER EVAPORATION NOR CONVECTION -- so on its own it CONDEMNS operating
@@ -2021,7 +2026,10 @@ int run(const Opts& o, const Mat& m) {
         float(t_therm), float(o.la0 ? 1 : 0), float(steps),
         float(o.flow ? 1 : 0), float(o.evap ? 1 : 0), float(o.dgdT),
         float(o.recede ? 1 : 0), float(o.rho_l),
-        float(Tmax_surf), float(qfrac), float(o.betar)};
+        float(Tmax_surf), float(qfrac), float(o.betar),
+        // 27..29: the render's material labels, FROM THE RUN. Before these it
+        // titled every film Ti-6Al-4V and judged boiling against 3315 K.
+        float(evap_for(o).Tb), float(o.steel ? 1 : 0), float(Tpk_ref)};
     write_npy(D + "meta.npy", meta, {meta.size()});
     if (o.recede && !fr_rec.empty()) {
       write_npy(D + "recess.npy",  fr_rec,     {F, std::size_t(nx), std::size_t(ny)});
@@ -2040,7 +2048,8 @@ int run(const Opts& o, const Mat& m) {
                 int(nx), int(nz), fev);
     std::printf("    meta.npy = [dx, dt, nx, ny, nz, y_centre, T_s, T_l, T_0, P, v, "
                 "spot_um, A, 2w_an, d_an, L_an, t_therm, la0, steps, flow, evap, dgdT, "
-                "recede, rho_l, T_surf_max, q_evap_frac, beta_r]\n");
+                "recede, rho_l, T_surf_max, q_evap_frac, beta_r, T_boil, "
+                "material (0 Ti-6Al-4V, 1 SS316L), T_peak_conduction]\n");
   }
 
   std::printf("\n[melt_pool] %d checks, %d failures\n", checks, failures);
