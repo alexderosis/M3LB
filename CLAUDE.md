@@ -77,7 +77,7 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 | free-slip / symmetry wall | `set_specular_walls` | exact mirror; **halfway** (ghost cell) |
 | free-slip where the other walls are on-node | `set_specular_nodes` | exact mirror; **on-node**, collides, takes edges and corners |
 | zero-flux scalar wall | `ScalarSpecular` + `ScalarSolver::set_specular_walls` | **on-node**; the only one usable where the field is differentiated or integrated — see below |
-| + melting / solidification, latent heat | `ScalarSolver` + `EnthalpyBGK` | transports the total enthalpy H, **not** T — `temperature()` returns an ENTHALPY, and `PhaseChange::invert` gives T and f_l. `EnthalpyRegularised` above ω ≈ 1.9. The mushy-zone drag is `DarcyGuo` — implicit, stable at any A, leak ∝ 1/A — and its no-slip plane is NOT on the node: 0.57–0.90 cells past the last liquid node, set by τ (`validation/mushy_sink.cpp`) |
+| + melting / solidification, latent heat | `ScalarSolver` + `EnthalpyBGK` | transports the total enthalpy H, **not** T — `temperature()` returns an ENTHALPY, and `PhaseChange::invert` gives T and f_l. `EnthalpyRegularised` above ω ≈ 1.9. The mushy-zone drag is `DarcyGuo` — implicit, stable at any A, leak ∝ 1/A — and its no-slip plane is NOT on the node: 0.57–0.90 cells past the last liquid node, set by τ (`validation/mushy_sink.cpp`). **If the solid MOVES — a filament fed through a front, a strand through a caster — take `EnthalpyAdvect::Material`** (advect H, diffuse E). The default drops the latent heat from the steady problem; `validation/fed_rod.cpp` measures it |
 | + charge carriers in an electric field | `ScalarSolver` + `ChargeCentralMoments` | D3Q27, advects at the **drift** velocity `u + KE`, not at `u` |
 | + electric potential (Poisson) | `ScalarSolver` + `ScalarBGK` + `add_source` | no new solver — see `validation/ehd_hydrostatic.cpp` |
 | + magnetic field | `MagneticSolver` | Dellar vector distribution |
@@ -85,6 +85,7 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 | two-phase, diffuse interface | `PhaseFieldSolver` + `MultiphaseCentralMoments` | conservative Allen–Cahn, prescribed interface width, density ratio ~100. **3-D is D3Q27 + D3Q27, not D3Q27 + D3Q7** — see the rule below |
 | two-phase, diffuse, high ratio | `ColourGradientSolver` | no interface equation; width is an *outcome*. **Sub-percent to γ = 20, ~3% at γ = 100, comes apart at γ = 1000** — and the steps needed scale with γ; see the rules below |
 | liquid + void, sharp interface | `FreeSurfaceSolver` | gas not resolved; infinite ratio by construction |
+| + electric pull on a conducting melt | `FreeSurfaceSolver` + `validation/FsElectric.hpp` | the liquid is an equipotential conductor and feels ε0E²/2 through `rho_G_of`; potential by `ScalarSolver` + `ScalarTRT` (D2Q5). Two-way coupling verified to 3 % (`validation/fs_electric.cpp`). No free charge, no leaky dielectric, and liquid far from the electrode must be declared non-conducting or it shorts the gap |
 
 **Standing rule: do not use a multiphase solver for single-phase or
 single-component flow.** The multiphase path changes the equation of state — the
@@ -537,6 +538,15 @@ These produce plausible, converged, wrong answers rather than crashes.
   liquid wall sits La too warm and nothing fails. `validation/ice_equilibrium.cpp`
   passes `H - La` at the water wall and `H` at the ice wall (f_l = 0 there);
   `stefan.cpp` never met this because it uses the on-node `ScalarMoment`.
+- **`EnthalpyAdvect::Sensible` DELETES THE LATENT HEAT WHEREVER THE SOLID
+  MOVES.** It advects only E, which is the enthalpy–porosity model and right
+  where the mush is at rest. In a steady fed rod, d/dt H = 0 leaves
+  div(E u) = div(k grad T) with no La in it: `validation/fed_rod.cpp` lands on
+  the latent-heat-free front to 5.5e-5 cells and misses the real one by 5.48
+  cells (68 %) at L = 80, converging cleanly to the wrong melt length.
+  `EnthalpyAdvect::Material` puts every node in its exact phase over
+  L = 40..320 and equals the default at u = 0, so `stefan.cpp` could never have
+  seen the difference. `GPU/` ports `Sensible` only.
 - **AN ON-NODE REGULARISED FLUID WALL UNDER A NON-UNIFORM BODY FORCE DIVERGED
   OVER ~1e5 STEPS, AND THE MECHANISM IS NOT DIAGNOSED.** Measured 2026-09-24 in
   the first version of `ice_equilibrium` (ScalarMoment + regularised walls on
@@ -559,7 +569,10 @@ These produce plausible, converged, wrong answers rather than crashes.
   and converges onto its own exact state (0.02-0.09 cells at H = 64), but it is
   a MODEL change: d = 0.2 C moved the equilibrium 0.87 cells there, because its
   reduced conductivity spans 4.6 cells of shallow-gradient ice. Size d against
-  the gradient at the front, and say which one a run used.
+  the gradient at the front, and say which one a run used. **With material
+  CROSSING the front the window closes:** `fed_rod` reaches the same steady
+  state seeded from either side (T to 3e-12), every node in its exact phase --
+  still first order, resolved to the node and no better.
 - **`temperature()` is ZERO at an adiabatic scalar node**, because bounce-back
   puts the insulated plane at 0.5 and the node is a ghost outside the fluid
   (`ScalarSolver.hpp`'s `field_kernel`). Harmless when that node is `Solid` for
@@ -927,6 +940,24 @@ These produce plausible, converged, wrong answers rather than crashes.
   interpolate its cumulative at m delta (`within_cells`, `profile.dat`). Any
   band, shell or threshold observable on a lattice can do this; sweep N across
   one cell at fixed physics before trusting its grid convergence.
+- **THE FREE SURFACE IS TOO STIFF UNDER A GENTLE PULL, AND THE ERROR GROWS WITH
+  THE WAVELENGTH.** Under a prescribed cosine of gas pressure
+  (`validation/fs_electric.cpp`, frozen row) a film deflected 1.07 cells reads
+  9.2 % short; with every length doubled (1.93 cells), 19.5 % short; with
+  gravity off, so capillarity alone restores, 25 %. This is NOT the hydrostatic
+  floor recorded under the free surface below, which falls with the deflection
+  in cells: it is the capillary response to a curvature radius of a few hundred
+  cells, and it is not diagnosed. Quote a one-or-two-cell deflection with it
+  beside it. A ratio of two runs of the same surface cancels it, which is how
+  `fs_electric` verifies its coupling to 3 %.
+- **A REPAIR PASS THAT CLOSES A SHELL IN BOTH DIRECTIONS UNDOES A REMOVAL.**
+  `FreeSurfaceSolver::promote()` turns Gas beside Fluid into Interface AND Fluid
+  beside Gas into Interface. Reused after `drain()`, it pulled every drained cell
+  touching the liquid back to Interface, and `settle()`, reading its old flag
+  (Fluid), gave it its whole density back: 31 units created on a 126-unit drain.
+  `drain()` now demotes the Fluid neighbours itself first. It was caught only
+  because the unit test, written with the feature, asserted the ledger
+  (`total + drained == total before`) rather than the shape.
 
 ---
 
@@ -1128,6 +1159,21 @@ Do not spend time on these without saying so first; several are deliberate.
   `transfer_covered_mass()` and `settle()`, is written up in the module banner
   with measurements, and is not a caller error. Do not present a run with a
   moving obstacle as a result.
+- **A PLANAR ELECTRIFIED MENISCUS IS NOT A TAYLOR CONE, AND AN MEW JET IS BELOW
+  ANY AFFORDABLE 2-D CELL.** A straight-sided 2-D wedge has no curvature to
+  balance ε0E²/2, so planar geometry has no conical equilibrium, and a planar tip
+  feels a weaker field than a round one at the same voltage
+  (`demonstrator/mew_nozzle`: 0.7 γ/R at 6.5 kV; its 12 kV row stands in for a
+  round tip). A planar sheet carrying an MEW feed at collector speed is ~0.4 µm,
+  against 25 µm cells and 10–20 µm fibres, so the model resolves what
+  accumulates under the tip and nothing that leaves it. Two more behaviours are
+  not physics. **Melt reaching a moving collector does not stick**: with no
+  wetting law the one-cell contact is dragged away and the rope curls back up,
+  so quote nothing after first contact. **A creeping column in a
+  mirror-symmetric set-up drifts sideways**: −0.42 / +0.27 mm by 4.5 s with the
+  field on / off, with Bo = 0.014 and no inertia to straighten it; what
+  amplifies the round-off is not diagnosed. The cone-jet needs an axisymmetric
+  or 3-D solver.
 - **`GPU/` HAS THE PARITY WALL AND THE TAYLOR-GREEN MHD BOX** as of 2026-09-25
   (`src/tg_mhd.cu`, `set_parity_walls`, `seed_populations_with`). Its HOST build
   reproduces `demonstrator/tg_mhd` to every printed digit in FP64, free-slip and
