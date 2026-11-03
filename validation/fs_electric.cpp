@@ -51,6 +51,10 @@
 //  FP32: all seven pass; B2's consistency reads 4.47 % against its 5 % gate,
 //  the thinnest margin in the file.
 //
+//  -nrec re-measures the free surface with normal_reconstruction (2026-11-03):
+//  the frozen row reads 21.6 % short at s = 1 and 27.3 % at s = 2 (9.2 / 19.5 %
+//  without), and B2's consistency 8.9 % (2.95 %). It makes this floor worse.
+//
 //  WHAT THIS DOES NOT TEST. A conductor whose potential is not uniform; a
 //  surface sharper than the field's resolution (a cone tip); any field
 //  stronger than F = 0.4 of the restoring force, where the linear theory and
@@ -92,6 +96,8 @@ using PL = D2Q5;
 using FS = FreeSurfaceSolver<L>;
 
 namespace {
+
+bool g_nrec = false;   // -nrec: FreeSurfaceSolver::normal_reconstruction
 
 int failures = 0, checks = 0;
 void verdict_le(const char* what, double got, double ceil_) {
@@ -150,6 +156,7 @@ Result run(int s, double Ftarget, double delta, bool frozen, bool verbose,
   fs.coll.omega = FS::omega_from_viscosity(Real(nu));
   fs.set_gravity(Real(0), Real(-g));
   fs.set_surface_tension(Real(sigma));
+  fs.set_normal_reconstruction(g_nrec);
   fs.set_geometry([&](Index, Index y, Index) -> FsCell {
     return (y == 0 || y == Ly - 1) ? FsSolid : FsGas;
   });
@@ -333,6 +340,7 @@ int main(int argc, char** argv) {
     double only_g = 1.0, only_delta = 0.24;
     for (int a = 1; a < argc; ++a) {
       if (!std::strcmp(argv[a], "-v")) { verbose = true; continue; }
+      if (!std::strcmp(argv[a], "-nrec")) { g_nrec = true; continue; }
       if (!std::strcmp(argv[a], "-only") && a + 4 < argc) {   // s frozen gfrac delta
         only_s = std::atoi(argv[++a]); only_frozen = std::atoi(argv[++a]);
         only_g = std::atof(argv[++a]); only_delta = std::atof(argv[++a]);

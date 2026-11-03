@@ -103,7 +103,10 @@ def layers(stem, volts):
     ph[-1, top] = ph[-2, top]
     # field strength [kV/mm] from the potential, gas only
     gy, gx = np.gradient(ph, dx)
-    if FIELD_MODE["mode"] == "rel":
+    if volts == 0:
+        emag = np.zeros_like(ph)                    # field off: nothing to shade
+        top = 1.0
+    elif FIELD_MODE["mode"] == "rel":
         emag = np.hypot(gx, gy) * GAP_MM            # field / (V / gap)
         top = 5.0
     else:
@@ -199,6 +202,123 @@ def single_frame(fig, t, t_end, idx, ser):
         ax.tick_params(labelsize=8.5, colors=INK2)
 
 
+def overlay(ax, lines):
+    ax.add_patch(plt.Rectangle((0, 0), 1, 1, transform=ax.transAxes, color=SURF, alpha=0.6,
+                               zorder=5))
+    for k, (txt, big) in enumerate(lines):
+        ax.text(0.5, 0.86 - 0.055 * k, txt, transform=ax.transAxes, ha="center",
+                fontsize=12 if big else 10.5, color=INK if big else INK2,
+                weight="bold" if big else "normal", zorder=6)
+
+
+def pair_frame(fig, t, t_end, idx, ser, a):
+    """Printed feed with the field on and off side by side, the per-minute tip
+    zooms, and the oozing metric. A freezes at a.cut_a, B at a.cut_b."""
+    gs = fig.add_gridspec(2, 4, width_ratios=[1.25, 1.25, 0.55, 0.55], height_ratios=[1.0, 0.82],
+                          left=0.035, right=0.99, top=0.83, bottom=0.115, wspace=0.2,
+                          hspace=0.42)
+    boxes = [("A", "Field on, 6.5 kV", a.cut_a), ("B", "Field off", a.cut_b)]
+    axes = []
+    for col, (key, ttl, cut) in enumerate(boxes):
+        ax = fig.add_subplot(gs[:, col])
+        ax.set_anchor("N")
+        axes.append(ax)
+        tk = min(t, cut) if cut > 0 else t
+        draw_box(ax, nearest(idx[key], tk), RUNS[key][1])
+        ax.set_title(ttl, fontsize=13, color=INK, loc="left", pad=6)
+        ax.set_xlabel("x [mm]", fontsize=10, color=INK2)
+        if col == 0:
+            ax.set_ylabel("height above the collector [mm]", fontsize=10, color=INK2)
+        ax.annotate("", xy=(7.6, 0.28), xytext=(5.6, 0.28),
+                    arrowprops=dict(arrowstyle="-|>", color=INK, lw=1.4))
+        ax.text(5.6, 0.42, "collector 35 mm/s", fontsize=9, color=INK)
+    axA, axB = axes
+    axA.axhline(CONDUCT_MM, color=INK3, lw=0.8, ls=(0, (1, 2)))
+    axA.text(0.12, CONDUCT_MM + 0.06, "melt conducts above this line", fontsize=8.5, color=INK2)
+    fig.canvas.draw()
+    fig.text(axA.get_position().x0, axA.get_position().y1 + 0.052,
+             "Feed as printed in Table 1:  0.255 mm³/s", fontsize=14, color=INK, weight="bold")
+    if a.cut_a > 0 and t > a.cut_a:
+        overlay(axA, [(f"Shown to contact at {a.cut_a:.1f} s", True),
+                      ("After contact the melt lifts off: this model's", False),
+                      ("conductor ends at the dotted line, and the", False),
+                      ("field at that edge draws melt up.", False)])
+    if a.cut_b > 0 and t > a.cut_b:
+        overlay(axB, [(f"Shown to {a.cut_b:.1f} s", True),
+                      ("The drawn thread is now one 25 µm cell thick", False),
+                      ("and breaks up below the grid.", False)])
+
+    # per-minute tip zooms
+    zoom = (XC_MM - 0.7, XC_MM + 0.7, TIP_MM - 0.8, TIP_MM + 0.25)
+    zax = []
+    for col, (key, ttl) in enumerate([("C", "6.5 kV"), ("D", "12 kV *")]):
+        ax = fig.add_subplot(gs[0, 2 + col])
+        zax.append(ax)
+        draw_box(ax, nearest(idx[key], t), RUNS[key][1], zoom=zoom)
+        ax.set_title(f"0.255 mm³/min, {ttl}", fontsize=11, color=INK, loc="left")
+        ax.set_aspect("equal")
+        ax.tick_params(labelsize=7.5)
+        ax.set_xlabel("x [mm]", fontsize=9, color=INK2)
+    ybot = min(z.get_position().y0 for z in zax)
+    fig.text(zax[0].get_position().x0, ybot - 0.075,
+             "* 12 kV: about the pull a round 1 mm tip feels at 6.5 kV.", fontsize=8.5, color=INK2)
+
+    axS = fig.add_subplot(gs[1, 2:])
+    styles = [("A", BLUE, "0.255 mm³/s, 6.5 kV", "-", 3.2, a.cut_a),
+              ("B", ORANGE, "0.255 mm³/s, field off", (0, (4, 3)), 2.0, a.cut_b),
+              ("C", AQUA, "0.255 mm³/min, 6.5 kV", "-", 3.2, 0.0),
+              ("D", YELLOW, "0.255 mm³/min, 12 kV", (0, (4, 3)), 2.0, 0.0)]
+    for key, colr, lab, lsty, lw, cut in styles:
+        if key not in ser:
+            continue
+        s = ser[key]
+        tk = min(t, cut) if cut > 0 else t
+        full = (s["t_s"] <= cut + 1e-9) if cut > 0 else np.ones_like(s["t_s"], bool)
+        m = s["t_s"] <= tk + 1e-9
+        y = np.maximum(s["tip_zone_mm2"], 1e-4)
+        axS.plot(s["t_s"][full], y[full], color=colr, lw=1.0, alpha=0.25)
+        axS.plot(s["t_s"][m], y[m], color=colr, lw=lw, ls=lsty, label=lab)
+        if m.any():
+            axS.plot(s["t_s"][m][-1], y[m][-1], "o", color=colr, ms=7, mec=SURF, mew=1.5)
+    axS.axvline(t, color=INK3, lw=0.8)
+    axS.set_yscale("log"); axS.set_ylim(3e-3, 3.0); axS.set_xlim(0, t_end)
+    axS.set_xlabel("time [s]", fontsize=10, color=INK2)
+    axS.set_ylabel("mm²", fontsize=9.5, color=INK2)
+    axS.set_title("Melt within 1 mm under the tip (the paper's oozing metric)", fontsize=11,
+                  color=INK, loc="left")
+    axS.grid(axis="y", color=GRID, lw=0.6)
+    axS.spines[["top", "right"]].set_visible(False)
+    axS.tick_params(labelsize=8.5, colors=INK2)
+    axS.legend(loc="lower right", fontsize=8.5, frameon=False, ncol=2)
+
+    fig.canvas.draw()
+    apos, bpos = axA.get_position(), axB.get_position()
+    # the key, in the band under the boxes: colour scale left, line legend right
+    kax = fig.add_axes([bpos.x0, apos.y0 - 0.215, bpos.width, 0.08])
+    kax.axis("off")
+    kax.legend(handles=[Line2D([], [], color=BLUE, lw=6, label="melt"),
+                        Line2D([], [], color=INK2, lw=0.8,
+                               label="equipotentials, every 10 % of the voltage"),
+                        Line2D([], [], color=INK3, lw=0.8, ls=(0, (1, 2)),
+                               label="below this line the melt is treated as an insulator")],
+               loc="upper left", fontsize=9, frameon=False)
+    cax = fig.add_axes([apos.x0 + 0.01, apos.y0 - 0.155, 0.17, 0.012])
+    cax.imshow(np.linspace(0, 5.0, 256)[None, :], aspect="auto", cmap=FIELD_CMAP,
+               extent=(0, 5.0, 0, 1), vmin=0, vmax=5.0)
+    cax.set_yticks([]); cax.set_xticks([0, 1, 2, 3, 4, 5])
+    cax.tick_params(labelsize=7.5, colors=INK2, length=2)
+    cax.set_xlabel("field strength in the air / mean field (voltage / 5.5 mm)", fontsize=8.5,
+                   color=INK2, labelpad=2)
+    for sp in cax.spines.values():
+        sp.set_visible(False)
+
+    fig.text(0.04, 0.034, "2-D planar model, nominal viscosity 500 Pa·s and surface tension"
+             " 0.03 N/m. Until first contact the state is kept mirror-symmetric, as the set-up is;"
+             " melt the collector carries to the box's edge leaves there.", fontsize=9, color=INK3)
+    fig.text(0.04, 0.013, "Equipotentials every 10 % of the voltage. The 10–20 µm jet of the"
+             " experiment is below the 25 µm cells.", fontsize=9, color=INK3)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("dir")
@@ -213,6 +333,10 @@ def main():
                     help="freeze runs A and B at this time (contact with the collector)")
     ap.add_argument("--clock", default="A",
                     help="which run's frame times drive the animation (A or D)")
+    ap.add_argument("--pair", action="store_true",
+                    help="field on and off side by side, with the per-minute zooms")
+    ap.add_argument("--cut-a", type=float, default=0.0, help="freeze run A here [s]")
+    ap.add_argument("--cut-b", type=float, default=0.0, help="freeze run B here [s]")
     ap.add_argument("--single", action="store_true",
                     help="run A alone: the box and its own two time series")
     ap.add_argument("--relative-field", action="store_true",
@@ -241,7 +365,7 @@ def main():
     try:
         for n, t in enumerate(times):
             fig = plt.figure(figsize=(16, 9), dpi=100, facecolor=SURF)
-            gs = None if a.single else fig.add_gridspec(
+            gs = None if (a.single or a.pair) else fig.add_gridspec(
                 2, 3, width_ratios=[1.45, 0.62, 0.62], height_ratios=[1.0, 0.80],
                 left=0.045, right=0.985, top=0.865, bottom=0.105, wspace=0.17, hspace=0.42)
             # header
@@ -257,6 +381,13 @@ def main():
             bar.barh(0, t / t_end, color=INK2, height=1); bar.set_xlim(0, 1)
             bar.axis("off")
 
+            if a.pair:
+                pair_frame(fig, t, t_end, idx, ser, a)
+                fig.savefig(os.path.join(tmp, f"f{n:05d}.png"), facecolor=SURF)
+                plt.close(fig)
+                if n % 20 == 0:
+                    print(f"  frame {n + 1}/{len(times)}", flush=True)
+                continue
             if a.single:
                 single_frame(fig, t, t_end, idx, ser)
                 fig.text(0.045, 0.018, "2-D planar model: melt treated as a conductor near the tip,"
@@ -289,10 +420,10 @@ def main():
             if a.cut_ab > 0 and t > a.cut_ab:
                 axA.add_patch(plt.Rectangle((0, 0), 1, 1, transform=axA.transAxes, color=SURF,
                                             alpha=0.55, zorder=5))
-                axA.text(0.5, 0.60, f"Stopped at {a.cut_ab:.1f} s: the melt has reached the collector",
+                axA.text(0.5, 0.68, f"Stopped at {a.cut_ab:.1f} s: the melt has reached the collector",
                          transform=axA.transAxes, ha="center", fontsize=13, color=INK,
                          weight="bold", zorder=6)
-                axA.text(0.5, 0.55, "and this model has no wetting law to let it stick there.",
+                axA.text(0.5, 0.63, "Field off, it then sticks; field on, this model lifts it off.",
                          transform=axA.transAxes, ha="center", fontsize=11.5, color=INK2, zorder=6)
             handles = [Line2D([], [], color=BLUE, lw=6, label="melt, field on"),
                        Line2D([], [], color=INK2, lw=0.8,
@@ -382,12 +513,12 @@ def main():
                      " nominal viscosity 500 Pa·s and surface tension 0.03 N/m. The 10–20 µm jet"
                      " is far below the 25 µm cells and is not resolved.",
                      fontsize=9, color=INK3)
-            # MEASURED, NOT PHYSICS: both 0.255 mm^3/s columns start on the axis and
-            # drift apart from ~1.5 s (field on -0.42 mm, field off +0.27 mm at 4.5 s)
-            # in a mirror-symmetric set-up with Bo = 0.014 and no inertia.
-            fig.text(0.045, 0.010, "The sideways drift of the two columns (opposite directions, up to"
-                     " 0.4 mm) is numerical symmetry breaking in a mirror-symmetric set-up, not a"
-                     " prediction.", fontsize=9, color=INK3)
+            # A NUMERICAL DEVICE, SO SAID ON SCREEN: without the projection both columns
+            # drift apart from ~1.5 s (field on -0.42 mm, field off +0.27 mm at 4.5 s);
+            # demonstrator/mew_nozzle's banner, and its -nosym switch.
+            fig.text(0.045, 0.010, "The set-up is mirror-symmetric, and the melt is held so until it"
+                     " touches the collector: without that, round-off pushes the columns sideways"
+                     " (up to 0.4 mm).", fontsize=9, color=INK3)
             fig.savefig(os.path.join(tmp, f"f{n:05d}.png"), facecolor=SURF)
             plt.close(fig)
             if n % 20 == 0:

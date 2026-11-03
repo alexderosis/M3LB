@@ -9918,12 +9918,27 @@ Stated plainly, because each has been measured.
   has no curvature to balance $\varepsilon_0E^2/2$, so there is no conical
   equilibrium in planar geometry, and the field at a planar tip is weaker than
   at a round one at the same voltage. At \code{demonstrator/mew\_nozzle}'s
-  6.5\,kV the peak pull on the meniscus is about $0.4\,\gamma/R$; a round
+  6.5\,kV the peak pull on the meniscus is $0.68\,\gamma/R$; a round
   1\,mm tip would feel several times that. And a planar sheet carrying the feed
   at the collector's speed is far thinner than any affordable cell (about
   $0.4\,\mu$m at the per-minute feed), against the experiment's
   10--20\,$\mu$m fibres. The planar model resolves what accumulates at the
   tip, not the jet; an axisymmetric or 3-D solver is what the cone-jet needs.
+  After an extruded column reaches the moving collector, two things are model
+  rather than physics. With the field off the melt sticks and is drawn into a
+  thread, but it is laid at the box's downstream edge, so the box sets the lag
+  between nozzle and touchdown. With the field on the rope lifts off, $2.3$\,mm
+  by $6$\,s, though the two columns arrive within $0.01$\,s of each other; the
+  suspect, not isolated, is the model's conductor edge, below which the melt is
+  treated as an insulator.
+\item \textbf{A mirror-symmetric free surface does not stay symmetric, and a
+  thread drawn below a cell creates mass.} Neither is diagnosed. In
+  \code{mew\_nozzle} an advancing front amplifies round-off until the column
+  leaves the axis ($-0.42$\,mm in $4.5$\,s);
+  \code{mirror\_symmetrize\_x} projects it away while the problem is symmetric, and
+  reconstructing along the interface normal does not cure it. And while the
+  field-off thread is drawn down to $0.80$ cells of melt in its thinnest row,
+  the mass ledger climbs from $+0.5\,\%$ to $+5.4\,\%$ of the injected melt.
 \item \textbf{The closed cavity's electric Nusselt number is $9$--$16\,\%$ below
   the reference in the mid-range, and that is measured rather than explained}
   (\S\ref{sec:ehdcavity}). The \emph{shape} of Fig.~8 is reproduced --- $N_e=1$

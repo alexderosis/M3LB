@@ -51,6 +51,12 @@
 //  discretisation of the surface force talking. This tree already measures the
 //  same quantity for the two diffuse models, and the comparison is only
 //  meaningful if the parameters are matched -- see the note at the results.
+//
+//  -nrec runs it with FreeSurfaceSolver::normal_reconstruction (2026-11-03):
+//  errors +3.39 / +1.08 / -0.40 / +2.99 % at R = 8/12/16/24 against the
+//  default's +3.39 / +0.88 / -0.64 / +1.14 %, i.e. the same band with R = 24
+//  past this file's 2 % gate, and spurious currents of ~3e-9 against ~5e-6. The
+//  gates are the default's; -nrec failing one of them is the measurement.
 //==============================================================================
 
 #include "core/Types.hpp"
@@ -67,6 +73,10 @@ using L  = D2Q9;
 using FS = FreeSurfaceSolver<L>;
 
 namespace {
+
+// -nrec: FreeSurfaceSolver::normal_reconstruction, opt-in (2026-11-03). The
+// default run is unchanged; this measures what the refinement costs here.
+bool g_nrec = false;
 
 struct Result {
   double dp = 0, R_meas = 0, R_seed = 0, laplace = 0;  // laplace = dp R / sigma
@@ -90,6 +100,7 @@ Result run(Index N, double R0, double sigma, double nu, std::size_t nsteps,
   FS s(d);
   s.coll.omega = FS::omega_from_viscosity(Real(nu));
   s.set_surface_tension(Real(sigma));
+  s.set_normal_reconstruction(g_nrec);
   s.set_geometry([&](Index, Index, Index) -> FsCell { return FsGas; });
 
   const Domain dd = d;
@@ -202,10 +213,11 @@ int main(int argc, char** argv) {
       nsteps = std::size_t(std::atof(argv[++i]));
     else if (!std::strcmp(argv[i], "-sigma") && i + 1 < argc)
       sigma = std::atof(argv[++i]);
+    else if (!std::strcmp(argv[i], "-nrec")) g_nrec = true;
     else if (!std::strncmp(argv[i], "--kokkos", 8)) {}
     else {
       std::fprintf(stderr, "surface_tension: unknown option '%s'. NOTHING WAS RUN.\n"
-                           "  -v  -steps N  -sigma S\n", argv[i]);
+                           "  -v  -steps N  -sigma S  -nrec\n", argv[i]);
       return 2;
     }
   }

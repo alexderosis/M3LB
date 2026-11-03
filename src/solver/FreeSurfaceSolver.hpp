@@ -119,6 +119,13 @@
 //     prescribed non-uniform normal stress, which is a laser's recoil pressure:
 //     validation/recoil.cpp measures that against the exact hydrostatic
 //     depression.
+//   * NO CONTACT ANGLE: THE CURVATURE READS A WALL AS GAS, so every wall is
+//     effectively non-wetting (about 180 degrees) wherever surface tension is
+//     on and a free surface meets it. A 90-degree mirror of the colour function
+//     into the wall was tried on 2026-11-03 against demonstrator/mew_nozzle's
+//     melt peeling off its collector, changed nothing there (the peeling was
+//     the case's own drain), and was removed unverified. A wetting case needs
+//     a contact-angle law and a sessile-drop test written with it.
 //   * NO GAS DYNAMICS, and this is the method, not an omission. An enclosed
 //     bubble does not compress, because its pressure is prescribed rather than
 //     solved. Modelling that needs a volume-of-gas tracker with a separate
@@ -134,6 +141,16 @@
 //     diffusive at a sharply curved interface than the normal-weighted form.
 //   * NO SUBGRID INTERFACE. The interface is resolved to one cell, so a film
 //     thinner than a cell either survives as a one-cell layer or vanishes.
+//     Thinning one CREATES MASS: demonstrator/mew_nozzle's field-off thread,
+//     drawn by a moving collector until its thinnest row held 0.80 cells,
+//     took the ledger from +0.5 % to +5.4 % of the injected melt, and then
+//     broke (2026-11-03). Not diagnosed; the first suspect is settle()'s
+//     defect (ii) below.
+//   * A MIRROR-SYMMETRIC SET-UP DOES NOT STAY SYMMETRIC. An advancing front
+//     amplifies round-off: mew_nozzle's extruded column left the axis by
+//     -0.42 mm in 4.5 s. Not diagnosed; mirror_symmetrize_x() projects the
+//     asymmetry away while the problem is symmetric, and its comment has the
+//     numbers.
 //   * A MOVING OBSTACLE IS BETTER THAN IT WAS AND STILL NOT RELIABLE. What this
 //     entry used to say -- that mass_exchange()'s per-face antisymmetry is
 //     broken by the mask changing between passes -- was WRONG, and measuring it
@@ -315,6 +332,31 @@ class FreeSurfaceSolver {
   // cannot convert back and forth every step. The literature's value; without
   // it, a quiescent interface flickers and the flicker radiates noise.
   Real fill_offset = Real(1e-3);
+
+  // RECONSTRUCT ALONG THE NORMAL TOO (Korner et al.'s refinement, which the
+  // banner names as the first thing to add if an interface misbehaves). Off
+  // (the default), only the populations whose source cell is Gas are rebuilt.
+  // On, an interface cell also rebuilds every population travelling INTO the
+  // liquid -- c_i . n > 0 with n = grad(colour), the normal compute_curvature()
+  // already builds -- so the free-surface condition no longer depends on how
+  // the surface happens to sit against the lattice. Needs the normals, so it
+  // turns the curvature passes on; set it through set_normal_reconstruction().
+  // Only populations from INTERFACE sources are added: a first version also
+  // rebuilt ones from Fluid sources wherever the smoothed normal said so, and
+  // the extruded column shed specks within a second.
+  //
+  // MEASURED 2026-11-03, AND IT IS A TRADE, NOT AN UPGRADE -- kept opt-in so the
+  // trade can be re-measured (surface_tension -nrec, fs_electric -nrec):
+  //   spurious current around a static drop   ~5e-6 -> ~3e-9    (better)
+  //   Laplace error, R = 8/12/16/24 (%)       +3.39/+0.88/-0.64/+1.14 ->
+  //                                           +3.39/+1.08/-0.40/+2.99 (same band,
+  //                                           R = 24 past surface_tension's 2 % gate)
+  //   film under a gentle cosine pull         9.2 % -> 21.6 % short (worse)
+  // It was tried against demonstrator/mew_nozzle's sideways drift and does NOT
+  // cure it: at R = 4 the drift vanished, at R = 8 it grew to -0.51 mm by 4 s
+  // against -0.35 without. See mirror_symmetrize_x() for what does.
+  bool normal_reconstruction = false;
+
   bool drop_detached = true;   // isolated specks -> gas; see classify()
 
   // NO CELL MAY BECOME LIQUID THAT WAS GAS. Off by default, and everything in
@@ -434,9 +476,16 @@ class FreeSurfaceSolver {
   //----------------------------------------------------------------------------
   // Allocates the five curvature fields and switches the term on. Calling it
   // with 0 switches it off again but does not free the storage.
+  void set_normal_reconstruction(bool on) {
+    normal_reconstruction = on;
+    if (on) allocate_curvature();
+  }
   void set_surface_tension(Real s) {
     sigma = s;
-    if (s != Real(0) && cf_.size() == 0) {
+    if (s != Real(0)) allocate_curvature();
+  }
+  void allocate_curvature() {
+    if (cf_.size() == 0) {
       cf_  = View1D<Real>("fs_colour",   dom_.n_padded);
       cfs_ = View1D<Real>("fs_colour_s", dom_.n_padded);
       knx_ = View1D<Real>("fs_nx",       dom_.n_padded);
@@ -543,7 +592,7 @@ class FreeSurfaceSolver {
   }
 
   void step() {
-    if (sigma != Real(0)) compute_curvature();
+    if (sigma != Real(0) || normal_reconstruction) compute_curvature();
     stream_collide();
     mass_exchange();
     classify();
@@ -674,6 +723,94 @@ class FreeSurfaceSolver {
     return removed;
   }
   Real drained_mass() const { return drained_; }
+
+  //----------------------------------------------------------------------------
+  // PROJECT THE STATE ONTO ITS MIRROR-SYMMETRIC PART about the plane between
+  // columns x and xsum - x (xsum = nx - 1 for a box symmetric about its middle).
+  // Call it between steps, and only while the problem IS symmetric: it is not a
+  // model, it removes an asymmetry the exact solution does not have.
+  //
+  // WHY IT EXISTS. demonstrator/mew_nozzle extrudes a column into a set-up
+  // mirror-symmetric to the cell, and the column drifted sideways anyway --
+  // -0.42 / +0.27 mm by 4.5 s with the field on / off at R = 8. At R = 4 the
+  // front's offset grew x1.9..3.4 every 0.5 s from round-off while the root
+  // stayed on the axis to 0.002 mm.
+  // Its conversions are discrete, so mirror cells that differ in the last bit
+  // convert a step apart and the asymmetry jumps to a fill_offset's worth of
+  // mass; something in the advancing front then amplifies it. That something is
+  // NOT diagnosed (normal_reconstruction does not remove it; see that member).
+  // What is known is that the exact solution is symmetric, so this projection
+  // is the defensible cure, and the case stops calling it at first contact,
+  // where the moving collector breaks the symmetry for real.
+  //
+  // Per mirror pair: a cell is Fluid only if both were (so no Fluid cell can
+  // gain a Gas neighbour), Gas only if both were, Interface otherwise; mass,
+  // density and populations are averaged with the partner's MIRRORED ones (u_x
+  // changes sign); a cell that was Gas takes its partner's state. Mass is
+  // conserved exactly. Both population arrays are written, as mark_obstacle's
+  // refill does, since TwoLattice swaps at end_of_step.
+  //
+  // It also suppresses any GENUINE lateral instability. That is the price, and
+  // the reason it must be switched off the moment the problem stops being
+  // symmetric. Added 2026-11-03; tests/test_free_surface.cpp block 5 pins it.
+  //----------------------------------------------------------------------------
+  void mirror_symmetrize_x(Index xsum) {
+    const auto acc = pop_.template access<0>();
+    const Domain d = dom_;
+    auto flags = flags_, newf = newf_, fin = final_;
+    auto mass = mass_, eps = eps_, rho = rho_, ux = ux_, uy = uy_, uz = uz_;
+    const Index hx = dom_.hx, hy = dom_.hy, hz = dom_.hz;
+    Kokkos::parallel_for("fs_mirror", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+      Index px, py, pz; d.coords(n, px, py, pz);
+      if (!d.is_interior(px, py, pz)) return;
+      const Index x = px - hx, xm = xsum - x;
+      if (x >= xm || xm < 0 || xm >= d.nx) return;      // each pair once
+      const Index m = d.id(xm, py - hy, pz - hz);
+      const std::uint8_t fa = flags(n), fb = flags(m);
+      const bool la = fa == FsFluid || fa == FsInterface;
+      const bool lb = fb == FsFluid || fb == FsInterface;
+      if (!la && !lb) return;                             // both gas, or walls
+      if ((fa == FsSolid || fa == FsExcluded) || (fb == FsSolid || fb == FsExcluded)) return;
+      const std::uint8_t g = (fa == FsFluid && fb == FsFluid) ? FsFluid : FsInterface;
+      const Real ma = (fa == FsFluid) ? rho(n) : (fa == FsInterface ? mass(n) : Real(0));
+      const Real mb = (fb == FsFluid) ? rho(m) : (fb == FsInterface ? mass(m) : Real(0));
+      const Real mm = Real(0.5) * (ma + mb);
+      // populations: average with the partner's mirror image, or copy it
+      for (int i = 0; i < Q; ++i) {
+        int j = i;                                        // the x-mirror of i
+        for (int k = 0; k < Q; ++k)
+          if (cvel<L>(k, 0) == -cvel<L>(i, 0) && cvel<L>(k, 1) == cvel<L>(i, 1) &&
+              cvel<L>(k, 2) == cvel<L>(i, 2)) { j = k; break; }
+        if (j < i) continue;                              // handle each pair (i, j) once
+        const Real an = acc.src(n, i), am = acc.src(m, j);
+        const Real bn = acc.src(n, j), bm = acc.src(m, i);
+        Real vi, vj;                                      // n's new f_i and f_j
+        if (la && lb) { vi = Real(0.5) * (an + am); vj = Real(0.5) * (bn + bm); }
+        else if (la)  { vi = an; vj = bn; }
+        else          { vi = am; vj = bm; }
+        acc.src(n, i) = vi; acc.dst(n, i) = vi;
+        acc.src(n, j) = vj; acc.dst(n, j) = vj;
+        acc.src(m, j) = vi; acc.dst(m, j) = vi;           // m is n's mirror image
+        acc.src(m, i) = vj; acc.dst(m, i) = vj;
+      }
+      const Real r = (la && lb) ? Real(0.5) * (rho(n) + rho(m)) : (la ? rho(n) : rho(m));
+      const Real u = (la && lb) ? Real(0.5) * (ux(n) - ux(m)) : (la ? ux(n) : -ux(m));
+      const Real v = (la && lb) ? Real(0.5) * (uy(n) + uy(m)) : (la ? uy(n) : uy(m));
+      const Real w = (la && lb) ? Real(0.5) * (uz(n) + uz(m)) : (la ? uz(n) : uz(m));
+      rho(n) = r; rho(m) = r;
+      ux(n) = u;  ux(m) = -u;
+      uy(n) = v;  uy(m) = v;
+      uz(n) = w;  uz(m) = w;
+      mass(n) = (g == FsFluid) ? r : mm;
+      mass(m) = mass(n);
+      eps(n) = (g == FsFluid) ? Real(1) : (r > Real(0) ? mm / r : Real(0));
+      eps(m) = eps(n);
+      flags(n) = g; flags(m) = g;
+      newf(n) = g;  newf(m) = g;
+      fin(n) = g;   fin(m) = g;
+    });
+    Kokkos::fence();
+  }
 
   // Cumulative mass removed because no neighbour could accept it. Zero unless
   // no_refill is on. total_mass() + ejected_mass() is the conserved quantity
@@ -889,6 +1026,8 @@ class FreeSurfaceSolver {
     const Index hx = dom_.hx, hy = dom_.hy;
     const Real bcx = bcx_, bcy = bcy_;
     constexpr Real ics = inv_cs2<L, Real>();
+    const bool nrec = normal_reconstruction && knx_.data();
+    const auto knx = knx_, kny = kny_, knz = knz_;
 
     Real sfx = 0, sfy = 0, stz = 0;
     Kokkos::parallel_reduce("fs_stream_collide", Range(0, dom_.n_padded),
@@ -910,11 +1049,23 @@ class FreeSurfaceSolver {
         // see the banner. rho_G, not rho(n), sets the gas pressure.
         const Real u0[3] = {ux(n), uy(n), uz(n)};
 
+        // The normal-reconstruction test: a population travelling along +n (into
+        // the liquid) came from the gas side, wherever its source cell sits.
+        const Real nn[3] = {nrec ? knx(n) : Real(0), nrec ? kny(n) : Real(0),
+                            nrec ? knz(n) : Real(0)};
+        const bool along = nrec && fl == FsInterface;
+
         Real f[Q];
         for (int i = 0; i < Q; ++i) {
           const Index from = (i == 0) ? n : nb.j[opp(i)];
           const std::uint8_t ff = flags(from);
-          if (ff == FsGas) {
+          // Gas or Interface sources only: a Fluid neighbour is inside the liquid
+          // whatever a smoothed normal says, and overwriting what it sent broke
+          // the column into specks within a second in the first version.
+          const bool inward = along && i != 0 && ff == FsInterface &&
+              (Real(cvel<L>(i, 0)) * nn[0] + Real(cvel<L>(i, 1)) * nn[1] +
+               Real(cvel<L>(i, 2)) * nn[2]) > Real(0);
+          if (ff == FsGas || inward) {
             // Free-surface condition: impose the gas pressure through the two
             // moments of an anti-bounce-back pair, against this cell's own
             // outgoing population in the opposite direction. The equilibrium is

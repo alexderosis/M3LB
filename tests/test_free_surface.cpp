@@ -1,5 +1,6 @@
 #include "Check.hpp"
 #include "solver/FreeSurfaceSolver.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -195,6 +196,71 @@ static void run_drain() {
             "the drained column stays finite and keeps its mass");
 }
 
+// mirror_symmetrize_x(): an off-axis drop, stepped so its state is a real
+// mixture of Fluid, Interface and Gas, comes out EXACTLY mirror-symmetric in
+// fill, flags and u_x; the mass is unchanged; the shell stays closed; and a
+// second projection of an already symmetric state changes nothing.
+static void run_mirror() {
+  using L  = D2Q9;
+  using FS = FreeSurfaceSolver<L>;
+  const Index nx = 40, ny = 32;
+  Domain d(nx, ny, 1, false, false, true);
+  FS s(d);
+  s.coll.omega = FS::omega_from_viscosity(Real(0.1));
+  s.set_gravity(Real(0), Real(-1e-5));
+  s.set_geometry([&](Index x, Index y, Index) -> FsCell {
+    return (y == 0 || x == 0 || x == nx - 1) ? FsSolid : FsGas;
+  });
+  const Domain dd = d; const Index hx = d.hx, hy = d.hy;
+  s.initialize(KOKKOS_LAMBDA(Index n) {
+    Index px, py, pz; dd.coords(n, px, py, pz);
+    const Real x = Real(px - hx) - Real(16), y = Real(py - hy) - Real(12);
+    const Real r = Kokkos::sqrt(x * x + y * y);
+    Real e = Real(7) - r + Real(0.5);
+    e = e < Real(0) ? Real(0) : (e > Real(1) ? Real(1) : e);
+    return typename FS::Seed{e, Real(1)};
+  });
+  for (int t = 0; t < 200; ++t) s.step();
+  const double m0 = double(s.total_mass());
+  s.mirror_symmetrize_x(nx - 1);
+  const double m1 = double(s.total_mass());
+  check::near(m1, m0, 1e-12 * m0, "mass unchanged by the projection");
+
+  auto hf = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.flags());
+  auto he = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.fill());
+  auto hu = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.ux());
+  int flag_diff = 0, open = 0;
+  double fill_diff = 0, ux_diff = 0;
+  for (Index y = 1; y < ny; ++y)
+    for (Index x = 1; x < nx - 1; ++x) {
+      const Index a = d.id(x, y, 0), b = d.id(nx - 1 - x, y, 0);
+      if (hf(a) != hf(b)) ++flag_diff;
+      if (hf(a) == FsInterface) fill_diff = std::max(fill_diff, std::fabs(double(he(a) - he(b))));
+      if (hf(a) == FsFluid || hf(a) == FsInterface)
+        ux_diff = std::max(ux_diff, std::fabs(double(hu(a) + hu(b))));
+      if (hf(a) == FsFluid)
+        for (int dy = -1; dy <= 1; ++dy)
+          for (int dx = -1; dx <= 1; ++dx)
+            if (hf(d.id(x + dx, y + dy, 0)) == FsGas) ++open;
+    }
+  check::ok(flag_diff == 0, "flags mirror-symmetric");
+  check::near(fill_diff, 0.0, 1e-15, "fill mirror-symmetric");
+  check::near(ux_diff, 0.0, 1e-15, "u_x mirror-antisymmetric");
+  check::ok(open == 0, "no Fluid cell faces Gas after the projection");
+
+  const double m2a = double(s.total_mass());
+  auto before = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.fill());
+  s.mirror_symmetrize_x(nx - 1);
+  auto after = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.fill());
+  double idem = 0;
+  for (Index n = 0; n < d.n_padded; ++n)
+    idem = std::max(idem, std::fabs(double(after(n) - before(n))));
+  check::near(idem, 0.0, 1e-15, "a symmetric state is a fixed point");
+  check::near(double(s.total_mass()), m2a, 1e-12 * m2a, "and its mass too");
+  for (int t = 0; t < 300; ++t) s.step();
+  check::ok(std::isfinite(double(s.total_mass())), "it steps on afterwards");
+}
+
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   {
@@ -216,6 +282,8 @@ int main(int argc, char** argv) {
     run_moving_body(true, 0.02, 3600);
     std::printf("\n4. drain(): the ledger, and a closed interface afterwards\n");
     run_drain();
+    std::printf("\n5. mirror_symmetrize_x(): exact symmetry, mass, shell, idempotence\n");
+    run_mirror();
   }
   const int rc = check::report("free_surface");
   Kokkos::finalize();

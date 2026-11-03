@@ -1166,14 +1166,23 @@ Do not spend time on these without saying so first; several are deliberate.
   (`demonstrator/mew_nozzle`: 0.7 γ/R at 6.5 kV; its 12 kV row stands in for a
   round tip). A planar sheet carrying an MEW feed at collector speed is ~0.4 µm,
   against 25 µm cells and 10–20 µm fibres, so the model resolves what
-  accumulates under the tip and nothing that leaves it. Two more behaviours are
-  not physics. **Melt reaching a moving collector does not stick**: with no
-  wetting law the one-cell contact is dragged away and the rope curls back up,
-  so quote nothing after first contact. **A creeping column in a
-  mirror-symmetric set-up drifts sideways**: −0.42 / +0.27 mm by 4.5 s with the
-  field on / off, with Bo = 0.014 and no inertia to straighten it; what
-  amplifies the round-off is not diagnosed. The cone-jet needs an axisymmetric
-  or 3-D solver.
+  accumulates under the tip and nothing that leaves it. **After contact the
+  two runs part company, and neither is a measurement.** Field off, the melt
+  sticks and is drawn into a thread until its thinnest row holds under a cell,
+  but it is laid at the box's downstream edge, so the BOX sets the lag, and the
+  ledger climbs +0.5 → +5.4 % while the thread thins. Field on, the rope lifts
+  off (2.3 mm by 6 s); the two columns arrive within 0.01 s of each other, so
+  the field is the cause, and the model's conductor cut-off is a suspect that
+  has not been isolated. The first version's "melt does not stick" was NOT a
+  missing wetting law -- a 90-degree wetting mirror changed nothing -- but the
+  case's own drain eating the rope at the side walls at every height: when
+  something fails to stick, check what the case removes before blaming the
+  physics. **A mirror-symmetric free surface does not stay symmetric**: an
+  advancing front amplifies round-off (−0.42 mm in 4.5 s, not diagnosed).
+  `FreeSurfaceSolver::mirror_symmetrize_x` projects it away while the problem
+  is symmetric and must stop when it is not; `mew_nozzle` stops at first
+  contact, and `-nosym` shows the drift. The cone-jet needs an axisymmetric or
+  3-D solver.
 - **`GPU/` HAS THE PARITY WALL AND THE TAYLOR-GREEN MHD BOX** as of 2026-09-25
   (`src/tg_mhd.cu`, `set_parity_walls`, `seed_populations_with`). Its HOST build
   reproduces `demonstrator/tg_mhd` to every printed digit in FP64, free-slip and

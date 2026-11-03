@@ -31,22 +31,30 @@
 //  500 Pa s and surface tension 0.03 N/m are nominal.
 //
 //      feed, voltage            what the melt does
-//      0.255 mm^3/s, 6.5 kV     a column the width of the tip face; front at
-//        (Table 1 as printed)   1.12 mm/s, melt within 1 mm of the tip level at
-//                               0.646 mm^2, first contact 4.77 s; peak pull
-//                               1.33 gamma/R
-//      the same, field OFF      front 1.13 mm/s, 0.646 mm^2, contact 4.72 s: the
-//                               field moves the column's reach by <= 0.05 mm and
-//                               the tip melt by <= 1.5 %
+//      0.255 mm^3/s, 6.5 kV     a column on the axis (mirror projection, below);
+//        (Table 1 as printed)   front at 1.127 mm/s, melt within 1 mm of the tip
+//                               level at 0.647 mm^2, first contact 4.690 s,
+//                               peak pull 1.19 gamma/R before it; after it the
+//                               rope LIFTS OFF (below)
+//      the same, field OFF      front 1.130 mm/s, 0.647 mm^2, contact 4.682 s;
+//                               after it the melt STICKS: dragged to the box's
+//                               downstream edge and laid there, 4.83 mm^2 by
+//                               7.26 s, when the drawn thread's thinnest row
+//                               holds 0.80 cells of melt; it then breaks and
+//                               nothing more is laid
 //      0.255 mm^3/MIN, 6.5 kV   a meniscus that grows at 0.01354 mm^2/s, the
 //                               feed's own 2 R U = 0.01353: 0.108 mm^2 at 8 s,
 //                               0.32 mm below the tip face; peak pull 0.68 gamma/R
 //      0.255 mm^3/min, 12 kV    the same growth to every printed digit, 0.35 mm
 //                               below the tip; peak pull 2.51 gamma/R
 //
-//  Ledger, total + drained - injected over injected: +0.50..0.57 % at the
-//  printed feed (the piston injects rho U, and rho sits that far above 1 under
-//  the bore's viscous pressure drop), +0.01..0.1 % at the per-minute feed.
+//  Ledger, total + drained - injected over injected: +0.50..0.57 % before
+//  contact at the printed feed (the piston injects rho U, and rho sits that far
+//  above 1 under the bore's viscous pressure drop), +0.01..0.1 % at the
+//  per-minute feed. WHILE THE FIELD-OFF THREAD IS DRAWN IT CLIMBS TO +5.4 %
+//  (7.21 s): melt is created as the thread thins. Not diagnosed; the first
+//  suspect is the free surface's own settle() defect, which its banner measures
+//  creating mass where a filling cell sits beside an emptying one.
 //
 //  WHAT IT SAYS. At the feed Table 1 prints, the bore's capillary number is 34:
 //  the melt is extruded as a column whatever the field does, which in the
@@ -59,27 +67,53 @@
 //  12 kV row is here: about the pull a round 1 mm tip feels at 6.5 kV
 //  (2V/(r ln(4d/r)) ~ 6.9 kV/mm), an estimate.
 //
-//  THREE THINGS THE RUNS DO THAT ARE NOT PHYSICS.
-//   - AFTER CONTACT THE MELT DOES NOT STICK. The column reaches the cell beside
-//     the collector, the moving wall drags that one-cell contact away, and the
-//     rope swings and curls; the full 9 s show it climbing back toward the
-//     nozzle. A melt this viscous would wet the collector and be drawn into a
-//     fibre, and that needs a wetting law this solver does not have. Quote
-//     nothing after first contact.
-//   - THE COLUMNS DRIFT SIDEWAYS. Both printed-feed columns leave the axis from
-//     ~1.5 s, field on to -0.42 mm and field off to +0.27 mm by 4.5 s, in a
-//     set-up that is mirror-symmetric to the cell. With Bo = 0.014 and no
-//     inertia nothing straightens a column; what amplifies round-off this far is
-//     NOT diagnosed.
-//   - THE FIELD CROWDS THE END OF THE CONDUCTING MELT. Below -lc (2 mm) the melt
-//     is an insulator, so a column crossing that line carries a conductor's end
-//     with it. The peak fields of the printed-feed rows sit on that line.
+//  THE SIDEWAYS DRIFT, AND WHAT REMOVED IT. Without help both printed-feed
+//  columns leave the axis from ~1.5 s -- field on to -0.42 mm, field off to
+//  +0.27 mm by 4.5 s -- in a set-up mirror-symmetric to the cell. At R = 4,
+//  field off, the front's offset grew x1.9..3.4 every 0.5 s from 3.4 s while
+//  the root stayed on the axis to 0.002 mm, so it is the advancing front that
+//  amplifies round-off; what amplifies it is NOT diagnosed.
+//  FreeSurfaceSolver::normal_reconstruction does not cure it: it removed the
+//  drift at R = 4 and made it worse at R = 8 (-0.51 mm by 4 s against -0.35).
+//  What does: until the melt first reaches the cell beside the collector the
+//  state is projected onto its mirror-symmetric part every M steps
+//  (mirror_symmetrize_x), and both fronts then stay on the axis, +0.000 mm, to
+//  contact; there the moving collector breaks the symmetry for real and the
+//  projection stops. -nosym brings the drift back: field on, the foot leaves
+//  the axis at ~1.5 s and is at -0.41 mm by 4.47 s.
+//
+//  AFTER CONTACT.
+//   - FIELD OFF, THE MELT STICKS, with one model edge: the collector drags the
+//     foot to the box's downstream side, where the drain takes what reaches the
+//     collector, so the lag between nozzle and touchdown is set by the BOX, not
+//     by physics -- gravity is negligible and nothing else sets it. The thread
+//     is drawn down to under a cell (above) and then breaks: the drawn sheet of
+//     the real process, Q/U_c = 23 um in 2-D, is below the 25 um grid. The
+//     first version's melt "did not stick" because its drain removed melt at
+//     the side walls at EVERY height and ate the dragged rope from the bottom
+//     up, the taut rope then swinging off the collector; a 90-degree wetting
+//     condition was tried first and changed nothing.
+//   - FIELD ON, THE ROPE LIFTS OFF. Its lowest point is 0.91 mm up by 4.97 s
+//     and 2.31 mm by 6.0 s, the rope curled into a hook; the hook then sinks
+//     as the feed lengthens it, 0.89 mm up at 8.95 s and falling ~0.44 mm/s,
+//     so whether it touches again lies past the run. The two columns arrive
+//     within 0.01 s and 0.003 mm/s of each other, so it is the field that
+//     lifts it. WHERE is a suspect, NOT isolated: this model's conductor edge.
+//     Below -lc (2 mm) the melt is an insulator, so a column crossing that
+//     line carries a conductor's end with it, and the pull peaks after
+//     contact (1.55 gamma/R at 5.3 s). If so, the fix is a
+//     melt that carries current -- its potential falling along the thread once
+//     it touches the collector -- not a better -lc. One interface cell (fill
+//     0.54) is left on the collector at contact and stays there, unmoved, to the
+//     end: classify()'s detached-speck rule spares a cell touching a wall, and
+//     with no liquid neighbour it exchanges no mass.
 //
 //  FIXED ON THE WAY, so a rerun does not repeat them: the nozzle is centred,
 //  because 2 mm from one mirror wall and 4 mm from the other the image nozzles
 //  bent the column toward the far side before it touched anything; the feed
 //  piston spans the lips' top row, because over the bore alone its edge cells
-//  drew a diagonal link from a static wall and the ledger read -3.4 % at R = 4.
+//  drew a diagonal link from a static wall and the ledger read -3.4 % at R = 4;
+//  the drain acts on the collector only (above).
 //
 //  WHAT IT DOES NOT MODEL. The jet; wetting and contact lines; free charge,
 //  conduction or polarisation of the melt (a leaky dielectric); heat (the melt
@@ -159,6 +193,8 @@ struct Opts {
   double t_out  = 0.05;    // series sampling [s]
   double t_frame = 1.0;    // frame interval [s]
   bool   field  = true;
+  bool   nrec   = false;   // FreeSurfaceSolver::normal_reconstruction
+  bool   sym    = true;    // mirror-project until first contact; -nosym to see the drift
   std::string out;
 };
 
@@ -185,7 +221,10 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(a, "-mu"))     P.mu = num();
       else if (!std::strcmp(a, "-V"))      P.V = num() * 1e3;          // kV
       else if (!std::strcmp(a, "-lc"))     P.lc = num() * 1e-3;        // mm
+      else if (!std::strcmp(a, "-Uc"))     P.Uc = num() * 1e-3;        // mm/s
       else if (!std::strcmp(a, "-nofield")) o.field = false;
+      else if (!std::strcmp(a, "-nrec"))   o.nrec = true;
+      else if (!std::strcmp(a, "-nosym"))  o.sym = false;
       else if (!std::strcmp(a, "-feed") && i + 1 < argc) feed = argv[++i];
       else if (!std::strcmp(a, "-out") && i + 1 < argc)  o.out = argv[++i];
       else {
@@ -259,6 +298,7 @@ int main(int argc, char** argv) {
     fs.coll.omega = FS::omega_from_viscosity(Real(o.nu));
     fs.set_gravity(Real(0), Real(-g_l));
     fs.set_surface_tension(Real(gam_l));
+    fs.set_normal_reconstruction(o.nrec);
     fs.set_geometry([&](Index x, Index y, Index) -> FsCell {
       if (y == 0 || is_lip(x, y) || is_piston(x, y)) return FsSolid;
       return FsGas;
@@ -371,14 +411,34 @@ int main(int argc, char** argv) {
     const long sout = std::max<long>(o.M, long(o.t_out / dt) / o.M * o.M);
     const long sframe = std::max<long>(sout, long(o.t_frame / dt) / sout * sout);
     frame(0.0);
+    bool contacted = false;
     for (long t = 0; t < nsteps; t += o.M) {
       for (int j = 0; j < o.M; ++j) fs.step();
-      // melt carried to either side wall leaves the box there
+      // Melt the collector carries to a side wall leaves the box there -- ON THE
+      // COLLECTOR ONLY. Draining at every height ate a dragged rope from the
+      // bottom up, and the rope, taut between the nozzle and its drained end,
+      // swung up off the collector: the "no sticking" of the first version.
+      const Index ydr = Index(std::lround(0.25e-3 / dx));
       fs.drain(KOKKOS_LAMBDA(Index n) {
         Index px, py, pz; dd.coords(n, px, py, pz);
-        const Index x = px - hx;
-        return x < 6 || x >= nx - 6;
+        const Index x = px - hx, y = py - hy;
+        return (x < 6 || x >= nx - 6) && y <= ydr;
       });
+      // THE SET-UP IS MIRROR-SYMMETRIC UNTIL THE MELT TOUCHES THE COLLECTOR, and
+      // the solver turns round-off into a sideways drift of the column (see
+      // FreeSurfaceSolver::mirror_symmetrize_x). Project onto the symmetric part
+      // until first contact; from then on the moving collector breaks the
+      // symmetry for real and the projection must stop.
+      if (o.sym && !contacted) {
+        auto hf = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs.flags());
+        for (Index x = 0; x < nx && !contacted; ++x) {
+          const std::uint8_t f = hf(d.id(x, 1, 0));
+          contacted = (f == FsFluid || f == FsInterface);
+        }
+        if (!contacted) fs.mirror_symmetrize_x(nx - 1);
+        else std::printf("  first contact with the collector at t = %.3f s:"
+                         " mirror projection off\n", (t + o.M) * dt);
+      }
       if (o.field) {              // with the field off, rho_G_of stays uniform
         el.refresh(fs);
         el.relax(o.M);
