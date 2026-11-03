@@ -9903,6 +9903,27 @@ Stated plainly, because each has been measured.
   to $5.5\times10^{-5}$ cells and misses the real one by $5.48$ cells ($68\,\%$).
   \code{EnthalpyAdvect::Material}, which advects $H$ and diffuses $E$, is the
   model there. \code{GPU/} ports \code{Sensible} only.
+\item \textbf{The free surface is too stiff under a gentle, small pull, and the
+  error grows with the wavelength rather than falling with the deflection.}
+  Under a prescribed cosine of gas pressure (\code{validation/fs\_electric},
+  frozen row) a film deflected by $1.07$ cells reads $9.2\,\%$ short, by $1.93$
+  cells on a grid twice as fine $19.5\,\%$ short, and with gravity removed, so
+  that capillarity alone restores, $25\,\%$. The hydrostatic floor recorded for
+  \code{recoil} falls with the deflection in cells; this one does not, and it
+  is the capillary response to a curvature radius of a few hundred cells. Not
+  diagnosed. Any free-surface deflection of a cell or two should be quoted
+  with it.
+\item \textbf{A planar (2-D) electrified meniscus is not a Taylor cone, and a
+  melt-electrowriting jet is not resolvable in one.} A straight-sided 2-D wedge
+  has no curvature to balance $\varepsilon_0E^2/2$, so there is no conical
+  equilibrium in planar geometry, and the field at a planar tip is weaker than
+  at a round one at the same voltage. At \code{demonstrator/mew\_nozzle}'s
+  6.5\,kV the peak pull on the meniscus is about $0.4\,\gamma/R$; a round
+  1\,mm tip would feel several times that. And a planar sheet carrying the feed
+  at the collector's speed is far thinner than any affordable cell (about
+  $0.4\,\mu$m at the per-minute feed), against the experiment's
+  10--20\,$\mu$m fibres. The planar model resolves what accumulates at the
+  tip, not the jet; an axisymmetric or 3-D solver is what the cone-jet needs.
 \item \textbf{The closed cavity's electric Nusselt number is $9$--$16\,\%$ below
   the reference in the mid-range, and that is measured rather than explained}
   (\S\ref{sec:ehdcavity}). The \emph{shape} of Fig.~8 is reproduced --- $N_e=1$

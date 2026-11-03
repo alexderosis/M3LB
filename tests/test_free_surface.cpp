@@ -139,6 +139,62 @@ static double run_moving_body(bool strict, double U_in, std::size_t nsteps) {
   return worst;
 }
 
+// drain(): what it removes is exactly what the ledger loses, the interface it
+// leaves is closed (no Fluid cell faces Gas), and the liquid that remains then
+// conserves mass to round-off as before. A notch is cut into the corner of a
+// resting column, so the repair has edges, a corner and a fluid interior to
+// re-shell.
+static void run_drain() {
+  using L  = D2Q9;
+  using FS = FreeSurfaceSolver<L>;
+  const Index nx = 32, ny = 40;
+  Domain d(nx, ny, 1, true, false, true);
+  FS s(d);
+  s.coll.omega = FS::omega_from_viscosity(Real(0.1));
+  const Index nyi = ny;
+  s.set_geometry([&](Index, Index y, Index) -> FsCell {
+    return (y == 0 || y == nyi - 1) ? FsSolid : FsGas;
+  });
+  const Domain dd = d; const Index hx = d.hx, hy = d.hy;
+  s.initialize(KOKKOS_LAMBDA(Index n) {
+    Index px, py, pz; dd.coords(n, px, py, pz);
+    const Real y = Real(py - hy);
+    const Real e = (y + Real(0.5) < Real(24)) ? Real(1)
+                 : ((y - Real(0.5) < Real(24)) ? Real(0.5) : Real(0));
+    return typename FS::Seed{e, Real(1)};
+  });
+  for (int t = 0; t < 50; ++t) s.step();
+  const double m0 = double(s.total_mass());
+  const Real removed = s.drain(KOKKOS_LAMBDA(Index n) {
+    Index px, py, pz; dd.coords(n, px, py, pz);
+    return (px - hx) >= 20 && (py - hy) >= 14;
+  });
+  const double m1 = double(s.total_mass());
+  check::ok(double(removed) > 100.0, "drain removed a notch's worth of liquid");
+  check::near(m1 + double(removed), m0, 1e-9 * m0, "total + drained == total before");
+  check::near(double(s.drained_mass()), double(removed), 1e-12, "drained_mass() records it");
+
+  auto hf = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.flags());
+  int open = 0;
+  for (Index y = 1; y < ny - 1; ++y)
+    for (Index x = 0; x < nx; ++x) {
+      if (hf(d.id(x, y, 0)) != FsFluid) continue;
+      for (int dy = -1; dy <= 1; ++dy)
+        for (int dx = -1; dx <= 1; ++dx) {
+          const Index xx = (x + dx + nx) % nx, yy = y + dy;
+          if (hf(d.id(xx, yy, 0)) == FsGas) ++open;
+        }
+    }
+  check::ok(open == 0, "no Fluid cell faces Gas after the drain");
+
+  for (int t = 0; t < 500; ++t) s.step();
+  const double m2 = double(s.total_mass());
+  std::printf("  removed %.4f of %.4f; after 500 more steps the rest drifts %+.2e\n",
+              double(removed), m0, m2 / m1 - 1.0);
+  check::ok(std::isfinite(m2) && std::fabs(m2 / m1 - 1.0) < 1e-3,
+            "the drained column stays finite and keeps its mass");
+}
+
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   {
@@ -158,6 +214,8 @@ int main(int argc, char** argv) {
     std::printf("\n3. a body sweeping through the liquid, no gravity\n");
     run_moving_body(true, 0.02, 1200);
     run_moving_body(true, 0.02, 3600);
+    std::printf("\n4. drain(): the ledger, and a closed interface afterwards\n");
+    run_drain();
   }
   const int rc = check::report("free_surface");
   Kokkos::finalize();

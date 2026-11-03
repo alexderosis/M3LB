@@ -46,6 +46,9 @@ results/J_zhou_thermal/*_uy.dat
 # -out results/mew_liquefier/run` rewrites them in about 40 s; the time series,
 # the sweep table and the ladder logs beside them are tracked.
 results/mew_liquefier/*_field.csv
+# demonstrator/mew_nozzle's per-node frames (fill and potential, .npy); the
+# series CSVs, logs and figures beside them are tracked.
+results/mew_nozzle/*.npy
 
 # Rendered animations. Regenerable from doc/fig/*.py given a dump, and a dump
 # is itself ignored -- so these are two steps from anything tracked. doc/m3lb.pdf

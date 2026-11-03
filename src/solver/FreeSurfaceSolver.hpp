@@ -605,6 +605,76 @@ class FreeSurfaceSolver {
     mark_obstacle(inside, wall_vel);
     transfer_covered_mass();
   }
+  //----------------------------------------------------------------------------
+  // REMOVE THE LIQUID IN A REGION -- the only way liquid can LEAVE this solver,
+  // which otherwise has walls and nothing else. `inside(n)` is a device lambda.
+  // Call it between steps; it returns the mass it removed and adds it to
+  // drained_mass(), so total_mass() + drained_mass() is the ledger a case with
+  // a drain must close, the way no_refill cases close theirs with
+  // ejected_mass().
+  //
+  // IT IS A CONVERSION, NOT A NEW MECHANISM. A drained cell is turned to Gas
+  // with its excess zeroed -- its mass leaves rather than being handed on --
+  // and then promote() and settle() run exactly as they do at the end of a
+  // step: a Fluid cell left facing the new gas becomes Interface and keeps
+  // its whole density as mass, so the shell stays closed and nothing else is
+  // created or destroyed. excess_ is cleared first because settle() would
+  // otherwise hand out the previous step's published excess a second time.
+  //
+  // THE FLUID NEIGHBOURS ARE DEMOTED HERE, BEFORE promote(), AND THAT IS THE
+  // FIX OF A MEASURED BUG. promote() closes the shell in BOTH directions, so
+  // left to it a drained cell beside a cell that is still Fluid is pulled back
+  // to Interface -- and since its old flag was Fluid, settle() gives it its
+  // whole density back. The first version did exactly that: 31 units created
+  // on a 126-unit drain in the unit test. Demoting the neighbours first leaves
+  // every drained cell with no Fluid neighbour, so promote() has nothing to
+  // reverse.
+  //
+  // settle() also clears reinitialised(), as it does at the end of a step, so
+  // a module that reads that flag (PenalisedBody's force correction) must read
+  // it before a drain, not after. No case pairs the two today.
+  //
+  // Opt-in: a case that never calls it is unchanged. Added 2026-11-03 for
+  // demonstrator/mew_nozzle.cpp, where melt laid on a moving collector must
+  // leave the box rather than pile against its far wall;
+  // tests/test_free_surface.cpp block 4 pins the ledger and the closure.
+  //----------------------------------------------------------------------------
+  template <class InsideFn>
+  Real drain(InsideFn inside) {
+    auto flags = flags_, newf = newf_;
+    auto mass = mass_, rho = rho_, excess = excess_;
+    Real removed = 0;
+    Kokkos::parallel_reduce("fs_drain", Range(0, dom_.n_padded),
+      KOKKOS_LAMBDA(Index n, Real& acc) {
+        excess(n) = Real(0);
+        const std::uint8_t f = flags(n);
+        newf(n) = f;
+        if ((f == FsFluid || f == FsInterface) && inside(n)) {
+          acc += (f == FsFluid) ? rho(n) : mass(n);
+          newf(n) = FsGas;
+        }
+      }, removed);
+    Kokkos::fence();
+    // A closed shell means no Fluid cell had a Gas neighbour before this call,
+    // so any Gas in newf_ beside a Fluid cell is a cell just drained. Only
+    // Fluid cells are written, and they test only neighbours that are Gas,
+    // which this pass never writes.
+    const Domain d = dom_;
+    Kokkos::parallel_for("fs_drain_shell", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+      if (flags(n) != FsFluid || newf(n) != FsFluid) return;
+      Neighbours<L> nb;
+      d.template fill_neighbours<L, NF, NS>(n, nb);
+      for (int i = 1; i < Q; ++i)
+        if (newf(nb.j[i]) == FsGas) { newf(n) = FsInterface; return; }
+    });
+    Kokkos::fence();
+    promote();
+    settle();
+    drained_ += removed;
+    return removed;
+  }
+  Real drained_mass() const { return drained_; }
+
   // Cumulative mass removed because no neighbour could accept it. Zero unless
   // no_refill is on. total_mass() + ejected_mass() is the conserved quantity
   // there, and it is what a case must assert instead of total_mass() alone.
@@ -1247,6 +1317,7 @@ class FreeSurfaceSolver {
   // been given. This mask means only what its name says.
   View1D<std::uint8_t> uncov_;
   Real ejected_ = 0;          // see ejected_mass()
+  Real drained_ = 0;          // see drain()
   HostView1D<std::uint8_t> h_flags_;
   View1D<Real> mass_, eps_, excess_;
   // Curvature working set. Empty until set_surface_tension() is called.
