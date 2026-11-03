@@ -123,8 +123,9 @@
 //     effectively non-wetting (about 180 degrees) wherever surface tension is
 //     on and a free surface meets it. A 90-degree mirror of the colour function
 //     into the wall was tried on 2026-11-03 against demonstrator/mew_nozzle's
-//     melt peeling off its collector, changed nothing there (the peeling was
-//     the case's own drain), and was removed unverified. A wetting case needs
+//     melt peeling off its collector, changed nothing there, and was removed
+//     unverified. What kept that case's field-off rope from coming back was its
+//     own drain; its first contact still breaks within 0.1 s, field on or off. A wetting case needs
 //     a contact-angle law and a sessile-drop test written with it.
 //   * NO GAS DYNAMICS, and this is the method, not an omission. An enclosed
 //     bubble does not compress, because its pressure is prescribed rather than

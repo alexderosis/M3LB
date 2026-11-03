@@ -35,10 +35,12 @@
 //        (Table 1 as printed)   front at 1.127 mm/s, melt within 1 mm of the tip
 //                               level at 0.647 mm^2, first contact 4.690 s,
 //                               peak pull 1.19 gamma/R before it; after it the
-//                               rope LIFTS OFF (below)
+//                               rope leaves the collector and STAYS UP (below)
 //      the same, field OFF      front 1.130 mm/s, 0.647 mm^2, contact 4.682 s;
-//                               after it the melt STICKS: dragged to the box's
-//                               downstream edge and laid there, 4.83 mm^2 by
+//                               after it the rope BOUNCES -- off the collector
+//                               within 0.1 s, 0.64 mm up at 5.02 s -- sags back,
+//                               touches again at 5.87 s near the box's
+//                               downstream edge and is laid there: 4.83 mm^2 by
 //                               7.26 s, when the drawn thread's thinnest row
 //                               holds 0.80 cells of melt; it then breaks and
 //                               nothing more is laid
@@ -82,31 +84,33 @@
 //  projection stops. -nosym brings the drift back: field on, the foot leaves
 //  the axis at ~1.5 s and is at -0.41 mm by 4.47 s.
 //
-//  AFTER CONTACT.
-//   - FIELD OFF, THE MELT STICKS, with one model edge: the collector drags the
-//     foot to the box's downstream side, where the drain takes what reaches the
-//     collector, so the lag between nozzle and touchdown is set by the BOX, not
-//     by physics -- gravity is negligible and nothing else sets it. The thread
-//     is drawn down to under a cell (above) and then breaks: the drawn sheet of
-//     the real process, Q/U_c = 23 um in 2-D, is below the 25 um grid. The
-//     first version's melt "did not stick" because its drain removed melt at
-//     the side walls at EVERY height and ate the dragged rope from the bottom
-//     up, the taut rope then swinging off the collector; a 90-degree wetting
-//     condition was tried first and changed nothing.
-//   - FIELD ON, THE ROPE LIFTS OFF. Its lowest point is 0.91 mm up by 4.97 s
-//     and 2.31 mm by 6.0 s, the rope curled into a hook; the hook then sinks
-//     as the feed lengthens it, 0.89 mm up at 8.95 s and falling ~0.44 mm/s,
-//     so whether it touches again lies past the run. The two columns arrive
-//     within 0.01 s and 0.003 mm/s of each other, so it is the field that
-//     lifts it. WHERE is a suspect, NOT isolated: this model's conductor edge.
-//     Below -lc (2 mm) the melt is an insulator, so a column crossing that
-//     line carries a conductor's end with it, and the pull peaks after
-//     contact (1.55 gamma/R at 5.3 s). If so, the fix is a
-//     melt that carries current -- its potential falling along the thread once
-//     it touches the collector -- not a better -lc. One interface cell (fill
-//     0.54) is left on the collector at contact and stays there, unmoved, to the
-//     end: classify()'s detached-speck rule spares a cell touching a wall, and
-//     with no liquid neighbour it exchanges no mass.
+//  AFTER CONTACT BOTH ROPES LEAVE THE COLLECTOR, within 0.1 s of touching it,
+//  field on or off; what the field decides is whether they come back. Measured
+//  on the melt still attached to the nozzle, its lowest point against time.
+//  "Sticks" was first read off the laid area, which starts only at the SECOND
+//  touch; the frames show the bounce.
+//   - FIELD OFF, IT COMES BACK AND IS LAID, with one model edge: it touches
+//     again near the box's downstream side, where the drain takes what reaches
+//     the collector, so the lag between nozzle and touchdown is set by the BOX,
+//     not by physics -- gravity is negligible and nothing else sets it. The
+//     thread is drawn down to under a cell (above) and then breaks: the drawn
+//     sheet of the real process, Q/U_c = 23 um in 2-D, is below the 25 um grid.
+//     In the first version it never came back: its drain removed melt at the
+//     side walls at EVERY height and ate the dragged rope from the bottom up. A
+//     90-degree wetting condition was tried first and changed nothing.
+//   - FIELD ON, IT STAYS UP. The rope curls into a hook whose lowest point is
+//     2.31 mm up by 6.0 s; the hook then sinks as the feed lengthens it, 0.89 mm
+//     up at 8.95 s and falling ~0.44 mm/s, so whether it touches again lies past
+//     the run. The two columns arrive within 0.01 s and 0.003 mm/s of each
+//     other, so it is the field that keeps it up. NOT WHERE THE CONDUCTING
+//     MELT ENDS, though that was the suspect: the peak pull does sit on the cut
+//     line (1.2 gamma/R from 2 s, 1.55 at 5.3 s as the hook's end crosses it),
+//     but with the cut 1 and 3 mm below the tip (-lc 1, -lc 3) the hook is the
+//     same, 2.19 and 2.06 mm up at its highest against 2.31 (2026-11-03). So a
+//     1 mm conducting cap is enough, and the mechanism is NOT diagnosed. One
+//     interface cell (fill 0.54) is left on the collector at contact and stays
+//     there, unmoved, to the end: classify()'s detached-speck rule spares a cell
+//     touching a wall, and with no liquid neighbour it exchanges no mass.
 //
 //  FIXED ON THE WAY, so a rerun does not repeat them: the nozzle is centred,
 //  because 2 mm from one mirror wall and 4 mm from the other the image nozzles

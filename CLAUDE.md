@@ -1167,17 +1167,19 @@ Do not spend time on these without saying so first; several are deliberate.
   round tip). A planar sheet carrying an MEW feed at collector speed is ~0.4 µm,
   against 25 µm cells and 10–20 µm fibres, so the model resolves what
   accumulates under the tip and nothing that leaves it. **After contact the
-  two runs part company, and neither is a measurement.** Field off, the melt
-  sticks and is drawn into a thread until its thinnest row holds under a cell,
-  but it is laid at the box's downstream edge, so the BOX sets the lag, and the
-  ledger climbs +0.5 → +5.4 % while the thread thins. Field on, the rope lifts
-  off (2.3 mm by 6 s); the two columns arrive within 0.01 s of each other, so
-  the field is the cause, and the model's conductor cut-off is a suspect that
-  has not been isolated. The first version's "melt does not stick" was NOT a
-  missing wetting law -- a 90-degree wetting mirror changed nothing -- but the
-  case's own drain eating the rope at the side walls at every height: when
-  something fails to stick, check what the case removes before blaming the
-  physics. **A mirror-symmetric free surface does not stay symmetric**: an
+  two runs part company, and neither is a measurement.** Both ropes leave the
+  collector within 0.1 s of touching it. Field off, the rope comes back (5.87 s)
+  and is laid, but at the box's downstream edge, so the BOX sets the lag, and
+  it is drawn into a thread until its thinnest row holds under a cell, the
+  ledger climbing +0.5 → +5.4 % meanwhile. Field on, it curls up and stays up
+  (2.3 mm by 6 s). It is the field, but NOT where the conducting melt ends:
+  with the cut 1, 2 and 3 mm below the tip the hook rises 2.19, 2.31 and
+  2.06 mm, so the mechanism is not diagnosed. "Sticks" was first read off the
+  laid area, which only starts at the second touch -- look at the frames. The
+  first version's melt never came back, and that was NOT a missing wetting law
+  -- a 90-degree wetting mirror changed nothing -- but the case's own drain
+  eating the rope at the side walls at every height: when something fails to
+  stick, check what the case removes before blaming the physics. **A mirror-symmetric free surface does not stay symmetric**: an
   advancing front amplifies round-off (−0.42 mm in 4.5 s, not diagnosed).
   `FreeSurfaceSolver::mirror_symmetrize_x` projects it away while the problem
   is symmetric and must stop when it is not; `mew_nozzle` stops at first
