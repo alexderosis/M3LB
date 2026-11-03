@@ -1166,18 +1166,20 @@ Do not spend time on these without saying so first; several are deliberate.
   (`demonstrator/mew_nozzle`: 0.7 γ/R at 6.5 kV; its 12 kV row stands in for a
   round tip). A planar sheet carrying an MEW feed at collector speed is ~0.4 µm,
   against 25 µm cells and 10–20 µm fibres, so the model resolves what
-  accumulates under the tip and nothing that leaves it. Its absolute numbers
-  are not grid-converged: R = 4 → 8 moved the front 0.89 → 1.13 mm/s and first
-  contact 5.9 → 4.7 s, so compare runs at one resolution. **After contact the
-  two runs part company, and neither is a measurement.** Both ropes leave the
-  collector within 0.1 s of touching it. Field off, the rope comes back (5.87 s)
-  and is laid, but at the box's downstream edge, so the BOX sets the lag, and
-  it is drawn into a thread until its thinnest row holds under a cell, the
-  ledger climbing +0.5 → +5.4 % meanwhile. Field on, it curls up and stays up
-  (2.3 mm by 6 s). It is the field, but NOT where the conducting melt ends:
-  with the cut 1, 2 and 3 mm below the tip the hook rises 2.19, 2.31 and
-  2.06 mm, so the mechanism is not diagnosed. "Sticks" was first read off the
-  laid area, which only starts at the second touch -- look at the frames. The
+  accumulates under the tip and nothing that leaves it. Its numbers are not
+  grid-converged, and the nozzle is why: the melt leaves through a neck of
+  exactly the bore plus four cells on every grid (0.60 / 0.50 / 0.45 mm at
+  R = 4 / 8 / 16), because the nozzle reads as a non-wetting wall, and the
+  column is a plug carrying the feed, so the front (0.91 / 1.14 / 1.34 mm/s)
+  and first contact (5.84 / 4.69 / 3.98 s) move with the cell. **And a field
+  on/off contrast at one grid was the grid's.** At R = 8 the field-off rope
+  bounced 0.64 mm after contact and came back while the field-on one stayed up
+  2.3 mm. That was written up as the field's doing, chased with a `-lc` test,
+  and shown to Murat. At R = 16 both ropes rise alike (2.29 / 2.38 mm) and sink
+  slowly, and at R = 4 both rise. A difference between two runs at one
+  resolution is no more grid-independent than either run. "Sticks" was first
+  read off the laid area, which only starts at the second touch -- look at the
+  frames. The
   first version's melt never came back, and that was NOT a missing wetting law
   -- a 90-degree wetting mirror changed nothing -- but the case's own drain
   eating the rope at the side walls at every height: when something fails to
