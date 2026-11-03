@@ -59,8 +59,9 @@ collector moving at \qty{2100}{\milli\metre\per\minute}. Four results:
     feed rate; no jet can form on this grid.
   \item Only the per-minute feed matches the measured fibres: at \qty{35}{\milli\metre\per\second} it lays a
     \qty{12}{\micro\metre} fibre.
-  \item After the melt reaches the collector the model is not reliable, and its absolute numbers are not
-    grid-converged. Comparisons at one resolution, such as field on against field off, are what it supports.
+  \item The numbers are not grid-converged: with no wetting law, the melt leaves the nozzle through a neck
+    set by the cell size. The field changes nothing before the melt reaches the collector, on any grid; a
+    difference after contact seen on \qty{25}{\micro\metre} cells is gone on \qty{12.5}{\micro\metre} cells.
 \end{itemize}
 
 \section{Model and set-up}
@@ -93,10 +94,11 @@ experiment and kept small in the model (Reynolds number at most 0.32).
 
 \subsection{The printed feed: a column, field or no field}
 The capillary number in the bore is 34, so viscous extrusion beats surface tension by a wide margin.
-With the field on and off the front falls at \qty{1.13}{\milli\metre\per\second}, the melt within
-\qty{1}{\milli\metre} of the tip settles at \qty{0.65}{\milli\metre\squared} in both, and both columns
-reach the collector at \qty{4.7}{\second}, within \qty{0.01}{\second} of each other (Fig.~\ref{fig:columns}).
-In the experiment this would look like oozing whatever the voltage.
+On \qty{25}{\micro\metre} cells, with the field on and off, the front falls at
+\qty{1.13}{\milli\metre\per\second}, the melt within \qty{1}{\milli\metre} of the tip settles at
+\qty{0.65}{\milli\metre\squared} in both, and both columns reach the collector at \qty{4.7}{\second}, within
+\qty{0.01}{\second} of each other (Fig.~\ref{fig:columns}; Section~\ref{sec:cells} for how these numbers move
+with the cell size). In the experiment this would look like oozing whatever the voltage.
 
 \begin{figure}[h]
   \centering
@@ -138,24 +140,38 @@ carries its cross-section times that speed, so \qtyrange{9.5}{22}{\micro\metre} 
 \qty{0.0043}{\cubic\milli\metre\per\second}, a \qty{12}{\micro\metre} fibre;
 \qty{0.255}{\cubic\milli\metre\per\second} would need a \qty{96}{\micro\metre} fibre.
 
+\subsection{How the numbers depend on the cell size}\label{sec:cells}
+The printed feed was rerun on cells of 50 and \qty{12.5}{\micro\metre}, with the same physics. Nothing
+converges: on 50, 25 and \qty{12.5}{\micro\metre} cells the front falls at 0.91, 1.14 and
+\qty{1.34}{\milli\metre\per\second} over the first \qty{3.5}{\second}, the melt within \qty{1}{\milli\metre} of the tip is 0.81, 0.65 and
+\qty{0.55}{\milli\metre\squared}, and first contact comes at 5.8, 4.7 and \qty{4.0}{\second}. The reason is
+where the melt leaves the nozzle. The model has no wetting: it treats the nozzle as a surface the melt does
+not wet, so the melt leaves from the edge of the bore and creeps exactly two cells onto the tip face,
+whatever a cell measures. The neck is therefore 0.60, 0.50 and \qty{0.45}{\milli\metre} wide, and since
+the column below carries the whole feed, a narrower neck makes a narrower, faster column. As the cells
+shrink the neck tends to the bore itself, \qty{0.4}{\milli\metre}; a melt that wets the nozzle would hang
+from its outer edge instead, \qty{1.0}{\milli\metre} wide, a bigger difference than any of these grids
+make. Before contact the field changes nothing on any grid (within \qty{1.4}{\percent}).
+
 \subsection{After the melt reaches the collector}
-Here the model stops being a measurement. Both ropes leave the collector within \qty{0.1}{\second} of
-touching it. With the field off the rope sags back, touches again at \qty{5.87}{\second} near the edge of
-the box and is laid there, until the drawn thread is thinner than a cell at \qty{7.3}{\second}. With the
-field on it curls into a hook and does not come back during the run (Fig.~\ref{fig:contact}). The field is
-strongest where the model stops treating the melt as a conductor, which made that line the first suspect;
-but with the melt conducting to 1, 2 or \qty{3}{\milli\metre} below the tip the rope rises 2.19, 2.31 and
-\qty{2.06}{\milli\metre}, so the line is not the cause. Why the field keeps the rope up is not yet known.
-Where the rope touches down is set by the width of the box, not by the physics.
+Both ropes leave the collector within \qty{0.1}{\second} of touching it. On \qty{25}{\micro\metre} cells
+the two then part company: with the field off the rope sags back, touches again \qty{1.2}{\second} later
+near the edge of the box and is laid there, while with the field on it curls into a hook and stays up. On
+\qty{12.5}{\micro\metre} cells that difference is gone. Both ropes rise, to 2.3 and
+\qty{2.4}{\milli\metre}, and sink slowly, still 1.3 to \qty{1.5}{\milli\metre} up \qty{2.6}{\second} after
+contact (Fig.~\ref{fig:contact}); on \qty{50}{\micro\metre} cells both rise too. So the field-off rope's
+return belongs to the \qty{25}{\micro\metre} grid, not to the field, and nothing after contact here should
+be read as an effect of the field. Where a rope touches down is set by the width of the box in any case.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\textwidth]{fig/fig3_contact.pdf}
-  \caption{After first contact at the printed feed; the collector moves to the right. (a, b) The rope at
-    \qty{6.0}{\second}: field off, it has come back and is laid at the edge of the box; field on, it has
-    curled into a hook. (c) Height of the lowest point of the melt still attached to the nozzle: field off
-    (orange, dashed), and field on with the melt conducting to 1, 2 and \qty{3}{\milli\metre} below the tip
-    (light to dark blue).}
+  \caption{After first contact at the printed feed; the collector moves to the right. (a, b) The field-off
+    rope \qty{1.3}{\second} after its first contact: on \qty{25}{\micro\metre} cells it has come back and is
+    laid near the edge of the box; on \qty{12.5}{\micro\metre} cells it is still up. (c, d) Height of the
+    lowest point of the melt still attached to the nozzle against the time since contact, field on (blue)
+    and off (orange, dashed): the two part company on \qty{25}{\micro\metre} cells and coincide on
+    \qty{12.5}{\micro\metre} cells.}
   \label{fig:contact}
 \end{figure}
 
@@ -163,11 +179,13 @@ Where the rope touches down is set by the width of the box, not by the physics.
 \begin{itemize}
   \item \textbf{The Taylor cone and the jet.} A planar meniscus has no conical equilibrium, and the jet is
     far below the grid. A flat tip also concentrates the field less than a round one.
-  \item \textbf{Wetting.} The nozzle and the collector have no contact-angle law.
+  \item \textbf{Wetting.} The runs treat the nozzle and the collector as surfaces the melt does not wet.
+    A contact-angle law since added to the code spreads the melt onto the tip face by only one cell a side
+    in \qty{4}{\second}, and its contact line sticks, more so on finer grids.
   \item \textbf{Charge and conduction.} The melt is a perfect conductor near the tip and an insulator
     below; there is no free charge and no current.
-  \item \textbf{Heat.} The melt is held at \qty{120}{\celsius}; the filament's melting in the hot end, where
-    the fan acts, was modelled separately.
+  \item \textbf{Heat.} The melt is held at \qty{120}{\celsius}; the hot end, where the fan acts, was
+    modelled separately.
   \item \textbf{Rheology.} Newtonian at a nominal \qty{500}{\pascal\second}: no shear-thinning, no
     elasticity, no die swell.
 \end{itemize}
@@ -177,24 +195,23 @@ Where the rope touches down is set by the width of the box, not by the physics.
 \begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash\sffamily\small}p{5.0cm}L@{}}
 \toprule
 Electric pull on a melt surface, against exact solutions &
-  The pattern of the pull is right to \qty{0.05}{\percent}; with the surface free to move, the response is
-  right to \qty{3}{\percent} once the surface's own stiffness (next row) is allowed for. \\
+  The pattern of the pull is right to \qty{0.05}{\percent}, a moving surface's response to
+  \qty{3}{\percent} once its own stiffness (next row) is allowed for. \\
 A gentle pull on a flat melt surface &
   Deflections of one or two cells come out \qtyrange{9}{25}{\percent} short: the free surface is too stiff
   there, wherever the field moves it by only a cell or two. \\
 Surface tension: Laplace's law for a still drop &
   Right to \qty{1.2}{\percent} for drops of 12 cells radius or more, \qty{3.4}{\percent} at 8 cells. The bore
   is 8 cells from wall to axis. \\
-Halving the cell size, 50 to \qty{25}{\micro\metre} &
-  The front's speed went from 0.89 to \qty{1.13}{\milli\metre\per\second}, the melt under the tip from 0.81
-  to \qty{0.65}{\milli\metre\squared}, and first contact from 5.9 to \qty{4.7}{\second}. Not converged:
-  compare runs at one resolution rather than quoting these absolute values. After contact the coarse grid
-  shows no effect of the field at all. \\
+Three cell sizes, 50, 25 and \qty{12.5}{\micro\metre} &
+  Not converged: front 0.91, 1.14 and \qty{1.34}{\milli\metre\per\second}, melt under the tip 0.81, 0.65
+  and \qty{0.55}{\milli\metre\squared}, contact 5.8, 4.7 and \qty{4.0}{\second}, all set by the neck
+  (Section~\ref{sec:cells}); the field-off return is the \qty{25}{\micro\metre} grid's. \\
 Mass &
   Conserved to \qty{0.6}{\percent} until contact; it gains up to \qty{5.4}{\percent} while the field-off
   thread is drawn thin, which is not yet explained. \\
 Symmetry &
-  The set-up is mirror-symmetric, and the melt is held so until it touches the collector. Without that,
+  The melt is held mirror-symmetric, as the set-up is, until it touches the collector; otherwise
   round-off pushes the column up to \qty{0.4}{\milli\metre} sideways. \\
 \bottomrule
 \end{tabularx}
@@ -209,13 +226,14 @@ Symmetry &
     and the surface tension? The model uses \qty{500}{\pascal\second} and \qty{0.03}{\newton\per\metre}.
   \item Does the melt ooze with the voltage off? At the printed feed the model pushes out the same column
     with or without the field.
+  \item Does the melt wet the nozzle tip: does it hang from the bore or from the nozzle's outer edge? The
+    model assumes it does not wet, and that choice moves the column more than any grid here.
 \end{enumerate}
 
 \vfill
-{\footnotesize\color{inkthree}\sffamily Simulated with M3LB, a lattice Boltzmann code
-(\href{https://github.com/alexderosis/M3LB}{github.com/alexderosis/M3LB}, branch \texttt{electrowriting}):
-\texttt{demonstrator/mew\_nozzle} with \texttt{-feed s} or \texttt{-feed min}, and \texttt{-V 12},
-\texttt{-nofield} or \texttt{-lc 1}, \texttt{-lc 3} for the variants. Double precision. Figures:
+{\footnotesize\color{inkthree}\sffamily M3LB (\href{https://github.com/alexderosis/M3LB}{github.com/alexderosis/M3LB},
+branch \texttt{electrowriting}), double precision: \texttt{demonstrator/mew\_nozzle -feed s} or \texttt{min},
+\texttt{-V 12}, \texttt{-nofield}; cells \texttt{-R 4/8/16} with \texttt{-Ucol 0.04/0.02/0.01}. Figures:
 \texttt{paper/mew\_nozzle/make\_figs.py}.\par}
 
 \end{document}

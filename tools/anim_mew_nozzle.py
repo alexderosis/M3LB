@@ -240,9 +240,9 @@ def pair_frame(fig, t, t_end, idx, ser, a):
              "Feed as printed in Table 1:  0.255 mm³/s", fontsize=14, color=INK, weight="bold")
     if a.cut_a > 0 and t > a.cut_a:
         overlay(axA, [(f"Shown to contact at {a.cut_a:.1f} s", True),
-                      ("After contact the rope curls up and stays up.", False),
-                      ("Moving the dotted line 1 mm up or down", False),
-                      ("does not change that; why is not yet known.", False)])
+                      ("After contact this rope lifts off the collector.", False),
+                      ("On 12.5 µm cells the field-off rope does too:", False),
+                      ("the return on the right is this 25 µm grid's.", False)])
     if a.cut_b > 0 and t > a.cut_b:
         overlay(axB, [(f"Shown to {a.cut_b:.1f} s", True),
                       ("The drawn thread is now one 25 µm cell thick", False),
@@ -423,7 +423,7 @@ def main():
                 axA.text(0.5, 0.68, f"Stopped at {a.cut_ab:.1f} s: the melt has reached the collector",
                          transform=axA.transAxes, ha="center", fontsize=13, color=INK,
                          weight="bold", zorder=6)
-                axA.text(0.5, 0.63, "Both then bounce off it: field off, the rope comes back; field on, it stays up.",
+                axA.text(0.5, 0.63, "Both then lift off it; what follows depends on the grid, not on the field.",
                          transform=axA.transAxes, ha="center", fontsize=11.5, color=INK2, zorder=6)
             handles = [Line2D([], [], color=BLUE, lw=6, label="melt, field on"),
                        Line2D([], [], color=INK2, lw=0.8,

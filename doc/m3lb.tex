@@ -9924,17 +9924,22 @@ Stated plainly, because each has been measured.
   $0.4\,\mu$m at the per-minute feed), against the experiment's
   10--20\,$\mu$m fibres. The planar model resolves what accumulates at the
   tip, not the jet; an axisymmetric or 3-D solver is what the cone-jet needs.
-  After an extruded column reaches the moving collector, both ropes leave it
-  within $0.1$\,s. With the field off the rope comes back and is laid, but at
-  the box's downstream edge, so the box sets the lag between nozzle and
-  touchdown. With the field on it curls up and stays up, $2.3$\,mm by $6$\,s,
-  though the two columns arrive within $0.01$\,s of each other. Where the
-  conducting melt ends does not matter: with the cut 1, 2 and 3\,mm below the
-  tip the rope rises $2.19$, $2.31$ and $2.06$\,mm. The mechanism is not
-  diagnosed. And the absolute numbers are not grid-converged: halving the
-  cell from 50 to 25\,$\mu$m moved the front's speed from $0.89$ to
-  $1.13$\,mm/s and first contact from $5.9$ to $4.7$\,s, so only runs at one
-  resolution can be compared.
+  The extruded column is not grid-converged, and the nozzle is why: at fixed
+  physics the melt leaves it through a neck of exactly the bore plus four cells
+  on every grid (0.60, 0.50 and 0.45\,mm at 50, 25 and 12.5\,$\mu$m), because
+  the free surface reads the nozzle as a non-wetting wall, and the column below
+  is a plug carrying the feed. So the front moves at $0.913$, $1.137$ and
+  $1.342$\,mm/s and first contact comes at $5.84$, $4.69$ and $3.98$\,s, with
+  apparent orders 0.13 and 0.68 and no extrapolation that means anything. A
+  contact-angle law on the nozzle does not cure it (the contact-angle item
+  below). Before
+  contact the field changes nothing on any grid, within $1.4\,\%$. After it,
+  both ropes leave the collector within $0.1$\,s, and at 25\,$\mu$m alone the
+  field-off rope then came back and was laid while the field-on one stayed up,
+  $2.3$\,mm by $6$\,s. That contrast was the grid's: at 12.5\,$\mu$m both ropes
+  rise alike, to $2.29$ and $2.38$\,mm, and sink slowly, and at 50\,$\mu$m both
+  rise too. A difference between two runs at one resolution is no more
+  grid-independent than either run.
 \item \textbf{A mirror-symmetric free surface does not stay symmetric, and a
   thread drawn below a cell creates mass.} Neither is diagnosed. In
   \code{mew\_nozzle} an advancing front amplifies round-off until the column

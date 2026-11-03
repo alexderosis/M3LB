@@ -43,7 +43,9 @@
 //                               downstream edge and is laid there: 4.83 mm^2 by
 //                               7.26 s, when the drawn thread's thinnest row
 //                               holds 0.80 cells of melt; it then breaks and
-//                               nothing more is laid
+//                               nothing more is laid. THE BOUNCE IS THIS GRID'S:
+//                               at 12.5 um the field-off rope rises like the
+//                               field-on one (AFTER CONTACT, below)
 //      0.255 mm^3/MIN, 6.5 kV   a meniscus that grows at 0.01354 mm^2/s, the
 //                               feed's own 2 R U = 0.01353: 0.108 mm^2 at 8 s,
 //                               0.32 mm below the tip face; peak pull 0.68 gamma/R
@@ -81,8 +83,10 @@
 //  line moves, which here is numerical slip at a no-slip wall (gamma/mu is
 //  0.06 mm/s against a 2 mm/s bore flow), and validation/sessile_drop measures a
 //  contact-line window that WIDENS with resolution -- so the law does not by
-//  itself make this column converge. Compare runs at one resolution, field on
-//  against off; quote no absolute number here as converged.
+//  itself make this column converge. Before contact the field changes nothing
+//  on any grid (front, tip melt and contact time agree within 1.4 %); quote no
+//  absolute number here as converged, and no difference after contact either
+//  (AFTER CONTACT, below).
 //
 //  WHAT IT SAYS. At the feed Table 1 prints, the bore's capillary number is 34:
 //  the melt is extruded as a column whatever the field does, which in the
@@ -111,32 +115,35 @@
 //  the axis at ~1.5 s and is at -0.41 mm by 4.47 s.
 //
 //  AFTER CONTACT BOTH ROPES LEAVE THE COLLECTOR, within 0.1 s of touching it,
-//  field on or off; what the field decides is whether they come back. Measured
-//  on the melt still attached to the nozzle, its lowest point against time.
-//  "Sticks" was first read off the laid area, which starts only at the SECOND
-//  touch; the frames show the bounce.
-//   - FIELD OFF, IT COMES BACK AND IS LAID, with one model edge: it touches
-//     again near the box's downstream side, where the drain takes what reaches
-//     the collector, so the lag between nozzle and touchdown is set by the BOX,
-//     not by physics -- gravity is negligible and nothing else sets it. The
-//     thread is drawn down to under a cell (above) and then breaks: the drawn
-//     sheet of the real process, Q/U_c = 23 um in 2-D, is below the 25 um grid.
-//     In the first version it never came back: its drain removed melt at the
-//     side walls at EVERY height and ate the dragged rope from the bottom up. A
-//     90-degree wetting condition was tried first and changed nothing.
-//   - FIELD ON, IT STAYS UP. The rope curls into a hook whose lowest point is
-//     2.31 mm up by 6.0 s; the hook then sinks as the feed lengthens it, 0.89 mm
-//     up at 8.95 s and falling ~0.44 mm/s, so whether it touches again lies past
-//     the run. The two columns arrive within 0.01 s and 0.003 mm/s of each
-//     other, so it is the field that keeps it up. NOT WHERE THE CONDUCTING
-//     MELT ENDS, though that was the suspect: the peak pull does sit on the cut
-//     line (1.2 gamma/R from 2 s, 1.55 at 5.3 s as the hook's end crosses it),
-//     but with the cut 1 and 3 mm below the tip (-lc 1, -lc 3) the hook is the
-//     same, 2.19 and 2.06 mm up at its highest against 2.31 (2026-11-03). So a
-//     1 mm conducting cap is enough, and the mechanism is NOT diagnosed. One
-//     interface cell (fill 0.54) is left on the collector at contact and stays
-//     there, unmoved, to the end: classify()'s detached-speck rule spares a cell
-//     touching a wall, and with no liquid neighbour it exchanges no mass.
+//  field on or off, AND WHETHER THEY COME BACK IS THE GRID'S CHOICE, NOT THE
+//  FIELD'S. Measured on the melt still attached to the nozzle, its lowest point
+//  against time ("sticks" was first read off the laid area, which starts only
+//  at the SECOND touch; the frames show the bounce). At 25 um the two runs
+//  parted company: field on, the rope curled into a hook 2.31 mm up by 6.0 s,
+//  still 0.89 mm up at 8.95 s; field off, it bounced 0.64 mm and came back
+//  1.19 s after contact, to be laid near the box's downstream edge -- where the
+//  drain takes what reaches the collector, so the BOX set the lag -- and drawn
+//  below a cell until it broke. That was read as the field keeping the rope up,
+//  and a -lc test chased the mechanism (cut 1, 2 and 3 mm below the tip: hooks
+//  2.19 / 2.31 / 2.06 mm up). THE OTHER TWO GRIDS SAY OTHERWISE (the ladder at
+//  fixed Re_coll 0.32, 2026-11-03). At 12.5 um both ropes rise and sink alike:
+//  2.29 and 2.38 mm at their highest, field on and off, 0.93 and 1.08 s after
+//  contact, then 1.32 and 1.53 mm up 2.6 s after it, neither back. At 50 um
+//  both rise too, 1.93 and 1.68 mm when the runs end 0.76 s after contact. So
+//  the 25 um field-off bounce is the odd one out, and nothing after contact that
+//  this model resolves is decided by the field. A DIFFERENCE BETWEEN TWO RUNS
+//  AT ONE RESOLUTION IS NOT GRID-INDEPENDENT EITHER: this banner's own advice
+//  was to compare field on against off at one grid, and the contrast it
+//  compared belonged to the grid.
+//   - The first version's field-off rope never came back at all: its drain
+//     removed melt at the side walls at EVERY height and ate the dragged rope
+//     from the bottom up. A 90-degree wetting mirror was tried first and changed
+//     nothing; the drain now acts on the collector only.
+//   - One interface cell (fill 0.54) is left on the collector at contact and
+//     stays there, unmoved, to the end: classify()'s detached-speck rule spares
+//     a cell touching a wall, and with no liquid neighbour it exchanges no mass.
+//   - The drawn sheet of the real process, Q/U_c = 23 um in 2-D, is below the
+//     25 um grid, which is why the field-off thread there broke once drawn.
 //
 //  FIXED ON THE WAY, so a rerun does not repeat them: the nozzle is centred,
 //  because 2 mm from one mirror wall and 4 mm from the other the image nozzles

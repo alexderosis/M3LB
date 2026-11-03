@@ -26,7 +26,6 @@ OUT = os.path.join(HERE, "fig")
 W_MM, GAP_MM, LC_MM = 8.0, 5.5, 2.0          # box width, nozzle gap, conducting depth
 INK, INK2, INK3, RULE = "#111110", "#4f4e4a", "#807f79", "#dedcd5"
 BLUE, ORANGE, AQUA, YELLOW = "#2a78d6", "#eb6834", "#1baf7a", "#eda100"
-CUT = {"cut1": "#86b6ef", "cut2": "#2a78d6", "cut3": "#104281"}
 MELT_RGB = (0.165, 0.471, 0.839)
 SOLID_RGB = (0.55, 0.55, 0.53)
 
@@ -142,49 +141,47 @@ def fig2():
 
 
 def fig3():
-    """(a, b) the ropes at 6.0 s, field off and on; (c) the lowest attached point after contact."""
-    fig = plt.figure(figsize=(6.5, 2.2))
-    gs = fig.add_gridspec(1, 3, width_ratios=[1, 1, 1.75], wspace=0.28)
-    for k, (name, lab, field) in enumerate((("B_feed_s_nofield", "field off", False),
-                                            ("A_feed_s_6p5kV", "field on", True))):
+    """After contact on two grids: (a, b) the field-off rope 1.3 s after its first contact, on 25 and
+    12.5 um cells; (c, d) the lowest attached point against time since contact, field on and off."""
+    fig = plt.figure(figsize=(6.5, 2.15))
+    gs = fig.add_gridspec(1, 4, width_ratios=[0.78, 0.78, 1.2, 1.2], wspace=0.42)
+    # The 12.5 um frame is a copy of one of the ladder run's frames (git-ignored, like the rest).
+    for k, (name, t, lab) in enumerate((("B_feed_s_nofield", 5.97, "25 µm"),
+                                        ("R16_B_feed_s_nofield", 5.30, "12.5 µm"))):
         ax = fig.add_subplot(gs[k])
-        tt, fl, ph = frame(os.path.join(RES, name), 6.0)
-        draw_melt(ax, fl, ph, field=field, cut=(GAP_MM - LC_MM) if field else None, ylim=(0, 6.6))
-        ax.set_title(f"({'ab'[k]}) {lab}, t = {tt:.1f} s", loc="left", color=INK)
+        tt, fl, ph = frame(os.path.join(RES, name), t)
+        draw_melt(ax, fl, ph, field=False, xlim=(-1.0, 4.0), ylim=(0, 6.3))
+        ax.set_title(f"({'ab'[k]}) off, {lab}", loc="left", color=INK)
         ax.set_xlabel("x [mm]")
         if k == 0:
             ax.set_ylabel("height [mm]")
         else:
             ax.set_yticklabels([])
-    ax = fig.add_subplot(gs[2])
     rows = [r for r in csv.reader(l for l in open(os.path.join(HERE, "data", "after_contact.csv"))
-                                  if not l.startswith("#"))]
-    head, rows = rows[0], rows[1:]
-    t = np.array([float(r[0]) for r in rows])
-    style = {"off": ("off", ORANGE, (0, (4, 2.5))),
-             "cut1": ("on, 1 mm", CUT["cut1"], "-"),
-             "cut2": ("on, 2 mm (b)", CUT["cut2"], "-"),
-             "cut3": ("on, 3 mm", CUT["cut3"], "-")}
-    for j, key in enumerate(head[1:], start=1):
-        z = np.array([float(r[j]) if r[j] else np.nan for r in rows])
-        lab, col, ls = style[key]
-        ax.plot(t, z, color=col, ls=ls, lw=1.5, label=lab)
-    ax.axvline(4.69, color=INK3, lw=0.6, ls=(0, (1, 1.5)))
-    ax.text(4.72, 2.42, "first contact", fontsize=6.5, color=INK2, va="top")
-    ax.plot([5.87], [0.013], "o", ms=4, color=ORANGE, mec="white", mew=0.8)
-    ax.text(5.93, 0.1, "touches again", fontsize=6.5, color=INK2)
-    ax.set_xlim(4.55, 6.65)
-    ax.set_ylim(0, 2.5)
-    ax.set_xlabel("time [s]")
-    ax.set_ylabel("lowest attached point [mm]")
-    ax.grid(True, color=RULE, lw=0.5)
-    ax.set_axisbelow(True)
-    for sp in ("top", "right"):
-        ax.spines[sp].set_visible(False)
-    ax.legend(loc="lower right", frameon=False, handlelength=2.0, bbox_to_anchor=(1.0, 0.12),
-              labelspacing=0.3)
-    ax.set_title("(c)", loc="left", color=INK)
-    fig.subplots_adjust(left=0.075, right=0.995, bottom=0.18, top=0.9)
+                                  if not l.startswith("#"))][1:]
+    for k, um in enumerate(("25", "12.5")):
+        ax = fig.add_subplot(gs[2 + k])
+        for field, col, ls in (("on", BLUE, "-"), ("off", ORANGE, (0, (4, 2.5)))):
+            pts = [(float(r[2]), float(r[3])) for r in rows if r[0] == um and r[1] == field]
+            t = np.array([p[0] for p in pts])
+            ax.plot(t, [p[1] for p in pts], color=col, ls=ls, lw=1.5, label=f"field {field}")
+        if um == "25":
+            ax.plot([1.19], [0.013], "o", ms=4, color=ORANGE, mec="white", mew=0.8)
+            ax.text(1.27, 0.12, "off touches again", fontsize=6.5, color=INK2)
+        ax.set_xlim(-0.1, 2.7)
+        ax.set_ylim(0, 2.5)
+        ax.set_xlabel("time since contact [s]")
+        if k == 0:
+            ax.set_ylabel("lowest attached point [mm]")
+        else:
+            ax.set_yticklabels([])
+            ax.legend(loc="lower right", frameon=False, handlelength=2.0, labelspacing=0.3)
+        ax.grid(True, color=RULE, lw=0.5)
+        ax.set_axisbelow(True)
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
+        ax.set_title(f"({'cd'[k]}) {um} µm cells", loc="left", color=INK)
+    fig.subplots_adjust(left=0.07, right=0.995, bottom=0.18, top=0.9)
     fig.savefig(os.path.join(OUT, "fig3_contact.pdf"), dpi=300)
     plt.close(fig)
 
