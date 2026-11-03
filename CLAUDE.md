@@ -1159,6 +1159,16 @@ Do not spend time on these without saying so first; several are deliberate.
   `transfer_covered_mass()` and `settle()`, is written up in the module banner
   with measurements, and is not a caller error. Do not present a run with a
   moving obstacle as a result.
+- **THE FREE SURFACE'S CONTACT ANGLE SETS A WINDOW, AND THE WINDOW WIDENS WITH
+  RESOLUTION.** Without a law the curvature reads every wall as gas, and a
+  sessile drop sits near 150°. `set_contact_angle` (per node through
+  `wet_cos_of`) acts through the curvature only. `validation/sessile_drop`
+  approaches each angle from 15° either side: the window contains it at
+  60/90/120° with midpoints within 3°, but its half-width grows from 2–4° to
+  7–11° between R0 = 8 and 32. Below about 45° it is biased. In `mew_nozzle`
+  the neck was the bore plus 4 cells on every grid because the nozzle read as
+  gas; `-wet 60` widens it by only one cell a side in 4 s at 50 µm. Approach a
+  contact angle from both sides before quoting it.
 - **A PLANAR ELECTRIFIED MENISCUS IS NOT A TAYLOR CONE, AND AN MEW JET IS BELOW
   ANY AFFORDABLE 2-D CELL.** A straight-sided 2-D wedge has no curvature to
   balance ε0E²/2, so planar geometry has no conical equilibrium, and a planar tip
