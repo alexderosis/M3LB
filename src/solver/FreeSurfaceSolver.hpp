@@ -119,14 +119,33 @@
 //     prescribed non-uniform normal stress, which is a laser's recoil pressure:
 //     validation/recoil.cpp measures that against the exact hydrostatic
 //     depression.
-//   * NO CONTACT ANGLE: THE CURVATURE READS A WALL AS GAS, so every wall is
-//     effectively non-wetting (about 180 degrees) wherever surface tension is
-//     on and a free surface meets it. A 90-degree mirror of the colour function
-//     into the wall was tried on 2026-11-03 against demonstrator/mew_nozzle's
-//     melt peeling off its collector, changed nothing there, and was removed
-//     unverified. What kept that case's field-off rope from coming back was its
-//     own drain; its first contact still breaks within 0.1 s, field on or off. A wetting case needs
-//     a contact-angle law and a sessile-drop test written with it.
+//   * THE CONTACT ANGLE IS OPT-IN, AND IT SETS A WINDOW RATHER THAN A LINE.
+//     By default the curvature reads a wall as gas, so every wall is
+//     non-wetting wherever surface tension is on: a sessile drop sits at 152
+//     degrees (validation/sessile_drop, R0 = 16), not the "about 180" this entry
+//     used to say. set_contact_angle() (2026-11-03; the member `wetting` argues
+//     the condition) imposes an angle through the curvature and nothing else,
+//     and validation/sessile_drop measures what that buys. THE CONTACT LINE
+//     STOPS ANYWHERE IN A WINDOW: seeded 15 degrees either side, a drop at
+//     R0 = 16 ends at 57.6 / 63.4 degrees for 60, 83.9 / 93.5 for 90 and
+//     115.5 / 125.2 for 120 -- the prescribed angle inside every window, the
+//     midpoints within 1.3 degrees of it. AND THE WINDOW WIDENS WITH
+//     RESOLUTION: half-widths 2.0 / 2.9 / 6.9 degrees at 60, 3.9 / 4.8 / 7.5 at
+//     90, 2.1 / 4.9 / 10.8 at 120, at R0 = 8 / 16 / 32, so refinement pins the
+//     line harder rather than freeing it. A static state needs kappa uniform
+//     over the interface, and the one-pass smoothing leaves fill patterns that
+//     change the true curvature without changing kappa (the R0 = 16 60-degree
+//     drop is a circle of R 24.0 that the solver reads as 26.5 at every
+//     interface cell), so the line can stop wherever such a pattern absorbs the
+//     mismatch; a fixed absolute tolerance in kappa is a relative one growing
+//     with R. That reading fits the trend and is not proven, and the cure is not
+//     known. Below about 45 degrees the curvature next to the wall is
+//     biased (kappa R reads 1.16 / 1.49 / 2.05 there at R = 12 / 24 / 48 on an
+//     exact 30-degree cap, growing with R), and a 30-degree drop stops at 43
+//     degrees from above. A 90-degree mirror of the colour function tried
+//     earlier the same day against demonstrator/mew_nozzle's melt peeling off
+//     its collector changed nothing there; what kept that rope from coming back
+//     was the case's own drain.
 //   * NO GAS DYNAMICS, and this is the method, not an omission. An enclosed
 //     bubble does not compress, because its pressure is prescribed rather than
 //     solved. Modelling that needs a volume-of-gas tracker with a separate
@@ -328,6 +347,44 @@ class FreeSurfaceSolver {
   // SIGN: kappa is POSITIVE for a liquid drop (convex liquid), so the pressure
   // inside a drop is higher, which is Laplace's law the right way up.
   Real sigma = Real(0);
+
+  // CONTACT ANGLE, opt-in (2026-11-03). Off (the default), the colour function
+  // reads every wall as gas, which is a non-wetting wall of about 180 degrees,
+  // and none of the code it adds runs. set_contact_angle(theta) turns it on;
+  // theta is measured THROUGH THE LIQUID, in radians.
+  //
+  // IT ACTS ONLY THROUGH THE CURVATURE, so only with surface tension on. The
+  // wall enters compute_curvature() at the solid cells beside the liquid, and
+  // nowhere else: the mass exchange, the reconstruction and the bounce-back are
+  // untouched, so the contact line moves by whatever slip the halfway wall
+  // already allows. What the angle changes is the capillary pressure at the
+  // interface cells next to the wall -- lower for a wetting wall, which pulls
+  // liquid along it, higher for a non-wetting one.
+  //
+  // THE CONDITION is the one a sharp-interface (CSF) solver imposes at a wall:
+  // the unit normal there, n = grad(colour)/|grad(colour)|, pointing into the
+  // liquid, satisfies n . n_w = -cos(theta), with n_w the wall normal into the
+  // domain. Written as a slope it is d(colour)/dn_w = -cot(theta) |d(colour)/dt|,
+  // and that is what the solid cells next to the liquid are given: a ghost
+  // colour extrapolated from the open neighbours with that slope, once for the
+  // raw colour and once for the smoothed one, and then the unit normal itself,
+  // -cos(theta) n_w + sin(theta) t, where pass 4 reads it. All three are needed
+  // because each pass reads the one before it from the wall cells; a wall cell
+  // corrected in one field and not the next still reads as gas through it.
+  //
+  // ONLY WHERE LIQUID TOUCHES THE WALL. A solid cell whose open neighbours hold
+  // no liquid keeps reading as gas, so the wall does not reach across a gas gap
+  // to a drop that has not landed. A cell open on two opposite sides (a sheet one
+  // cell thick) has no wall normal and keeps the default too.
+  //
+  // wet_cos_of, if set, gives cos(theta) per SOLID cell and overrides the
+  // uniform value, in the idiom of rho_G_of. A value outside (-1, 1) leaves that
+  // wall reading as gas, so a case can wet one wall and not another. It still
+  // needs set_contact_angle() to switch the law on; step() aborts on the field
+  // alone, on `wetting` set by hand, and on a contact angle without sigma.
+  bool wetting = false;
+  Real wet_cos = Real(0);        // cos(theta); set through set_contact_angle()
+  View1D<Real> wet_cos_of;       // optional per-node cos(theta); empty means uniform
   // Conversion hysteresis. A cell is promoted only past 1 + fill_offset and
   // demoted only below -fill_offset, so a cell sitting exactly at a threshold
   // cannot convert back and forth every step. The literature's value; without
@@ -485,6 +542,16 @@ class FreeSurfaceSolver {
     sigma = s;
     if (s != Real(0)) allocate_curvature();
   }
+  // theta in radians, through the liquid, strictly inside (0, pi): the ghost
+  // colour carries cot(theta), which has no finite value at either end.
+  void set_contact_angle(Real theta) {
+    if (!(theta > Real(0) && theta < Real(3.14159265358979323846)))
+      Kokkos::abort("FreeSurfaceSolver::set_contact_angle: theta must lie in (0, pi) radians");
+    wetting = true;
+    wet_cos = Kokkos::cos(theta);
+    allocate_curvature();
+    if (wet_.size() == 0) wet_ = View1D<std::uint8_t>("fs_wet", dom_.n_padded);
+  }
   void allocate_curvature() {
     if (cf_.size() == 0) {
       cf_  = View1D<Real>("fs_colour",   dom_.n_padded);
@@ -530,13 +597,84 @@ class FreeSurfaceSolver {
   //  divergence at the OUTER edge of the interface band reads some zero
   //  normals from the bulk, and that is a real error of this construction; it
   //  is why kappa is used only at interface cells, where the band is centred.
+  //
+  //  WITH A CONTACT ANGLE (wetting, opt-in) three passes are added, 1b, 2b and
+  //  3b, each rewriting the wall cells beside the liquid in the field the next
+  //  pass reads; see the member `wetting` for the condition they impose.
   //----------------------------------------------------------------------------
+  // A wall cell's view of the liquid: its gradient-lattice neighbours that are
+  // open (Fluid, Interface or Gas), the unit normal into the domain they define,
+  // and, for a field F, their weighted mean, their mean offset along that normal
+  // and the least-squares slope of F ALONG the wall. The slope is taken about
+  // the mean, so a uniform F has none however lopsided the open set is.
+  struct WallView {
+    Real nw[3] = {Real(0), Real(0), Real(0)};
+    Real mean = Real(0), delta = Real(0);
+    Real gt[3] = {Real(0), Real(0), Real(0)};
+    bool ok = false;     // false: buried, or open on two opposite sides
+  };
+  template <class GL, class FV>
+  KOKKOS_INLINE_FUNCTION static WallView wall_view(const Neighbours<GL>& nb,
+                                                   const View1D<std::uint8_t>& flags,
+                                                   const FV& F) {
+    WallView v;
+    Real ws = Real(0), wn[3] = {Real(0), Real(0), Real(0)};
+    for (int i = 1; i < GL::Q; ++i) {
+      const std::uint8_t f = flags(nb.j[i]);
+      if (f != FsFluid && f != FsInterface && f != FsGas) continue;
+      const Real w = weight<GL, Real>(i);
+      ws += w;
+      for (int a = 0; a < GL::D; ++a) wn[a] += w * Real(cvel<GL>(i, a));
+    }
+    const Real m = Kokkos::sqrt(wn[0] * wn[0] + wn[1] * wn[1] + wn[2] * wn[2]);
+    if (ws <= Real(0) || m <= Real(1e-12) * ws) return v;
+    for (int a = 0; a < 3; ++a) v.nw[a] = wn[a] / m;
+    Real s = Real(0), del = Real(0);
+    for (int i = 1; i < GL::Q; ++i) {
+      const Index j = nb.j[i];
+      const std::uint8_t f = flags(j);
+      if (f != FsFluid && f != FsInterface && f != FsGas) continue;
+      const Real w = weight<GL, Real>(i);
+      Real cn = Real(0);
+      for (int a = 0; a < GL::D; ++a) cn += Real(cvel<GL>(i, a)) * v.nw[a];
+      s += w * F(j);
+      del += w * cn;
+    }
+    v.mean = s / ws;
+    v.delta = del / ws;
+    Real g[3] = {Real(0), Real(0), Real(0)}, gg = Real(0);
+    for (int i = 1; i < GL::Q; ++i) {
+      const Index j = nb.j[i];
+      const std::uint8_t f = flags(j);
+      if (f != FsFluid && f != FsInterface && f != FsGas) continue;
+      const Real w = weight<GL, Real>(i);
+      Real cn = Real(0);
+      for (int a = 0; a < GL::D; ++a) cn += Real(cvel<GL>(i, a)) * v.nw[a];
+      const Real dF = F(j) - v.mean;
+      for (int a = 0; a < GL::D; ++a) {
+        const Real pc = Real(cvel<GL>(i, a)) - cn * v.nw[a];
+        g[a] += w * dF * pc;
+        gg += w * pc * pc;
+      }
+    }
+    // gg sums |P c|^2 over the D - 1 tangential directions; per direction it is
+    // the normalisation of a least-squares slope.
+    if (gg > Real(0))
+      for (int a = 0; a < 3; ++a) v.gt[a] = g[a] * Real(GL::D - 1) / gg;
+    v.ok = true;
+    return v;
+  }
+
   void compute_curvature() {
     using GL = typename GradientLatticeOf<L>::type;
     const Domain d = dom_;
     auto flags = flags_; auto eps = eps_;
     auto cf = cf_, cfs = cfs_, knx = knx_, kny = kny_, knz = knz_, kap = kap_;
     constexpr Real icsg = inv_cs2<GL, Real>();
+    const bool wet = wetting && wet_.data();
+    auto wetm = wet_;
+    const auto wcf = wet_cos_of;
+    const Real wc = wet_cos;
 
     // pass 1: the colour function
     Kokkos::parallel_for("fs_colour", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
@@ -545,6 +683,33 @@ class FreeSurfaceSolver {
             : (f == FsInterface) ? eps(n) : Real(0);
     });
     Kokkos::fence();
+
+    // pass 1b: the ghost colour in the wall cells the liquid touches. Writes
+    // only solid cells and reads only open ones, so it cannot race.
+    if (wet) {
+      Kokkos::parallel_for("fs_wet_colour", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+        wetm(n) = 0;
+        if (flags(n) != FsSolid) return;
+        const Real c = wcf.data() ? wcf(n) : wc;
+        if (!(c > Real(-1) && c < Real(1))) return;      // this wall reads as gas
+        Neighbours<GL> nb;
+        d.template fill_neighbours<GL, 1, 1>(n, nb);
+        bool touch = false;
+        for (int i = 1; i < GL::Q; ++i) {
+          const Index j = nb.j[i];
+          const std::uint8_t f = flags(j);
+          if ((f == FsFluid || f == FsInterface) && cf(j) > Real(0)) touch = true;
+        }
+        if (!touch) return;
+        const WallView v = wall_view<GL>(nb, flags, cf);
+        if (!v.ok) return;
+        const Real cot = c / Kokkos::sqrt(Real(1) - c * c);
+        const Real gt = Kokkos::sqrt(v.gt[0] * v.gt[0] + v.gt[1] * v.gt[1] + v.gt[2] * v.gt[2]);
+        cf(n) = v.mean + v.delta * cot * gt;
+        wetm(n) = 1;
+      });
+      Kokkos::fence();
+    }
 
     // pass 2: one mollifying pass
     Kokkos::parallel_for("fs_colour_smooth", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
@@ -555,6 +720,22 @@ class FreeSurfaceSolver {
       cfs(n) = a;
     });
     Kokkos::fence();
+
+    // pass 2b: the same ghost for the smoothed colour. Pass 2 averaged the wall
+    // cell with the buried ones behind it, which still read as gas.
+    if (wet) {
+      Kokkos::parallel_for("fs_wet_colour_s", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+        if (!wetm(n)) return;
+        const Real c = wcf.data() ? wcf(n) : wc;
+        Neighbours<GL> nb;
+        d.template fill_neighbours<GL, 1, 1>(n, nb);
+        const WallView v = wall_view<GL>(nb, flags, cfs);
+        const Real cot = c / Kokkos::sqrt(Real(1) - c * c);
+        const Real gt = Kokkos::sqrt(v.gt[0] * v.gt[0] + v.gt[1] * v.gt[1] + v.gt[2] * v.gt[2]);
+        cfs(n) = v.mean + v.delta * cot * gt;
+      });
+      Kokkos::fence();
+    }
 
     // pass 3: the unit normal
     Kokkos::parallel_for("fs_normal", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
@@ -574,6 +755,28 @@ class FreeSurfaceSolver {
     });
     Kokkos::fence();
 
+    // pass 3b: the wall's own normal is the contact-angle normal,
+    // -cos(theta) n_w + sin(theta) t with t along the wall toward the liquid.
+    // Pass 3 built it from the buried cells too; this is what pass 4 reads at
+    // the contact line. Same floor as pass 3: no slope along the wall, no normal.
+    if (wet) {
+      Kokkos::parallel_for("fs_wet_normal", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+        if (!wetm(n)) return;
+        const Real c = wcf.data() ? wcf(n) : wc;
+        const Real s = Kokkos::sqrt(Real(1) - c * c);
+        Neighbours<GL> nb;
+        d.template fill_neighbours<GL, 1, 1>(n, nb);
+        const WallView v = wall_view<GL>(nb, flags, cfs);
+        const Real gt = Kokkos::sqrt(v.gt[0] * v.gt[0] + v.gt[1] * v.gt[1] + v.gt[2] * v.gt[2]);
+        const Real it = (gt > Real(1e-6)) ? s / gt : Real(0);
+        const Real ic = (gt > Real(1e-6)) ? c : Real(0);
+        knx(n) = -ic * v.nw[0] + it * v.gt[0];
+        kny(n) = -ic * v.nw[1] + it * v.gt[1];
+        knz(n) = -ic * v.nw[2] + it * v.gt[2];
+      });
+      Kokkos::fence();
+    }
+
     // pass 4: kappa = -div(n)
     Kokkos::parallel_for("fs_kappa", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
       if (flags(n) != FsInterface) { kap(n) = Real(0); return; }
@@ -592,7 +795,22 @@ class FreeSurfaceSolver {
     Kokkos::fence();
   }
 
+  // A contact angle acts only through the curvature and only once it has been
+  // switched on, so each way of half-setting it would run without it and say
+  // nothing. Refuse them instead.
+  void check_wetting() const {
+    if (wet_cos_of.data() && !wetting)
+      Kokkos::abort("FreeSurfaceSolver: wet_cos_of is set but set_contact_angle() was not "
+                    "called, so it would be ignored");
+    if (wetting && !wet_.data())
+      Kokkos::abort("FreeSurfaceSolver: wetting = true without set_contact_angle(); call that");
+    if (wetting && sigma == Real(0))
+      Kokkos::abort("FreeSurfaceSolver: a contact angle acts only through surface tension, "
+                    "and sigma is 0");
+  }
+
   void step() {
+    if (wetting || wet_cos_of.data()) check_wetting();
     if (sigma != Real(0) || normal_reconstruction) compute_curvature();
     stream_collide();
     mass_exchange();
@@ -823,6 +1041,11 @@ class FreeSurfaceSolver {
   View1D<Real> ux() const { return ux_; }
   View1D<Real> uy() const { return uy_; }
   View1D<Real> uz() const { return uz_; }
+  // The curvature working set, as compute_curvature() last left it. Empty until
+  // surface tension, the normal reconstruction or a contact angle is switched on.
+  View1D<Real> kappa() const { return kap_; }
+  View1D<Real> normal_x() const { return knx_; }
+  View1D<Real> normal_y() const { return kny_; }
   const Domain& domain() const { return dom_; }
   std::size_t timestep() const { return t_; }
 
@@ -1474,6 +1697,9 @@ class FreeSurfaceSolver {
   View1D<Real> mass_, eps_, excess_;
   // Curvature working set. Empty until set_surface_tension() is called.
   View1D<Real> cf_, cfs_, knx_, kny_, knz_, kap_;
+  // Wall cells the contact-angle law rewrote this step. Empty until
+  // set_contact_angle() is called.
+  View1D<std::uint8_t> wet_;
   View1D<Real> wux_, wuy_, wuz_;      // wall velocity, meaningful in body cells
   // WHICH SOLID CELLS ARE THE BODY'S. A tank wall and a moving obstacle are both
   // FsSolid and must not be confused: the wall does not move, does not get

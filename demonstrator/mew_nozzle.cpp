@@ -58,12 +58,31 @@
 //  suspect is the free surface's own settle() defect, which its banner measures
 //  creating mass where a filling cell sits beside an emptying one.
 //
-//  NOT GRID-CONVERGED. Halving the cell from 50 to 25 um (R = 4 -> 8) moved the
-//  front from 0.89 to 1.13 mm/s, the melt within 1 mm of the tip from 0.81 to
-//  0.65 mm^2 and first contact from 5.87 to 4.69 s, and after contact the coarse
-//  grid shows no effect of the field at all (both ropes rise 1.83 mm). Compare
-//  runs at one resolution, field on against off; quote no absolute number here
-//  as converged.
+//  NOT GRID-CONVERGED, AND THE NOZZLE IS WHY. Halving the cell from 50 to 25 um
+//  (R = 4 -> 8) first moved the front from 0.89 to 1.13 mm/s and first contact
+//  from 5.87 to 4.69 s, and after contact that coarse grid showed no effect of
+//  the field at all (both ropes rise 1.83 mm). The ladder at fixed physics
+//  (Re_coll 0.32: -Ucol 0.04 / default / 0.01 at R = 4 / 8 / 16, field on,
+//  windows ending at 3.5 s) gives a front of 0.913 / 1.137 / 1.342 mm/s, melt
+//  within 1 mm of the tip of 0.808 / 0.648 / 0.550 mm^2 and first contact at
+//  5.84 / 4.69 / 3.98 s: apparent orders 0.13, 0.71 and 0.68, so no
+//  extrapolation means anything. THE NECK SETS ALL THREE. The melt in the first
+//  row under the tip face spans EXACTLY the bore plus four cells on every grid
+//  (12 / 20 / 36 cells, 0.60 / 0.50 / 0.45 mm), and the column below is a plug
+//  carrying the feed (width 2 mm down x front speed = 0.82 / 0.80 / 0.81 mm^2/s
+//  against 0.81), so a narrower neck makes a narrower, faster column and an
+//  earlier contact. Where the melt let go of the nozzle was the grid's choice,
+//  because the free surface read the nozzle as gas -- a non-wetting wall -- and
+//  refinement converges at first order to a neck of exactly the bore.
+//  -wet DEG gives the nozzle a contact angle (FreeSurfaceSolver::
+//  set_contact_angle, 2026-11-03). At R = 4, 60 degrees widened the neck from 12
+//  to 14 cells by 2.9 s and no further by 4.3 s, and 120 degrees changed
+//  nothing measurable. The melt spreads on the face only as fast as its contact
+//  line moves, which here is numerical slip at a no-slip wall (gamma/mu is
+//  0.06 mm/s against a 2 mm/s bore flow), and validation/sessile_drop measures a
+//  contact-line window that WIDENS with resolution -- so the law does not by
+//  itself make this column converge. Compare runs at one resolution, field on
+//  against off; quote no absolute number here as converged.
 //
 //  WHAT IT SAYS. At the feed Table 1 prints, the bore's capillary number is 34:
 //  the melt is extruded as a column whatever the field does, which in the
@@ -206,6 +225,11 @@ struct Opts {
   bool   field  = true;
   bool   nrec   = false;   // FreeSurfaceSolver::normal_reconstruction
   bool   sym    = true;    // mirror-project until first contact; -nosym to see the drift
+  // -wet DEG: the melt's contact angle on the NOZZLE (bore walls and tip face),
+  // FreeSurfaceSolver::set_contact_angle through wet_cos_of. Off by default: the
+  // nozzle then reads as gas in the curvature, a non-wetting wall. The collector
+  // and the feed piston keep reading as gas either way.
+  double wet    = -1;
   std::string out;
 };
 
@@ -236,6 +260,7 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(a, "-nofield")) o.field = false;
       else if (!std::strcmp(a, "-nrec"))   o.nrec = true;
       else if (!std::strcmp(a, "-nosym"))  o.sym = false;
+      else if (!std::strcmp(a, "-wet"))    o.wet = num();
       else if (!std::strcmp(a, "-feed") && i + 1 < argc) feed = argv[++i];
       else if (!std::strcmp(a, "-out") && i + 1 < argc)  o.out = argv[++i];
       else {
@@ -314,6 +339,21 @@ int main(int argc, char** argv) {
       if (y == 0 || is_lip(x, y) || is_piston(x, y)) return FsSolid;
       return FsGas;
     });
+    if (o.wet > 0) {
+      // cos(theta) on the lip cells; 2 (outside [-1, 1]) everywhere else, which
+      // leaves the collector and the piston reading as gas, as without -wet.
+      View1D<Real> wc("mew_wet_cos", d.n_padded);
+      auto hwc = Kokkos::create_mirror_view(wc);
+      Kokkos::deep_copy(hwc, Real(2));
+      const Real cw = Real(std::cos(o.wet * M_PI / 180.0));
+      for (Index y = 0; y < ny; ++y)
+        for (Index x = 0; x < nx; ++x)
+          if (is_lip(x, y)) hwc(d.id(x, y)) = cw;
+      Kokkos::deep_copy(wc, hwc);
+      fs.wet_cos_of = wc;
+      fs.set_contact_angle(Real(o.wet * M_PI / 180.0));
+      std::printf("  nozzle contact angle %.0f deg (FreeSurfaceSolver::set_contact_angle)\n", o.wet);
+    }
     const Domain dd = d;
     const Index hx = d.hx, hy = d.hy;
     fs.initialize(KOKKOS_LAMBDA(Index n) {

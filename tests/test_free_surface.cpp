@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <utility>
 using namespace lbm;
 
 
@@ -261,6 +262,65 @@ static void run_mirror() {
   check::ok(std::isfinite(double(s.total_mass())), "it steps on afterwards");
 }
 
+// 6. The contact-angle law, read straight off compute_curvature() with nothing
+// stepped: a slab of liquid standing on a floor, so a straight interface meets
+// the wall at 90 degrees. The wall cell under the contact line must carry
+// exactly the normal the law prescribes, -cos(theta) n_w + sin(theta) t; the
+// contact-line curvature must rise as the wall turns from wetting to
+// non-wetting, with the law-off default (a wall read as gas) above them all;
+// and a cell twelve rows from the wall must not move by a bit.
+static void run_contact_angle() {
+  using FS = FreeSurfaceSolver<D2Q9>;
+  const Index nx = 40, ny = 24;
+  struct Probe { double k_cl, k_mid, nxw, nyw; };
+  auto probe = [&](double theta_deg) -> Probe {      // theta_deg <= 0: law off
+    Domain d(nx, ny, 1, true, false, true);
+    FS s(d);
+    s.coll.omega = FS::omega_from_viscosity(Real(1.0 / 6.0));
+    s.set_surface_tension(Real(0.01));
+    if (theta_deg > 0) s.set_contact_angle(Real(theta_deg * M_PI / 180.0));
+    const Index nyi = ny;
+    s.set_geometry([&](Index, Index y, Index) -> FsCell {
+      return (y == 0 || y == nyi - 1) ? FsSolid : FsGas;
+    });
+    const Domain dd = d; const Index hx = d.hx;
+    s.initialize(KOKKOS_LAMBDA(Index n) {
+      Index px, py, pz; dd.coords(n, px, py, pz);
+      const Index x = px - hx;
+      const Real e = (x >= 10 && x <= 29) ? Real(1)
+                   : ((x == 9 || x == 30) ? Real(0.5) : Real(0));
+      return typename FS::Seed{e, Real(1)};
+    });
+    s.compute_curvature();
+    auto hk = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.kappa());
+    auto hnx = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.normal_x());
+    auto hny = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.normal_y());
+    // The right-hand contact line: liquid to the left, so t = -x.
+    return Probe{double(hk(d.id(30, 1))), double(hk(d.id(30, ny / 2))),
+                 double(hnx(d.id(30, 0))), double(hny(d.id(30, 0)))};
+  };
+  const Probe off = probe(-1), a60 = probe(60), a90 = probe(90), a120 = probe(120);
+  std::printf("  contact-line kappa: off %+.6f   60 deg %+.6f   90 deg %+.6f   120 deg %+.6f\n",
+              off.k_cl, a60.k_cl, a90.k_cl, a120.k_cl);
+  std::printf("  wall normal under it: 60 deg (%+.6f, %+.6f)  90 (%+.6f, %+.6f)  120 (%+.6f, %+.6f)\n",
+              a60.nxw, a60.nyw, a90.nxw, a90.nyw, a120.nxw, a120.nyw);
+  for (const auto& pr : {std::make_pair(60.0, a60), std::make_pair(90.0, a90),
+                         std::make_pair(120.0, a120)}) {
+    const double th = pr.first * M_PI / 180.0;
+    char buf[96];
+    std::snprintf(buf, sizeof buf, "wall normal is the law's at %.0f deg", pr.first);
+    // Round-off of the build's Real: the normal is a few products and a sqrt.
+    const double tol = (sizeof(Real) == 4) ? 1e-6 : 1e-12;
+    check::near(std::hypot(pr.second.nxw + std::sin(th), pr.second.nyw + std::cos(th)),
+                0.0, tol, buf);
+  }
+  check::ok(a60.k_cl < a90.k_cl && a90.k_cl < a120.k_cl && a120.k_cl < off.k_cl,
+            "contact-line kappa rises 60 -> 90 -> 120 deg -> law off");
+  check::ok(a60.k_cl < 0.0 && a120.k_cl > 0.0, "wetting pulls, non-wetting pushes");
+  check::ok(a60.k_mid == off.k_mid && a90.k_mid == off.k_mid && a120.k_mid == off.k_mid,
+            "twelve rows from the wall the law changes nothing");
+}
+
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   {
@@ -284,6 +344,8 @@ int main(int argc, char** argv) {
     run_drain();
     std::printf("\n5. mirror_symmetrize_x(): exact symmetry, mass, shell, idempotence\n");
     run_mirror();
+    std::printf("\n6. contact angle: the wall normal, the sign, and locality\n");
+    run_contact_angle();
   }
   const int rc = check::report("free_surface");
   Kokkos::finalize();

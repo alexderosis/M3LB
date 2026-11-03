@@ -9943,6 +9943,25 @@ Stated plainly, because each has been measured.
   reconstructing along the interface normal does not cure it. And while the
   field-off thread is drawn down to $0.80$ cells of melt in its thinnest row,
   the mass ledger climbs from $+0.5\,\%$ to $+5.4\,\%$ of the injected melt.
+\item \textbf{The free surface's contact angle sets a window, not a contact
+  line, and the window widens with resolution.} Without a law the curvature
+  reads a wall as gas, and a sessile drop sits near $150^\circ$ (149.4, 151.7
+  and $149.0^\circ$ at $R_0=8$, 16 and 32). \code{set\_contact\_angle} imposes
+  an angle through the curvature alone, and \code{validation/sessile\_drop}
+  approaches each angle from $15^\circ$ either side: the drop stops at the two
+  ends of a window that contains the prescribed angle at 60, 90 and
+  $120^\circ$, with midpoints within $3^\circ$ of it, but whose half-width grows
+  from 2--4$^\circ$ at $R_0=8$ to 7--11$^\circ$ at $R_0=32$. Refinement pins the
+  line harder. Below about $45^\circ$ the curvature next to the wall is biased
+  and a $30^\circ$ drop does not settle. A reading that fits the trend, not
+  proven: a static state needs uniform $\kappa$, and the once-smoothed
+  curvature admits fill patterns that change the true curvature without
+  changing $\kappa$, a fixed absolute tolerance that becomes a relative one
+  growing with $R$. In \code{mew\_nozzle} a wetting nozzle ($60^\circ$, 50\,$\mu$m
+  cells) widens the melt's neck by one cell a side by 2.9\,s and no further by
+  4.3\,s: the contact line on the tip face moves only by numerical slip, and
+  the melt's capillary speed $\gamma/\mu$ is 0.06\,mm/s against a 2\,mm/s
+  flow in the bore.
 \item \textbf{The closed cavity's electric Nusselt number is $9$--$16\,\%$ below
   the reference in the mid-range, and that is measured rather than explained}
   (\S\ref{sec:ehdcavity}). The \emph{shape} of Fig.~8 is reproduced --- $N_e=1$
