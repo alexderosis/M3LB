@@ -179,7 +179,7 @@ def single_frame(fig, t, t_end, idx, ser):
     s = ser.get("A")
     for row, (col, ylab, ttl, lim) in enumerate([
             ("tip_zone_mm2", "melt within 1 mm of the tip [mm²]",
-             "Melt hanging under the nozzle (the paper's proposed oozing metric)", None),
+             "Melt hanging under the nozzle (within 1 mm of the tip)", None),
             ("z_low_mm", "lowest melt point above the collector [mm]",
              "How far the melt has fallen", (0, 5.8))]):
         ax = fig.add_subplot(gs[row, 1])
@@ -213,7 +213,7 @@ def overlay(ax, lines):
 
 def pair_frame(fig, t, t_end, idx, ser, a):
     """Printed feed with the field on and off side by side, the per-minute tip
-    zooms, and the oozing metric. A freezes at a.cut_a, B at a.cut_b."""
+    zooms, and the melt hanging under the tip. A freezes at a.cut_a, B at a.cut_b."""
     gs = fig.add_gridspec(2, 4, width_ratios=[1.25, 1.25, 0.55, 0.55], height_ratios=[1.0, 0.82],
                           left=0.035, right=0.99, top=0.83, bottom=0.115, wspace=0.2,
                           hspace=0.42)
@@ -284,7 +284,7 @@ def pair_frame(fig, t, t_end, idx, ser, a):
     axS.set_yscale("log"); axS.set_ylim(3e-3, 3.0); axS.set_xlim(0, t_end)
     axS.set_xlabel("time [s]", fontsize=10, color=INK2)
     axS.set_ylabel("mm²", fontsize=9.5, color=INK2)
-    axS.set_title("Melt within 1 mm under the tip (the paper's oozing metric)", fontsize=11,
+    axS.set_title("Melt hanging within 1 mm under the tip", fontsize=11,
                   color=INK, loc="left")
     axS.grid(axis="y", color=GRID, lw=0.6)
     axS.spines[["top", "right"]].set_visible(False)
@@ -502,7 +502,7 @@ def main():
             axS.set_xlim(0, t_end)
             axS.set_xlabel("time [s]", fontsize=10, color=INK2)
             axS.set_ylabel("melt within 1 mm of the tip [mm²]", fontsize=10, color=INK2)
-            axS.set_title("Melt hanging under the nozzle: the paper's proposed oozing metric",
+            axS.set_title("Melt hanging within 1 mm under the nozzle",
                           fontsize=11.5, color=INK, loc="left")
             axS.grid(axis="y", color=GRID, lw=0.6, which="major")
             axS.spines[["top", "right"]].set_visible(False)

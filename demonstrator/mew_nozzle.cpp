@@ -58,6 +58,13 @@
 //  suspect is the free surface's own settle() defect, which its banner measures
 //  creating mass where a filling cell sits beside an emptying one.
 //
+//  NOT GRID-CONVERGED. Halving the cell from 50 to 25 um (R = 4 -> 8) moved the
+//  front from 0.89 to 1.13 mm/s, the melt within 1 mm of the tip from 0.81 to
+//  0.65 mm^2 and first contact from 5.87 to 4.69 s, and after contact the coarse
+//  grid shows no effect of the field at all (both ropes rise 1.83 mm). Compare
+//  runs at one resolution, field on against off; quote no absolute number here
+//  as converged.
+//
 //  WHAT IT SAYS. At the feed Table 1 prints, the bore's capillary number is 34:
 //  the melt is extruded as a column whatever the field does, which in the
 //  experiment would read as oozing. At 0.255 mm^3/min -- the reading under which

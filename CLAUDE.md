@@ -1166,7 +1166,9 @@ Do not spend time on these without saying so first; several are deliberate.
   (`demonstrator/mew_nozzle`: 0.7 γ/R at 6.5 kV; its 12 kV row stands in for a
   round tip). A planar sheet carrying an MEW feed at collector speed is ~0.4 µm,
   against 25 µm cells and 10–20 µm fibres, so the model resolves what
-  accumulates under the tip and nothing that leaves it. **After contact the
+  accumulates under the tip and nothing that leaves it. Its absolute numbers
+  are not grid-converged: R = 4 → 8 moved the front 0.89 → 1.13 mm/s and first
+  contact 5.9 → 4.7 s, so compare runs at one resolution. **After contact the
   two runs part company, and neither is a measurement.** Both ropes leave the
   collector within 0.1 s of touching it. Field off, the rope comes back (5.87 s)
   and is laid, but at the box's downstream edge, so the BOX sets the lag, and
