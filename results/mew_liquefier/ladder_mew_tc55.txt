@@ -1,0 +1,15 @@
+mew_liquefier: D3Q7 EnthalpyBGK(Material), nz = 1, precision double
+  PCL (nominal): rho 1100  cp 2000  k 0.20  L 75 kJ/kg  band [57, 63] C  alpha = 9.091e-08 m^2/s
+  hot end (nominal): heater 10 mm at 120 C, break 3 mm, cold zone 12 mm, filament in at 25 C
+  lengths in mm; l_* = melt AREA / W; z_* = f_l = 1/2 height above the nozzle exit, on the axis and at W/8 from the wall; z_eq = where the WALL reaches the band middle
+
+  feed      T_c    N    l_melt   l_above    z_axis     z_W/8      z_eq   t90 [s]    t [s]  steady
+  [ladder_N16] N = 16  ny = 230  dx = 109.38 um  dt = 6.580e-03 s  tau = 0.70
+  [ladder_N16] U = 0.1060 mm/s  Pe_D = 2.04  U_lat = 6.3776e-03  U^2/cs2 = 1.63e-04  Ste = 1.52
+  cfg      55.0   16    12.316     2.308    11.983    12.505    12.769       5.3    175.7     yes
+  [ladder_N32] N = 32  ny = 458  dx = 54.69 um  dt = 1.645e-03 s  tau = 0.70
+  [ladder_N32] U = 0.1060 mm/s  Pe_D = 2.04  U_lat = 3.1888e-03  U^2/cs2 = 4.07e-05  Ste = 1.52
+  cfg      55.0   32    12.317     2.336    11.973    12.503    12.769       5.3    176.7     yes
+  [ladder_N64] N = 64  ny = 915  dx = 27.34 um  dt = 4.112e-04 s  tau = 0.70
+  [ladder_N64] U = 0.1060 mm/s  Pe_D = 2.04  U_lat = 1.5944e-03  U^2/cs2 = 1.02e-05  Ste = 1.52
+  cfg      55.0   64    12.316     2.322    11.973    12.502    12.769       5.3    176.8     yes

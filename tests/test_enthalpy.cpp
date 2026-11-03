@@ -49,6 +49,13 @@
 //      measured single-population relaxation must reproduce it. Catches a
 //      collide that silently ignores the material, or silently ignores the
 //      solver.
+//  11. EnthalpyAdvect::Material. Flux moment H u, second moment cs2 dE --
+//      advect the total, diffuse the sensible -- identical to the default at
+//      u = 0, and different from BOTH Sensible (in the flux) and Total (in the
+//      second moment) mid-band. collide() and the regularised sibling read the
+//      same selectors, which is checked rather than assumed: before they were
+//      factored out, EnthalpyRegularised's `Eflux - T_ref` would have turned a
+//      third mode into the Total control without a compile error.
 //==============================================================================
 #include "Check.hpp"
 
@@ -503,6 +510,111 @@ int main(int argc, char** argv) {
                     "differ by exactly La f_l u in the flux moment");
         check::ok(Kokkos::abs(b - a) > Real(1e-6),
                   "the difference is not zero -- the control is live");
+      }
+    }
+
+    //--------------------------------------------------------------------------
+    // 11. Material: advect H, diffuse E.
+    //--------------------------------------------------------------------------
+    std::printf("\n-- 11. EnthalpyAdvect::Material: flux H u, second moment cs2 E --\n");
+    {
+      PhaseChange m = material(Real(0), Real(1), Real(2), Real(3),
+                               Real(0.4), Real(0.4), Real(5), Real(1.5));
+      const Real Href = Real(-0.75);
+      EnthalpyBGK<L7, EnthalpyAdvect::Material> mat; mat.set_material(m); mat.T_ref = Href;
+      EnthalpyBGK<L7, EnthalpyAdvect::Sensible> sen; sen.set_material(m); sen.T_ref = Href;
+      EnthalpyBGK<L7, EnthalpyAdvect::Total>    tot; tot.set_material(m); tot.T_ref = Href;
+      const Real ux = Real(0.03), uy = Real(-0.02), uz = Real(0.01);
+
+      const Real Hs[3] = {Real(-1.5), Real(0.5) * m.liquidus_H(), m.liquidus_H() + Real(2)};
+      Real worst_sum = 0, worst_flux = 0, worst_sec = 0, worst_rest = 0;
+      for (int s = 0; s < 3; ++s) {
+        const Real dH = Hs[s] - Href;
+        Real fl, T, E, c; m.invert(Hs[s], fl, T, E, c);
+        Real sum = 0, jx = 0, jy = 0, jz = 0, pxx = 0, pzz = 0, sxx = 0;
+        for (int i = 0; i < L7::Q; ++i) {
+          const Real g  = mat.eq(i, dH, ux, uy, uz);
+          const Real cx = Real(cvel<L7>(i, 0)), cy = Real(cvel<L7>(i, 1)),
+                     cz = Real(cvel<L7>(i, 2));
+          sum += g; jx += cx * g; jy += cy * g; jz += cz * g;
+          pxx += cx * cx * g; pzz += cz * cz * g;
+          sxx += cx * cx * sen.eq(i, dH, ux, uy, uz);
+        }
+        worst_sum  = Kokkos::max(worst_sum,  Kokkos::abs(sum - dH));
+        worst_flux = Kokkos::max(worst_flux, Kokkos::abs(jx - Hs[s] * ux));
+        worst_flux = Kokkos::max(worst_flux, Kokkos::abs(jy - Hs[s] * uy));
+        worst_flux = Kokkos::max(worst_flux, Kokkos::abs(jz - Hs[s] * uz));
+        worst_sec  = Kokkos::max(worst_sec, Kokkos::abs(pxx - cs2<L7, Real>() * (E - Href)));
+        worst_sec  = Kokkos::max(worst_sec, Kokkos::abs(pzz - cs2<L7, Real>() * (E - Href)));
+        // The diffusive part is the default's, not the control's.
+        worst_rest = Kokkos::max(worst_rest, Kokkos::abs(pxx - sxx));
+      }
+      check::near(worst_sum,  Real(0), TOL, "sum_i eq     = dH");
+      check::near(worst_flux, Real(0), TOL, "sum_i c eq   = H u   (the TOTAL, not E)");
+      check::near(worst_sec,  Real(0), TOL, "sum_i cc eq  = cs2 dE (the SENSIBLE, not H)");
+      check::near(worst_rest, Real(0), TOL, "second moment identical to Sensible's");
+
+      // At u = 0 it is the default, population for population: stefan.cpp's
+      // numbers cannot move.
+      {
+        const Real dH = Real(0.5) * m.liquidus_H() - Href;
+        Real worst = 0;
+        for (int i = 0; i < L7::Q; ++i)
+          worst = Kokkos::max(worst, Kokkos::abs(mat.eq(i, dH, Real(0), Real(0), Real(0)) -
+                                                 sen.eq(i, dH, Real(0), Real(0), Real(0))));
+        check::near(worst, Real(0), TOL, "u = 0: identical to Sensible, every population");
+      }
+      // Mid-band it differs from BOTH neighbours: from Sensible in the flux by
+      // La f_l u, and from Total in the second moment by cs2 La f_l. Either
+      // aliasing would make validation/fed_rod.cpp's control rows vacuous.
+      {
+        const Real H = Real(0.5) * m.liquidus_H(), dH = H - Href;
+        Real fl, T, E, c; m.invert(H, fl, T, E, c);
+        Real jm = 0, js = 0, pm = 0, pt = 0;
+        for (int i = 0; i < L7::Q; ++i) {
+          const Real cx = Real(cvel<L7>(i, 0));
+          jm += cx * mat.eq(i, dH, ux, uy, uz);
+          js += cx * sen.eq(i, dH, ux, uy, uz);
+          pm += cx * cx * mat.eq(i, dH, ux, uy, uz);
+          pt += cx * cx * tot.eq(i, dH, ux, uy, uz);
+        }
+        // (H - E) = La f_l - E_datum: the gauge enters here, which is what
+        // E_datum's "free only where div u = 0" means for this mode.
+        check::near(jm - js, (H - E) * ux, TOL, "flux - Sensible's = (La f_l - E_datum) u");
+        check::near(pt - pm, cs2<L7, Real>() * (H - E), TOL,
+                    "Total's second moment - this = cs2 (La f_l - E_datum)");
+        check::ok(Kokkos::abs(jm - js) > Real(1e-6) && Kokkos::abs(pt - pm) > Real(1e-6),
+                  "both differences nonzero -- neither control is an alias");
+      }
+      // collide() reads the same two selectors as eq(): at omega = 1 one BGK
+      // step lands exactly on eq(), and the regularised sibling's flux pair
+      // relaxes to H u, not E u. A mode added at one site and not the other
+      // fails here. UNIFORM alpha (k_s cp_l == k_l cp_s), or collide() takes
+      // the material's rate and ignores the omega = 1 passed to it -- block 10.
+      {
+        PhaseChange mu = material(Real(0), Real(1), Real(2), Real(2),
+                                  Real(0.4), Real(0.4), Real(5), Real(1.5));
+        EnthalpyBGK<L7, EnthalpyAdvect::Material> mat; mat.set_material(mu); mat.T_ref = Href;
+        const Real H = Real(0.5) * mu.liquidus_H(), dH = H - Href;
+        Lcg r(20261103u);
+        Real g[L7::Q];
+        for (int i = 0; i < L7::Q; ++i) g[i] = Real(r.in(-0.2, 0.2));
+        Real s0 = 0; for (int i = 0; i < L7::Q; ++i) s0 += g[i];
+        g[0] += dH - s0;                       // carry exactly dH
+        Real gb[L7::Q], gr[L7::Q];
+        for (int i = 0; i < L7::Q; ++i) gb[i] = gr[i] = g[i];
+        mat.collide(gb, dH, ux, uy, uz, Real(1));
+        Real worst = 0;
+        for (int i = 0; i < L7::Q; ++i)
+          worst = Kokkos::max(worst, Kokkos::abs(gb[i] - mat.eq(i, dH, ux, uy, uz)));
+        check::near(worst, Real(0), TOL, "BGK collide at omega = 1 lands on eq()");
+
+        EnthalpyRegularised<L7, EnthalpyAdvect::Material> reg;
+        reg.set_material(mu); reg.T_ref = Href;
+        reg.collide(gr, dH, ux, uy, uz, Real(1));
+        check::near(gr[1] - gr[2], H * ux, TOL, "Regularised(Material) flux relaxes to H u");
+        check::near(gr[1] + gr[2], gb[1] + gb[2], TOL,
+                    "Regularised(Material) x-pair sum = BGK's at omega = 1 (cs2 dE)");
       }
     }
 

@@ -47,6 +47,17 @@
 #      EnthalpyBGK<D3Q7>           0 / 0 / 0  (104)      0 / 0 / 0  (100)
 #      EnthalpyRegularised<D3Q7>   0 / 0 / 0   (86)      0 / 0 / 0   (84)
 #
+#  Re-measured 2026-11-03, when EnthalpyAdvect::Material was added:
+#
+#      EnthalpyBGK<D3Q7>           0 / 0 / 0  (111)      0 / 0 / 0  (107)
+#      EnthalpyRegularised<D3Q7>   0 / 0 / 0   (93)      0 / 0 / 0   (91)
+#      EnthalpyBGK<D3Q7,Material>  0 / 0 / 0  (111)      0 / 0 / 0  (107)
+#
+#  The +7 on the first two rows is NOT that change: the headers at bd8f3df,
+#  before it, compile to the same 111 / 93 / 107 / 91. It predates it -- most
+#  likely invert()'s !ready_ guard, which landed after this table was taken.
+#  Material costs nothing over Sensible: one operand of the flux term swapped.
+#
 #  The finding: the enthalpy inversion is a three-branch closed form containing
 #  a sqrt, and it costs 24 instructions over ScalarBGK with NO frame, no
 #  surviving loop and no register-indexed array. That was the thing worth
@@ -127,6 +138,7 @@ using MhdM = MhdCentralMoments<D2Q9, true>;
 using SBGK = ScalarBGK<D3Q7>;
 using EBGK = EnthalpyBGK<D3Q7>;
 using EREG = EnthalpyRegularised<D3Q7>;
+using EMAT = EnthalpyBGK<D3Q7, EnthalpyAdvect::Material>;
 extern "C" void probe_bgk (Real* f, const Macro* m, const Bgk*  c) { c->collide(f, *m, 0); }
 extern "C" void probe_cm  (Real* f, const Macro* m, const CM*   c) { c->collide(f, *m, 0); }
 extern "C" void probe_mpcm(Real* f, const Macro* m, const MpCM* c) { c->collide(f, *m, 0); }
@@ -152,6 +164,10 @@ extern "C" void probe_enth(Real* g, Real d, const Real* u, const EBGK* c) {
 extern "C" void probe_enthr(Real* g, Real d, const Real* u, const EREG* c) {
   c->collide(g, d, u[0], u[1], u[2], c->omega);
 }
+// Material advects H instead of E: the same inversion, one operand swapped.
+extern "C" void probe_enthm(Real* g, Real d, const Real* u, const EMAT* c) {
+  c->collide(g, d, u[0], u[1], u[2], c->omega);
+}
 CPP
 
 for PREC in double float; do
@@ -171,7 +187,7 @@ for PREC in double float; do
   echo "  precision $PREC"
   printf "  %-28s %7s %8s %7s %8s\n" operator frame instrs loops regidx
   for FN in probe_bgk probe_cm probe_mpcm probe_pfcm probe_cg probe_mhds probe_mhdm \
-          probe_sbgk probe_enth probe_enthr; do
+          probe_sbgk probe_enth probe_enthr probe_enthm; do
     LN=$(awk -v f="_$FN:" '$0 ~ "^"f {print NR; exit}' "$TMP/probe.s")
     awk -v s="$LN" 'NR>=s{print} NR>s && /\.cfi_endproc/{exit}' "$TMP/probe.s" > "$TMP/b.s"
     # A tail call means the body was not inlined into the probe; follow it,

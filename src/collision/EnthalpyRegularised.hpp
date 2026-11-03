@@ -70,8 +70,8 @@ struct EnthalpyRegularised : EnthalpyBGK<L, A, M> {
     constexpr Real cs2v = cs2<L, Real>();
     Real fl, T, E, dEdT;
     this->material().invert(this->T_ref + dH, fl, T, E, dEdT);
-    const Real Eflux = (A == EnthalpyAdvect::Sensible) ? E : (this->T_ref + dH);
-    const Real dE    = Eflux - this->T_ref;
+    const Real Eflux = Base::flux_carrier(E, this->T_ref + dH);
+    const Real dE    = Base::diffused(E, this->T_ref + dH) - this->T_ref;
     const Real ww    = this->rate_from_solver()
                          ? w
                          : dEdT / (this->material().template conductivity<M>(fl) *

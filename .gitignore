@@ -41,6 +41,12 @@ results/J_zhou_thermal/*_temp.dat
 results/J_zhou_thermal/*_ux.dat
 results/J_zhou_thermal/*_uy.dat
 
+# Same rule for demonstrator/mew_liquefier: the per-node T and f_l fields
+# (8 x 0.5 MB) behind panel (a) of mew_liquefier.png. `mew_liquefier -sweep
+# -out results/mew_liquefier/run` rewrites them in about 40 s; the time series,
+# the sweep table and the ladder logs beside them are tracked.
+results/mew_liquefier/*_field.csv
+
 # Rendered animations. Regenerable from doc/fig/*.py given a dump, and a dump
 # is itself ignored -- so these are two steps from anything tracked. doc/m3lb.pdf
 # is the tracked binary here because it is the deliverable; a video of a

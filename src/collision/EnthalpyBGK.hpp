@@ -69,6 +69,13 @@
 //    the enthalpy-porosity assumption and is defensible only if the velocity is
 //    damped to zero in the mush -- which this does not do. PhaseFields::Report
 //    reports max|u| over mushy nodes so a case cannot ignore it silently.
+//    WHERE THE SOLID ITSELF MOVES the default is not an approximation but the
+//    wrong model: a filament or strand fed through a front carries its latent
+//    heat across it, and Sensible deletes that heat from the steady problem.
+//    EnthalpyAdvect::Material advects H and diffuses E (added 2026-11-03).
+//    validation/fed_rod.cpp, FP64, Ste = 1, L = 80: Sensible lands on the
+//    La = 0 front to 5.5e-5 cells and misses the real one by 5.48 cells;
+//    Material puts every node in its exact phase at L = 40..320.
 //  - No density change on melting, no shrinkage, no convection driven by the
 //    solid/liquid density difference. rho is uniform and the datum E_datum is
 //    free only where div u = 0.
@@ -145,8 +152,23 @@ namespace lbm {
 // What the moving populations carry. Sensible is the model. Total is the
 // reading that advects AND diffuses the latent heat -- kept so the negative
 // result is re-measured rather than asserted.
+//
+// Material ADVECTS the total and DIFFUSES the sensible part:
+//
+//     sum_i g_i^eq = H,   sum_i c_i g_i^eq = H u,   sum_i c_i c_i g_i^eq = cs2 E
+//
+// i.e. dH/dt + div(H u) = div(k grad T). It is the model wherever the SOLID
+// moves -- a filament fed through a melt front, continuous casting -- because
+// the latent heat then crosses the front with the material that carries it.
+// Sensible drops div(La f_l u) -- La u.grad f_l where div u = 0 -- which is
+// zero only where u = 0 in the mush; in a steady fed rod it removes the latent heat from the problem
+// ENTIRELY, since d/dt H = 0 leaves div(E u) = div(k grad T) with no La in it.
+// At u = 0 Material and Sensible are the same operator, so validation/stefan.cpp
+// cannot see the difference; validation/fed_rod.cpp measures it against the
+// exact steady solution. Where u is damped to zero in the mush (a Darcy sink
+// holding a stationary solid) the two agree to the leak velocity.
 //------------------------------------------------------------------------------
-enum class EnthalpyAdvect : std::uint8_t { Sensible = 0, Total = 1 };
+enum class EnthalpyAdvect : std::uint8_t { Sensible = 0, Total = 1, Material = 2 };
 
 //------------------------------------------------------------------------------
 // Conductivity of a partially melted cell.
@@ -360,7 +382,22 @@ struct EnthalpyBGK {
   using Lattice = L;
   using Storage = RawPopulations;
   static constexpr const char* name =
-      (A == EnthalpyAdvect::Sensible) ? "EnthalpyBGK" : "EnthalpyBGK(Total,CONTROL)";
+      (A == EnthalpyAdvect::Sensible) ? "EnthalpyBGK"
+    : (A == EnthalpyAdvect::Material) ? "EnthalpyBGK(Material)"
+                                      : "EnthalpyBGK(Total,CONTROL)";
+
+  // What the flux moment carries (E or H) and what the second moment diffuses
+  // (E, except in the Total control). Both sites -- eq() and collide(), and
+  // EnthalpyRegularised's collide() -- read these two and nothing else, so a
+  // fourth mode cannot be added to one site and fall through at another.
+  KOKKOS_INLINE_FUNCTION
+  static Real flux_carrier(Real E, Real H) {
+    return (A == EnthalpyAdvect::Sensible) ? E : H;
+  }
+  KOKKOS_INLINE_FUNCTION
+  static Real diffused(Real E, Real H) {
+    return (A == EnthalpyAdvect::Total) ? H : E;
+  }
   // Not part of the collision concept. Here so that a driver banner cannot
   // print the operator's name without printing what it actually carries.
   static constexpr const char* transported = "total enthalpy H = e(T) + La f_l";
@@ -489,8 +526,8 @@ struct EnthalpyBGK {
   Real eq(int i, Real dH, Real ux, Real uy, Real uz) const {
     Real fl, T, E, dEdT;
     pc_.invert(T_ref + dH, fl, T, E, dEdT);
-    const Real Eflux = (A == EnthalpyAdvect::Sensible) ? E : (T_ref + dH);
-    return eq_at(i, dH, Eflux - T_ref, Eflux, ux, uy, uz);
+    const Real Eflux = flux_carrier(E, T_ref + dH);
+    return eq_at(i, dH, diffused(E, T_ref + dH) - T_ref, Eflux, ux, uy, uz);
   }
 
   KOKKOS_INLINE_FUNCTION Real omega_at(Index n) const {
@@ -512,9 +549,10 @@ struct EnthalpyBGK {
   void collide(Real h[L::Q], Real dH, Real ux, Real uy, Real uz, Real w) const {
     Real fl, T, E, dEdT;
     pc_.invert(T_ref + dH, fl, T, E, dEdT);
-    // The control reading advects and diffuses the whole enthalpy.
-    const Real Eflux = (A == EnthalpyAdvect::Sensible) ? E : (T_ref + dH);
-    const Real dE    = Eflux - T_ref;
+    // The control reading advects and diffuses the whole enthalpy; Material
+    // advects it and diffuses the sensible part.
+    const Real Eflux = flux_carrier(E, T_ref + dH);
+    const Real dE    = diffused(E, T_ref + dH) - T_ref;
     const Real ww    = rate_from_solver()
                          ? w
                          : dEdT / (pc_.template conductivity<M>(fl) * inv_cs2<L, Real>() +

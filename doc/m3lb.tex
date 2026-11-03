@@ -9892,7 +9892,17 @@ Stated plainly, because each has been measured.
   Its steady position is any link in a window about a cell wide, and which one it
   reaches depends on the direction it came from (\S\ref{sec:ice-equilibrium}).
   A mushy band removes the ambiguity at the cost of a model error set by its
-  width.
+  width. With material \emph{crossing} the front --- a solid fed through it ---
+  the window closes: the steady state is the same from either side and every
+  node sits in its exact phase (\code{validation/fed\_rod}), still first order.
+\item \textbf{The default enthalpy operator drops the latent heat wherever the
+  solid moves.} \code{EnthalpyAdvect::Sensible} advects only the sensible
+  enthalpy, which is the enthalpy--porosity model and is right where the mush is
+  at rest. For a solid fed through a front it removes the latent heat from the
+  steady problem altogether: \code{fed\_rod} lands on the latent-heat-free front
+  to $5.5\times10^{-5}$ cells and misses the real one by $5.48$ cells ($68\,\%$).
+  \code{EnthalpyAdvect::Material}, which advects $H$ and diffuses $E$, is the
+  model there. \code{GPU/} ports \code{Sensible} only.
 \item \textbf{The closed cavity's electric Nusselt number is $9$--$16\,\%$ below
   the reference in the mid-range, and that is measured rather than explained}
   (\S\ref{sec:ehdcavity}). The \emph{shape} of Fig.~8 is reproduced --- $N_e=1$
