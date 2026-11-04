@@ -1,4 +1,4 @@
-main.pdf: main.tex fig/fig1_columns.pdf fig/fig2_tip.pdf fig/fig3_contact.pdf
+main.pdf: main.tex fig/fig1_real.pdf fig/fig2_cut.pdf
 	pdflatex -interaction=nonstopmode -halt-on-error main.tex >/dev/null
 	pdflatex -interaction=nonstopmode -halt-on-error main.tex >/dev/null
 

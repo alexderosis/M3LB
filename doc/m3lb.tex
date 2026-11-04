@@ -9921,8 +9921,8 @@ Stated plainly, because each has been measured.
   6.5\,kV the peak pull on the meniscus is $0.68\,\gamma/R$; a round
   1\,mm tip would feel several times that. And a planar sheet carrying the feed
   at the collector's speed is far thinner than any affordable cell (about
-  $0.4\,\mu$m at the per-minute feed), against the experiment's
-  10--20\,$\mu$m fibres. The planar model resolves what accumulates at the
+  $0.4\,\mu$m at the per-minute feed and $1.9\,\mu$m at the real one,
+  $0.0208\,$mm$^3$/s), against the experiment's 10--20\,$\mu$m fibres. The planar model resolves what accumulates at the
   tip, not the jet; an axisymmetric or 3-D solver is what the cone-jet needs.
   The extruded column is not grid-converged, and the nozzle is why: at fixed
   physics the melt leaves it through a neck of exactly the bore plus four cells
@@ -9940,6 +9940,23 @@ Stated plainly, because each has been measured.
   rise alike, to $2.29$ and $2.38$\,mm, and sink slowly, and at 50\,$\mu$m both
   rise too. A difference between two runs at one resolution is no more
   grid-independent than either run.
+\item \textbf{In \code{mew\_nozzle} the field's effect on the approach is set by
+  how deep the melt may conduct.} \code{FsElectric} lets liquid conduct only
+  in a declared region, so that it cannot short the gap; in \code{mew\_nozzle}
+  that is within \code{-lc} of the tip, and below it the melt is vacuum to the
+  potential and feels no pull. At the real feed ($0.0208\,$mm$^3$/s,
+  50\,$\mu$m cells) the field-on drop slows exactly when its lowest point
+  leaves the conducting zone ($90\to34\,\mu$m/s on crossing 3.5\,mm with the
+  default 2\,mm cut, where the field-off drop goes $49\to47$), and moving the
+  cut moves the bend. The runs with cuts of 1, 2 and 3\,mm are identical until
+  the drop first passes the shallower cut, and they touch the collector
+  $7.4$, about $11$ and $17.0$\,s after the field-off run. Once the drop hangs
+  below the cut, the conductor ends in a flat face inside it, and the
+  strongest pull sits at that face's edge on the drop's sides, 7--56 times the
+  median over the conducting surface; while the whole drop conducts it sits at
+  the drop's lowest point. Neither the size nor the sign of the delay is
+  therefore a prediction. A leaky-dielectric melt would replace the cut, and
+  \code{FsElectric} does not have one.
 \item \textbf{A mirror-symmetric free surface does not stay symmetric, and a
   thread drawn below a cell creates mass.} Neither is diagnosed. In
   \code{mew\_nozzle} an advancing front amplifies round-off until the column

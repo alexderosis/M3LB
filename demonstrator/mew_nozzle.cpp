@@ -26,9 +26,66 @@
 //  are ~1e-5 and ~6e3. The 2-D feed keeps the 3-D bore's mean velocity. R = 8
 //  cells across the bore half-width: 320 x 271, dx 25 um, dt 1.43e-5 s.
 //
-//  MEASURED 2026-11-03, FP64, 4 threads (about 80 s of wall clock per simulated
-//  second; run it with taskpolicy -B, CLAUDE.md's machine note). Viscosity
-//  500 Pa s and surface tension 0.03 N/m are nominal.
+//  THE REAL FEED IS 0.0208 mm^3/s (-feed 0.0208). Table 1 prints 0.255 mm^3/s,
+//  and Murat Kilic confirmed on 2026-11-03 that the value was never updated:
+//  every experiment, the fan's included, ran at 0.0208 mm^3/s and 35 mm/s. It
+//  is neither earlier reading (12.3x below the printed one, 4.9x above
+//  0.255 mm^3/min). Bore velocity 0.166 mm/s, Ca_feed 2.76, Re_bore 0.0015.
+//  Measured 2026-11-03/04, FP64, to 120 s; 25 um cells cost 90 s of wall clock
+//  per simulated second field on and 67 field off, 50 um cells (-R 4
+//  -Ucol 0.04) 6.0 and 4.6.
+//
+//      cells, field        what the melt does
+//      25 um, field off    a drop hangs from the nozzle and grows at the feed;
+//                          its lowest point falls at 40 um/s (40-100 s) and
+//                          first touches the collector at 104.968 s, 22x
+//                          later than at the printed feed
+//      50 um, field off    the same drop, 42 um/s; first contact 110.325 s
+//      25 um, 6.5 kV       FASTER, THEN SLOWER: 0.40 mm below the field-off
+//                          drop at 20 s, 34 um/s over 40-100 s, and still
+//                          0.0875 mm up when the run ends at 120 s (row 1 at
+//                          about 122.7 s, extrapolated): about 18 s late
+//      50 um, 6.5 kV       the same: 0.45 mm ahead at 20 s, 0.075 mm up at
+//                          120 s (about 121.4 s), about 11 s late
+//
+//  Melt within 1 mm of the tip 0.690 / 0.725 mm^2 at 25 um (off / on, 30-100 s)
+//  and 0.855 / 0.867 at 50 um, about what the printed feed piles there; the
+//  neck is the bore plus four cells again (0.50 / 0.60 mm); peak pull 1.16 and
+//  0.66 gamma/R; ledger within +0.24 % to contact. At 100 s the drop is
+//  1.90 mm wide with the field off and 2.05-2.10 mm with it on. A sheet carrying
+//  this feed at 35 mm/s would be 1.9 um thick in 2-D, below any cell, so
+//  nothing carries melt away and the drop grows at the feed. Filling a drop of
+//  the same outline from the same bore velocity takes w/2R longer in 3-D than
+//  in 2-D (w its width), four to five times here, so a round nozzle would take
+//  longer to bridge the gap: an estimate, not a run.
+//
+//  AT THE REAL FEED THE FIELD'S EFFECT IS SET BY -lc, AND BY AN EDGE -lc MAKES
+//  (measured 2026-11-04, 50 um, -lc 1 and 3 run to 140 s). The melt conducts
+//  only within -lc of the tip -- FsElectric's guard against shorting the gap --
+//  and below that it is vacuum to the potential and feels no pull. The
+//  field-on drop slows EXACTLY when its lowest point leaves the conducting
+//  zone: 90 -> 34 um/s on crossing 3.5 mm at the default 2 mm (25 um:
+//  107 -> 40), where the field-off drop passes the same height at 49 -> 47.
+//  Moving the cut moves the bend: 93 -> 53 um/s at 4.5 mm for -lc 1 (field off
+//  75 -> 57 there) and 120 -> 16 at 2.5 mm for -lc 3. The three runs are
+//  IDENTICAL to every printed digit until the lowest point first passes the
+//  shallower cut (to 9.072 and 20.304 s), and first contact comes at 117.712 /
+//  ~121.4 / 127.296 s for -lc 1 / 2 / 3, a delay of 7.4 / 11 / 17.0 s that
+//  grows with the depth. WHY: while the whole drop conducts, its strongest pull
+//  is at its lowest point (3.9x the median over the conducting surface); once
+//  the drop hangs below the cut, the conductor ends in a flat face inside it,
+//  and the strongest pull sits at that face's edge on the drop's two sides,
+//  7-56x the median. A sideways pull that widens the drop is consistent with
+//  the slowdown and the wider drop; that link is not tested. So the field-on
+//  approach here is shaped by a numerical edge: neither the size nor the sign
+//  of its delay is a prediction. A melt whose charge relaxes in less than the
+//  drop's minute of growth would be conducting all the way down, which is the
+//  run to make next (-lc close to the gap); FsElectric has no leaky dielectric.
+//
+//  THE TWO EARLIER READINGS OF TABLE 1, measured 2026-11-03, FP64, 4 threads
+//  (about 80 s of wall clock per simulated second at 25 um; run it with
+//  taskpolicy -B, CLAUDE.md's machine note). Viscosity 500 Pa s and surface
+//  tension 0.03 N/m are nominal.
 //
 //      feed, voltage            what the melt does
 //      0.255 mm^3/s, 6.5 kV     a column on the axis (mirror projection, below);
@@ -55,7 +112,8 @@
 //  Ledger, total + drained - injected over injected: +0.50..0.57 % before
 //  contact at the printed feed (the piston injects rho U, and rho sits that far
 //  above 1 under the bore's viscous pressure drop), +0.01..0.1 % at the
-//  per-minute feed. WHILE THE FIELD-OFF THREAD IS DRAWN IT CLIMBS TO +5.4 %
+//  per-minute feed and +0.03..0.24 % at the real one. WHILE THE FIELD-OFF
+//  THREAD IS DRAWN AT THE PRINTED FEED IT CLIMBS TO +5.4 %
 //  (7.21 s): melt is created as the thread thins. Not diagnosed; the first
 //  suspect is the free surface's own settle() defect, which its banner measures
 //  creating mass where a filling cell sits beside an emptying one.
@@ -88,7 +146,16 @@
 //  absolute number here as converged, and no difference after contact either
 //  (AFTER CONTACT, below).
 //
-//  WHAT IT SAYS. At the feed Table 1 prints, the bore's capillary number is 34:
+//  WHAT IT SAYS. At the real feed the bore's capillary number is 2.8, and with
+//  nothing to carry it away the melt hangs from the nozzle as a drop that grows
+//  at the feed and bridges the gap in about two minutes in 2-D (THE REAL FEED,
+//  above). What the field does to that approach belongs to -lc. The fibres do
+//  not carry the feed either: a straight fibre laid at 35 mm/s carrying
+//  0.0208 mm^3/s is 27.5 um, so the paper's 19-22 um fibres carry 48-64 % of it
+//  and the fan's 9.5-13.5 um ones 12-24 %, with no oozing reported in either:
+//  the reported feed, speed and diameters do not balance for straight fibres,
+//  a question for the experiment rather than for this model. At the feed
+//  Table 1 prints, the bore's capillary number is 34:
 //  the melt is extruded as a column whatever the field does, which in the
 //  experiment would read as oozing. At 0.255 mm^3/min -- the reading under which
 //  the fan-cooled fibres carry the feed -- the field shapes a meniscus that
@@ -142,6 +209,17 @@
 //   - One interface cell (fill 0.54) is left on the collector at contact and
 //     stays there, unmoved, to the end: classify()'s detached-speck rule spares
 //     a cell touching a wall, and with no liquid neighbour it exchanges no mass.
+//     At the real feed (25 um, field off) it has fill 0.985 and sits 0.44 mm
+//     downstream of the axis, inside the window z_low scans, so z_low reads
+//     0.0125 mm from contact to the end while the drop hangs a millimetre up.
+//     After contact, read the frames, not z_low.
+//   - AT THE REAL FEED NOTHING AFTER CONTACT IS USABLE. The drop that touches
+//     holds 7.4-7.8 mm^2 of melt, and the collector drags it to the box's
+//     downstream wall within 2 s. At 50 um the neck snaps, leaving a small drop
+//     on the nozzle, and 3.3 mm^2 (41 % of what was fed) drains out by 112 s,
+//     the ledger peaking at +1.3 % and settling at +0.6 %; at 25 um the drop
+//     lifts off the collector and hangs from the nozzle as a hook against that
+//     wall, and nothing drains. The grids disagree and the box decides both.
 //   - The drawn sheet of the real process, Q/U_c = 23 um in 2-D, is below the
 //     25 um grid, which is why the field-off thread there broke once drawn.
 //

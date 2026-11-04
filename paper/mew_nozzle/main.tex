@@ -33,17 +33,16 @@
 \renewcommand{\arraystretch}{1.15}
 \newcolumntype{L}{>{\raggedright\arraybackslash}X}
 \newcommand{\mmcs}{\unit{\cubic\milli\metre\per\second}}
-\newcommand{\mmcmin}{\unit{\cubic\milli\metre\per\minute}}
 
 \hypersetup{pdftitle={The MEW nozzle in two dimensions},pdfauthor={Alessandro De Rosis}}
 
 \begin{document}
 
-{\sffamily\footnotesize\color{inkthree}M3LB \textperiodcentered{} lattice Boltzmann \textperiodcentered{} planar model\hfill 3 November 2026\par}
+{\sffamily\footnotesize\color{inkthree}M3LB \textperiodcentered{} lattice Boltzmann \textperiodcentered{} planar model\hfill 4 November 2026\par}
 \vspace{6pt}
 {\sffamily\bfseries\LARGE The MEW nozzle in two dimensions\par}
 \vspace{3pt}
-{\sffamily\large\color{inktwo}First results for the set-up of Ju, Omar, Mirihanage and Kilic\par}
+{\sffamily\large\color{inktwo}Results at the corrected feed, for the set-up of Ju, Omar, Mirihanage and Kilic\par}
 \vspace{3pt}
 {\small Alessandro De Rosis\par}
 \vspace{8pt}
@@ -51,17 +50,20 @@
 \textbf{Summary.} The set-up of \emph{Suppressing oozing during filament-based melt electrowriting}
 (SSRN 7582986) was simulated as a planar slice through the nozzle: PCL at \qty{120}{\celsius} fed
 through a \qty{0.4}{\milli\metre} nozzle at \qty{6.5}{\kilo\volt}, \qty{5.5}{\milli\metre} above a
-collector moving at \qty{2100}{\milli\metre\per\minute}. Four results:
+collector moving at \qty{35}{\milli\metre\per\second}, at the corrected feed of
+\qty{0.0208}{\cubic\milli\metre\per\second} (Table~1 prints \qty{0.255}{\cubic\milli\metre\per\second}).
+Four results:
 \begin{itemize}
-  \item At the feed printed in Table~1, \qty{0.255}{\cubic\milli\metre\per\second}, the melt is pushed
-    out as a column whether the field is on or off.
-  \item At \qty{0.255}{\cubic\milli\metre\per\minute} the field shapes a meniscus that grows at exactly the
-    feed rate; no jet can form on this grid.
-  \item Only the per-minute feed matches the measured fibres: at \qty{35}{\milli\metre\per\second} it lays a
-    \qty{12}{\micro\metre} fibre.
-  \item The numbers are not grid-converged: with no wetting law, the melt leaves the nozzle through a neck
-    set by the cell size. The field changes nothing before the melt reaches the collector, on any grid; a
-    difference after contact seen on \qty{25}{\micro\metre} cells is gone on \qty{12.5}{\micro\metre} cells.
+  \item With the field off, the melt hangs from the nozzle as a drop that grows at the feed rate and
+    reaches the collector after 105 to \qty{110}{\second}; nothing in a planar model can carry it away as
+    a jet.
+  \item With the field on, the drop first falls faster, then reaches the collector later, by an amount set
+    by how deep the model lets the melt conduct. That depth is a numerical choice, so neither the size nor
+    the direction of the effect is a prediction.
+  \item At \qty{35}{\milli\metre\per\second} a straight fibre carrying the whole feed is
+    \qty{27.5}{\micro\metre} across; the reported \qtyrange{19}{22}{\micro\metre} fibres carry about half
+    of it, the fan's \qtyrange{9.5}{13.5}{\micro\metre} fibres 12 to \qty{24}{\percent}.
+  \item The numbers are not grid-converged, and nothing after the melt reaches the collector can be used.
 \end{itemize}
 
 \section{Model and set-up}
@@ -72,168 +74,180 @@ Melt & PCL held at \qty{120}{\celsius}. Viscosity \qty{500}{\pascal\second} and 
   \qty{0.03}{\newton\per\metre} are nominal values, not measurements; density \qty{1080}{\kilo\gram\per\cubic\metre}. \\
 Nozzle & \qty{0.4}{\milli\metre} bore, as in the paper; an assumed \qty{1.0}{\milli\metre} tip face,
   \qty{5.5}{\milli\metre} above the collector. \\
-Field & \qty{6.5}{\kilo\volt}, and \qty{12}{\kilo\volt} in one run. The melt conducts within
-  \qty{2}{\milli\metre} of the tip and is an insulator below that, so it cannot short the gap. \\
-Collector & \qty{35}{\milli\metre\per\second} (\qty{2100}{\milli\metre\per\minute}). \\
-Feed & \qty{0.255}{\cubic\milli\metre\per\second} as printed in Table~1, so the melt leaves the bore at
-  \qty{2.0}{\milli\metre\per\second}; and \qty{0.255}{\cubic\milli\metre\per\minute}. \\
-Grid & \qty{25}{\micro\metre} cells over an $8 \times 6.8$\,mm slice, \qty{14}{\micro\second} steps. A
-  free-surface lattice Boltzmann model of the melt (D2Q9, central moments; the air is not simulated), and
-  Laplace's equation for the potential in the air (D2Q5). The melt surface feels the electric pull
-  $\varepsilon_0 E^2/2$. \\
+Field & \qty{6.5}{\kilo\volt}. The melt conducts within \qty{2}{\milli\metre} of the tip (1 and
+  \qty{3}{\milli\metre} in a test, Section~\ref{sec:field}) and is an insulator below, so it cannot short the gap. \\
+Collector & \qty{35}{\milli\metre\per\second} (\qty{2100}{\milli\metre\per\minute}), as in every experiment. \\
+Feed & \qty{0.0208}{\cubic\milli\metre\per\second}, Table~1's corrected value (Murat Kilic, 3 November),
+  with and without the fan; the melt leaves the bore at \qty{0.17}{\milli\metre\per\second}. Earlier
+  readings: Section~\ref{sec:earlier}. \\
+Grid & \qty{25}{\micro\metre} cells over an $8 \times 6.8$\,mm slice, \qty{14}{\micro\second} steps, and
+  \qty{50}{\micro\metre} cells as a check. A free-surface lattice Boltzmann model of the melt (D2Q9, central
+  moments; the air is not simulated) and Laplace's equation for the potential in the air (D2Q5); the melt
+  surface feels the pull $\varepsilon_0 E^2/2$. \\
 \bottomrule
 \end{tabularx}
 
 \smallskip
-Matched to the experiment: the capillary numbers of the feed (34 as printed, 0.56 per minute) and of the
-collector (583), the Bond number (0.014), and the ratio of electric to capillary pressure,
-$\varepsilon_0 V^2/\gamma R = 62$ at \qty{6.5}{\kilo\volt}. Not matched: inertia, which is negligible in the
-experiment and kept small in the model (Reynolds number at most 0.32).
+Matched to the experiment: the capillary numbers of the feed (2.8) and of the collector (583), the Bond
+number (0.014), and the ratio of electric to capillary pressure, $\varepsilon_0 V^2/\gamma R = 62$ at
+\qty{6.5}{\kilo\volt}. Not matched: inertia, which is negligible in the experiment and kept small in the
+model (Reynolds number at most 0.32).
 
 \section{Results}
 
-\subsection{The printed feed: a column, field or no field}
-The capillary number in the bore is 34, so viscous extrusion beats surface tension by a wide margin.
-On \qty{25}{\micro\metre} cells, with the field on and off, the front falls at
-\qty{1.13}{\milli\metre\per\second}, the melt within \qty{1}{\milli\metre} of the tip settles at
-\qty{0.65}{\milli\metre\squared} in both, and both columns reach the collector at \qty{4.7}{\second}, within
-\qty{0.01}{\second} of each other (Fig.~\ref{fig:columns}; Section~\ref{sec:cells} for how these numbers move
-with the cell size). In the experiment this would look like oozing whatever the voltage.
+\subsection{Field off: a drop that reaches the collector in about two minutes}
+The capillary number in the bore is 2.8. The melt hangs from the nozzle as a drop that grows at the feed
+rate; its lowest point falls at about \qty{0.04}{\milli\metre\per\second} and reaches the collector after
+\qty{105.0}{\second} on \qty{25}{\micro\metre} cells and \qty{110.3}{\second} on \qty{50}{\micro\metre}
+cells (Fig.~\ref{fig:real}), 22 times later than the printed feed's column. The melt within
+\qty{1}{\milli\metre} of the tip settles at \qty{0.69}{\milli\metre\squared}, about what the printed feed
+piles there. A planar sheet carrying this feed at \qty{35}{\milli\metre\per\second} would be
+\qty{1.9}{\micro\metre} thick, far below the cells, so nothing carries melt away and no jet forms. In three
+dimensions a drop of the same outline needs more melt, by about its width over the bore's, four to five
+times here, so a round nozzle would take longer to reach the collector: an estimate, not a run.
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=\textwidth]{fig/fig1_columns.pdf}
-  \caption{Table~1's feed, \qty{0.255}{\cubic\milli\metre\per\second}, from the start to first contact. Blue:
-    the melt with the field on, equipotentials every \qty{10}{\percent} of the voltage, the melt conducting
-    above the dotted line. Orange, dashed: the outline of the melt with the field off at the same instant.
-    The two are almost identical.}
-  \label{fig:columns}
-\end{figure}
-
-\subsection{The per-minute feed: a meniscus that grows at the feed rate}
-At \qty{6.5}{\kilo\volt} and at \qty{12}{\kilo\volt} alike the melt under the tip grows at
-\qty{0.01354}{\milli\metre\squared\per\second}, against a feed of \qty{0.01353}{\milli\metre\squared\per\second}
-in this planar model: nothing carries melt away (Fig.~\ref{fig:tip}). A planar sheet carrying this feed at
-\qty{35}{\milli\metre\per\second} would be \qty{0.4}{\micro\metre} thick, against \qty{25}{\micro\metre}
-cells, so no jet can form on this grid. After \qty{8}{\second} the meniscus reaches \qty{0.32}{\milli\metre}
-below the tip face at \qty{6.5}{\kilo\volt} and \qty{0.35}{\milli\metre} at \qty{12}{\kilo\volt}, and the
-strongest pull on it is 0.68 and 2.51 times the bore's capillary pressure, $\gamma/R = \qty{150}{\pascal}$.
-A flat tip concentrates the field less than a round one; the \qty{12}{\kilo\volt} run estimates the pull a
-round \qty{1}{\milli\metre} tip feels at \qty{6.5}{\kilo\volt}.
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=\textwidth]{fig/fig2_tip.pdf}
-  \caption{(a) Melt within \qty{1}{\milli\metre} under the tip, the model's measure of the accumulation the
-    paper reports as oozing. Printed feed with the field on (blue) and off (orange, dashed), to first
-    contact; per-minute feed at \qty{6.5}{\kilo\volt} (aqua) and \qty{12}{\kilo\volt} (yellow, dashed). The
-    pairs overlap. (b, c) The per-minute meniscus after \qty{8}{\second}, with equipotentials every
+  \includegraphics[width=\textwidth]{fig/fig1_real.pdf}
+  \caption{The corrected feed, \qty{0.0208}{\cubic\milli\metre\per\second}. (a) Height of the lowest
+    point of the melt against time with the field off (orange) and on (blue), on \qty{25}{\micro\metre}
+    (solid) and \qty{50}{\micro\metre} cells (dashed). Dots mark first contact with the collector, which
+    neither field-on run reaches by \qty{120}{\second}; dotted, the depth below which the melt does not
+    conduct. (b, c) The drop at \qty{100}{\second} on \qty{25}{\micro\metre} cells, field off and on; in (c)
+    the melt that conducts is dark and the melt below the limit light, with equipotentials every
     \qty{10}{\percent} of the voltage.}
-  \label{fig:tip}
+  \label{fig:real}
 \end{figure}
 
-\subsection{Which feed?}
-The paper's fibres are \qtyrange{9.5}{13.5}{\micro\metre} with the fan cooling and about
-\qtyrange{19}{22}{\micro\metre} after nozzle cleaning. A straight fibre laid at \qty{35}{\milli\metre\per\second}
-carries its cross-section times that speed, so \qtyrange{9.5}{22}{\micro\metre} fibres carry
-\qtyrange{0.0025}{0.013}{\cubic\milli\metre\per\second}. \qty{0.255}{\cubic\milli\metre\per\minute} is
-\qty{0.0043}{\cubic\milli\metre\per\second}, a \qty{12}{\micro\metre} fibre;
-\qty{0.255}{\cubic\milli\metre\per\second} would need a \qty{96}{\micro\metre} fibre.
+\subsection{Field on: faster, then later, by an amount the model chooses}\label{sec:field}
+With the field on the drop first falls faster, \qty{0.40}{\milli\metre} (\qty{25}{\micro\metre} cells)
+and \qty{0.45}{\milli\metre} (\qty{50}{\micro\metre}) below the field-off drop at \qty{20}{\second}. Then
+it slows and widens (2.05 to \qty{2.10}{\milli\metre} at \qty{100}{\second}, against \qty{1.90}{\milli\metre})
+and is still 0.09 and \qty{0.075}{\milli\metre} above the collector when the runs end at \qty{120}{\second};
+extrapolated, it touches about 18 and \qty{11}{\second} after the field-off drop. The slowdown comes exactly
+when the drop's lowest point leaves the zone where the model lets the melt conduct, \qty{2}{\milli\metre}
+below the tip: its speed falls there from 0.090 to \qty{0.034}{\milli\metre\per\second}
+(\qty{50}{\micro\metre}), while the field-off drop passes the same height unchanged at
+\qty{0.05}{\milli\metre\per\second}. The model needs that limit, or the melt would short the gap, but nothing
+in it fixes the depth. With the limit at 1 or \qty{3}{\milli\metre} instead (Fig.~\ref{fig:cut}a) the bend
+moves with it, the runs are identical to every printed digit until the drop first passes the shallower
+limit, and the drop reaches the collector 7.4, about 11 and \qty{17.0}{\second} after the field-off drop
+for 1, 2 and \qty{3}{\milli\metre}.
+
+While the whole drop conducts, its strongest pull is at its lowest point and draws it down. Once it hangs
+below the limit, its conducting part ends in a flat face inside it, and the strongest pull moves to that
+face's edge on the drop's sides, 7 to 56 times the typical pull on the conducting surface
+(Fig.~\ref{fig:cut}b). That edge is numerical, so neither the size of the delay nor its direction is a
+prediction. A melt whose charge relaxes in much less than the drop's two minutes would conduct all the way
+down; a run with the whole drop conducting would test that.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{fig/fig2_cut.pdf}
+  \caption{How deep the melt may conduct, on \qty{50}{\micro\metre} cells. (a) Height of the lowest point
+    of the melt against time with the field off (orange) and on, the melt conducting to 1, 2 or
+    \qty{3}{\milli\metre} below the tip (light to dark blue; \qty{2}{\milli\metre} is the default of
+    Fig.~\ref{fig:real}). Dotted, each depth; diamonds, the drop's lowest point passing it; dots, first
+    contact. (b) The \qty{2}{\milli\metre} run at \qty{81}{\second}: melt that conducts (dark) and melt that
+    does not (light), equipotentials every \qty{10}{\percent} of the voltage, and the four surface cells
+    pulled hardest (orange), at the edge of the conducting zone.}
+  \label{fig:cut}
+\end{figure}
+
+\subsection{What the fibres carry}
+A straight fibre laid at \qty{35}{\milli\metre\per\second} carries its cross-section times that speed;
+carrying the whole feed it would be \qty{27.5}{\micro\metre} across. The paper's
+\qtyrange{19}{22}{\micro\metre} fibres (after nozzle cleaning) carry 48 to \qty{64}{\percent} of the feed,
+its \qtyrange{9.5}{13.5}{\micro\metre} fibres (with the fan) 12 to \qty{24}{\percent}. A Taylor cone and a
+lag angle thin the jet, but stretching conserves volume: a \qty{20.5}{\micro\metre} fibre carrying the whole
+feed would have to be laid at \qty{63}{\milli\metre\per\second}, an \qty{11.5}{\micro\metre} one at
+\qty{200}{\milli\metre\per\second}, and a fibre laid faster than the collector moves coils rather than lying
+straight. So if the fibres are straight, part of the feed does not reach the collector (question~1).
+
+\subsection{The two earlier readings of the feed}\label{sec:earlier}
+At the printed \qty{0.255}{\cubic\milli\metre\per\second}, twelve times the corrected feed (capillary
+number 34), the melt is pushed out as a column, field on or off, and reaches the collector at
+\qty{4.7}{\second} on \qty{25}{\micro\metre} cells; at \qty{0.255}{\cubic\milli\metre\per\minute} (0.56) the
+field shapes a meniscus that grows at exactly the feed rate, at 6.5 and \qty{12}{\kilo\volt} alike. The
+first version of this note, of 3 November, has both.
 
 \subsection{How the numbers depend on the cell size}\label{sec:cells}
-The printed feed was rerun on cells of 50 and \qty{12.5}{\micro\metre}, with the same physics. Nothing
-converges: on 50, 25 and \qty{12.5}{\micro\metre} cells the front falls at 0.91, 1.14 and
-\qty{1.34}{\milli\metre\per\second} over the first \qty{3.5}{\second}, the melt within \qty{1}{\milli\metre} of the tip is 0.81, 0.65 and
-\qty{0.55}{\milli\metre\squared}, and first contact comes at 5.8, 4.7 and \qty{4.0}{\second}. The reason is
-where the melt leaves the nozzle. The model has no wetting: it treats the nozzle as a surface the melt does
-not wet, so the melt leaves from the edge of the bore and creeps exactly two cells onto the tip face,
-whatever a cell measures. The neck is therefore 0.60, 0.50 and \qty{0.45}{\milli\metre} wide, and since
-the column below carries the whole feed, a narrower neck makes a narrower, faster column. As the cells
-shrink the neck tends to the bore itself, \qty{0.4}{\milli\metre}; a melt that wets the nozzle would hang
-from its outer edge instead, \qty{1.0}{\milli\metre} wide, a bigger difference than any of these grids
-make. Before contact the field changes nothing on any grid (within \qty{1.4}{\percent}).
+Nothing converges, and the nozzle is why. With no wetting the model treats the nozzle as a surface the
+melt does not wet, so the melt leaves from the edge of the bore and creeps exactly two cells onto the tip
+face, whatever a cell measures: the neck is 0.60, 0.50 and \qty{0.45}{\milli\metre} wide on 50, 25 and
+\qty{12.5}{\micro\metre} cells, and the column follows it. At the printed feed first contact came at 5.8,
+4.7 and \qty{4.0}{\second} on the three grids; at the corrected feed the field-off drop touches at 110.3 and
+\qty{105.0}{\second} on 50 and \qty{25}{\micro\metre} cells, with 0.85 and \qty{0.69}{\milli\metre\squared}
+of melt within \qty{1}{\milli\metre} of the tip. A wetting melt would hang from the nozzle's outer edge,
+\qty{1.0}{\milli\metre} wide, a bigger change than any grid makes. At about two days a run,
+\qty{12.5}{\micro\metre} cells at the corrected feed are beyond a laptop.
 
 \subsection{After the melt reaches the collector}
-Both ropes leave the collector within \qty{0.1}{\second} of touching it. On \qty{25}{\micro\metre} cells
-the two then part company: with the field off the rope sags back, touches again \qty{1.2}{\second} later
-near the edge of the box and is laid there, while with the field on it curls into a hook and stays up. On
-\qty{12.5}{\micro\metre} cells that difference is gone. Both ropes rise, to 2.3 and
-\qty{2.4}{\milli\metre}, and sink slowly, still 1.3 to \qty{1.5}{\milli\metre} up \qty{2.6}{\second} after
-contact (Fig.~\ref{fig:contact}); on \qty{50}{\micro\metre} cells both rise too. So the field-off rope's
-return belongs to the \qty{25}{\micro\metre} grid, not to the field, and nothing after contact here should
-be read as an effect of the field. Where a rope touches down is set by the width of the box in any case.
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\textwidth]{fig/fig3_contact.pdf}
-  \caption{After first contact at the printed feed; the collector moves to the right. (a, b) The field-off
-    rope \qty{1.3}{\second} after its first contact: on \qty{25}{\micro\metre} cells it has come back and is
-    laid near the edge of the box; on \qty{12.5}{\micro\metre} cells it is still up. (c, d) Height of the
-    lowest point of the melt still attached to the nozzle against the time since contact, field on (blue)
-    and off (orange, dashed): the two part company on \qty{25}{\micro\metre} cells and coincide on
-    \qty{12.5}{\micro\metre} cells.}
-  \label{fig:contact}
-\end{figure}
+Nothing after contact can be used at the corrected feed. The collector drags the drop to the side of the
+\qty{8}{\milli\metre} box within \qty{2}{\second}; on \qty{50}{\micro\metre} cells its neck snaps and
+\qty{41}{\percent} of the melt drains out of the box, while on \qty{25}{\micro\metre} cells it lifts off
+and hangs from the nozzle as a hook. At the printed feed, a difference between field on and off after
+contact on \qty{25}{\micro\metre} cells was gone on \qty{12.5}{\micro\metre} cells.
 
 \section{What the model leaves out}
 \begin{itemize}
-  \item \textbf{The Taylor cone and the jet.} A planar meniscus has no conical equilibrium, and the jet is
-    far below the grid. A flat tip also concentrates the field less than a round one.
-  \item \textbf{Wetting.} The runs treat the nozzle and the collector as surfaces the melt does not wet.
-    A contact-angle law since added to the code spreads the melt onto the tip face by only one cell a side
-    in \qty{4}{\second}, and its contact line sticks, more so on finer grids.
-  \item \textbf{Charge and conduction.} The melt is a perfect conductor near the tip and an insulator
-    below; there is no free charge and no current.
-  \item \textbf{Heat.} The melt is held at \qty{120}{\celsius}; the hot end, where the fan acts, was
-    modelled separately.
-  \item \textbf{Rheology.} Newtonian at a nominal \qty{500}{\pascal\second}: no shear-thinning, no
-    elasticity, no die swell.
+  \item \textbf{Three dimensions.} A planar meniscus has no conical equilibrium, the jet is far below the
+    grid, a flat tip concentrates the field less than a round one, and a planar drop holds less melt for
+    its outline.
+  \item \textbf{Wetting.} The nozzle and the collector are surfaces the melt does not wet; a contact-angle
+    law since added spreads the melt by only one cell a side in \qty{4}{\second}, and its contact line
+    sticks, more so on finer grids.
+  \item \textbf{Charge and conduction.} A perfect conductor down to a chosen depth and an insulator below,
+    with no free charge and no current.
+  \item \textbf{Heat and rheology.} Isothermal at \qty{120}{\celsius} (the hot end, where the fan acts, was
+    modelled separately) and Newtonian at a nominal \qty{500}{\pascal\second}.
 \end{itemize}
 
 \section{How far to trust it}
 
 \begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash\sffamily\small}p{5.0cm}L@{}}
 \toprule
-Electric pull on a melt surface, against exact solutions &
-  The pattern of the pull is right to \qty{0.05}{\percent}, a moving surface's response to
-  \qty{3}{\percent} once its own stiffness (next row) is allowed for. \\
-A gentle pull on a flat melt surface &
-  Deflections of one or two cells come out \qtyrange{9}{25}{\percent} short: the free surface is too stiff
-  there, wherever the field moves it by only a cell or two. \\
-Surface tension: Laplace's law for a still drop &
-  Right to \qty{1.2}{\percent} for drops of 12 cells radius or more, \qty{3.4}{\percent} at 8 cells. The bore
-  is 8 cells from wall to axis. \\
+Electric pull, against exact solutions &
+  Its pattern is right to \qty{0.05}{\percent}, a moving surface's response to \qty{3}{\percent} once the
+  surface's own stiffness is allowed for: deflections of one or two cells come out
+  \qtyrange{9}{25}{\percent} short. \\
+Surface tension, Laplace's law &
+  Right to \qty{1.2}{\percent} for drops of 12 cells or more, \qty{3.4}{\percent} at 8 cells; the bore is 8
+  cells from wall to axis. \\
 Three cell sizes, 50, 25 and \qty{12.5}{\micro\metre} &
-  Not converged: front 0.91, 1.14 and \qty{1.34}{\milli\metre\per\second}, melt under the tip 0.81, 0.65
-  and \qty{0.55}{\milli\metre\squared}, contact 5.8, 4.7 and \qty{4.0}{\second}, all set by the neck
-  (Section~\ref{sec:cells}); the field-off return is the \qty{25}{\micro\metre} grid's. \\
+  Not converged, all set by the neck the melt leaves through (Section~\ref{sec:cells}). \\
+How deep the melt conducts &
+  Sets the field's effect: the drop reaches the collector 7.4, about 11 and \qty{17.0}{\second} after the
+  field-off drop for depths of 1, 2 and \qty{3}{\milli\metre}. \\
 Mass &
-  Conserved to \qty{0.6}{\percent} until contact; it gains up to \qty{5.4}{\percent} while the field-off
-  thread is drawn thin, which is not yet explained. \\
+  Conserved to \qty{0.24}{\percent} until contact (\qty{0.6}{\percent} at the printed feed); after contact
+  off by up to \qty{1.3}{\percent}, and by up to \qty{5.4}{\percent} while a thread is drawn thin at the
+  printed feed, which is not yet explained. \\
 Symmetry &
-  The melt is held mirror-symmetric, as the set-up is, until it touches the collector; otherwise
-  round-off pushes the column up to \qty{0.4}{\milli\metre} sideways. \\
+  Held mirror-symmetric until contact, as the set-up is; otherwise round-off pushes the column up to
+  \qty{0.4}{\milli\metre} sideways. \\
 \bottomrule
 \end{tabularx}
 
 \section{Questions for the experiment}
 \begin{enumerate}
-  \item Is Table~1's feed \qty{0.255}{\cubic\milli\metre\per\second} or
-    \qty{0.255}{\cubic\milli\metre\per\minute}? At \qty{35}{\milli\metre\per\second} the per-minute value lays a
-    \qty{12}{\micro\metre} fibre, inside the \qtyrange{9.5}{13.5}{\micro\metre} measured with the fan; the
-    per-second value would need a \qty{96}{\micro\metre} fibre.
-  \item Are there measured values for this PCL at \qty{120}{\celsius}: the viscosity, ideally a flow curve,
-    and the surface tension? The model uses \qty{500}{\pascal\second} and \qty{0.03}{\newton\per\metre}.
-  \item Does the melt ooze with the voltage off? At the printed feed the model pushes out the same column
-    with or without the field.
-  \item Does the melt wet the nozzle tip: does it hang from the bore or from the nozzle's outer edge? The
-    model assumes it does not wet, and that choice moves the column more than any grid here.
+  \item Where does the rest of the feed go? The fibres carry 12 to \qty{64}{\percent} of
+    \qty{0.0208}{\cubic\milli\metre\per\second} at \qty{35}{\milli\metre\per\second}; weighing the deposit
+    over a timed run, against \qty{1.25}{\cubic\milli\metre} (about \qty{1.4}{\milli\gram}) fed a minute,
+    would show whether all of it reaches the collector.
+  \item How well does this PCL conduct at \qty{120}{\celsius}? Its conductivity and permittivity would let
+    the model replace the conducting depth that now decides what the field does.
+  \item Are there measured values of its viscosity, ideally a flow curve, and surface tension? The model
+    uses \qty{500}{\pascal\second} and \qty{0.03}{\newton\per\metre}.
+  \item Does the melt wet the nozzle tip, hanging from the bore or from its outer edge? That choice moves
+    the melt more than any grid here.
 \end{enumerate}
 
 \vfill
 {\footnotesize\color{inkthree}\sffamily M3LB (\href{https://github.com/alexderosis/M3LB}{github.com/alexderosis/M3LB},
-branch \texttt{electrowriting}), double precision: \texttt{demonstrator/mew\_nozzle -feed s} or \texttt{min},
-\texttt{-V 12}, \texttt{-nofield}; cells \texttt{-R 4/8/16} with \texttt{-Ucol 0.04/0.02/0.01}. Figures:
-\texttt{paper/mew\_nozzle/make\_figs.py}.\par}
+branch \texttt{electrowriting}), double precision: \texttt{demonstrator/mew\_nozzle -feed 0.0208}, with
+\texttt{-nofield}, and \texttt{-lc 1} or \texttt{3} for the conducting depth; cells \texttt{-R 8} (the
+default) and \texttt{-R 4 -Ucol 0.04}. The earlier readings: \texttt{-feed s} or \texttt{min},
+\texttt{-V 12}, \texttt{-R 16 -Ucol 0.01}. Figures: \texttt{paper/mew\_nozzle/make\_figs.py}.\par}
 
 \end{document}
