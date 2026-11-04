@@ -77,10 +77,20 @@
 //  and the strongest pull sits at that face's edge on the drop's two sides,
 //  7-56x the median. A sideways pull that widens the drop is consistent with
 //  the slowdown and the wider drop; that link is not tested. So the field-on
-//  approach here is shaped by a numerical edge: neither the size nor the sign
-//  of its delay is a prediction. A melt whose charge relaxes in less than the
-//  drop's minute of growth would be conducting all the way down, which is the
-//  run to make next (-lc close to the gap); FsElectric has no leaky dielectric.
+//  approach here is shaped by a numerical edge, AND -lc 5 SHOWS THAT NEITHER
+//  ITS SIZE NOR ITS SIGN IS A PREDICTION (2026-11-04, 50 um, to 140 s). With
+//  the melt conducting down to 0.5 mm above the collector -- the limit of a
+//  melt whose charge relaxes in less than the drop's minute of growth -- the
+//  run is the -lc 3 one to 28.704 s; then the field draws the drop into a
+//  column 0.6-0.7 mm wide that runs away toward the collector, 2.5 to 0.5 mm
+//  in 5.5 s and about 1 mm/s at the end. It reaches 0.5 mm at 34.22 s against
+//  100.13 s with the field off (105.98 / 108.96 / 115.63 s for -lc 1 / 2 / 3),
+//  hovers at the new edge 0.3-0.4 mm up while spreading along it, and first
+//  touches at 62.409 s, 48 s BEFORE the field-off drop. Peak pull 8-19
+//  gamma/R; the field on the axis under the drop is 4-6 kV/mm by 20-30 s and
+//  9-14 kV/mm in the last millimetre, above air's breakdown strength (about
+//  3 kV/mm), which the model does not have. FsElectric has no leaky
+//  dielectric; a measured conductivity is what would choose between these.
 //
 //  THE TWO EARLIER READINGS OF TABLE 1, measured 2026-11-03, FP64, 4 threads
 //  (about 80 s of wall clock per simulated second at 25 um; run it with
@@ -112,7 +122,7 @@
 //  Ledger, total + drained - injected over injected: +0.50..0.57 % before
 //  contact at the printed feed (the piston injects rho U, and rho sits that far
 //  above 1 under the bore's viscous pressure drop), +0.01..0.1 % at the
-//  per-minute feed and +0.03..0.24 % at the real one. WHILE THE FIELD-OFF
+//  per-minute feed and -0.28..+0.24 % at the real one. WHILE THE FIELD-OFF
 //  THREAD IS DRAWN AT THE PRINTED FEED IT CLIMBS TO +5.4 %
 //  (7.21 s): melt is created as the thread thins. Not diagnosed; the first
 //  suspect is the free surface's own settle() defect, which its banner measures

@@ -27,7 +27,7 @@ OUT = os.path.join(HERE, "fig")
 W_MM, GAP_MM, LC_MM = 8.0, 5.5, 2.0          # box width, nozzle gap, conducting depth
 INK, INK2, INK3, RULE = "#111110", "#4f4e4a", "#807f79", "#dedcd5"
 BLUE, ORANGE = "#2a78d6", "#eb6834"
-CUT = ("#86b6ef", "#2a78d6", "#104281")      # how deep the melt conducts: 1, 2, 3 mm
+CUT = ("#83c1ff", "#4f8bd6", "#1e5ba1", "#002c6f")   # how deep the melt conducts: 1, 2, 3, 5 mm
 DASH = (0, (4, 2.5))
 MELT_RGB = (0.165, 0.471, 0.839)
 SOLID_RGB = (0.55, 0.55, 0.53)
@@ -119,7 +119,7 @@ def fig1():
 
 def fig2():
     """How deep the melt conducts, 50 um cells: (a) the lowest point against time, field off and
-    on with the melt conducting to 1, 2 and 3 mm below the tip; (b) the 2 mm run at 80 s, where
+    on with the melt conducting to 1, 2, 3 and 5 mm below the tip; (b) the 2 mm run at 80 s, where
     the strongest pull sits."""
     fig = plt.figure(figsize=(6.5, 2.3))
     gs = fig.add_gridspec(1, 2, width_ratios=[1.75, 1.0], wspace=0.16)
@@ -127,7 +127,8 @@ def fig2():
     runs = [("R4_F_feed_0p0208_nofield", ORANGE, None, "field off"),
             ("R4_E_feed_0p0208_6p5kV_lc1", CUT[0], 1.0, "on, conducts to 1 mm"),
             ("R4_E_feed_0p0208_6p5kV", CUT[1], 2.0, "on, to 2 mm (Fig. 1)"),
-            ("R4_E_feed_0p0208_6p5kV_lc3", CUT[2], 3.0, "on, to 3 mm")]
+            ("R4_E_feed_0p0208_6p5kV_lc3", CUT[2], 3.0, "on, to 3 mm"),
+            ("R4_E_feed_0p0208_6p5kV_lc5", CUT[3], 5.0, "on, to 5 mm")]
     for name, col, lc, lab in runs:
         s = series(name)
         t, z = s["t_s"], s["z_low_mm"]

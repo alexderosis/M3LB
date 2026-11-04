@@ -57,9 +57,10 @@ Four results:
   \item With the field off, the melt hangs from the nozzle as a drop that grows at the feed rate and
     reaches the collector after 105 to \qty{110}{\second}; nothing in a planar model can carry it away as
     a jet.
-  \item With the field on, the drop first falls faster, then reaches the collector later, by an amount set
-    by how deep the model lets the melt conduct. That depth is a numerical choice, so neither the size nor
-    the direction of the effect is a prediction.
+  \item With the field on, when the drop reaches the collector depends on how deep the model lets the melt
+    conduct: 7 to \qty{17}{\second} later than with the field off for depths of 1 to \qty{3}{\milli\metre},
+    \qty{48}{\second} sooner when nearly the whole drop conducts. That depth is a numerical choice, so neither
+    the size nor the direction of the effect is a prediction.
   \item At \qty{35}{\milli\metre\per\second} a straight fibre carrying the whole feed is
     \qty{27.5}{\micro\metre} across; the reported \qtyrange{19}{22}{\micro\metre} fibres carry about half
     of it, the fan's \qtyrange{9.5}{13.5}{\micro\metre} fibres 12 to \qty{24}{\percent}.
@@ -119,7 +120,7 @@ times here, so a round nozzle would take longer to reach the collector: an estim
   \label{fig:real}
 \end{figure}
 
-\subsection{Field on: faster, then later, by an amount the model chooses}\label{sec:field}
+\subsection{Field on: later or sooner, depending on a choice in the model}\label{sec:field}
 With the field on the drop first falls faster, \qty{0.40}{\milli\metre} (\qty{25}{\micro\metre} cells)
 and \qty{0.45}{\milli\metre} (\qty{50}{\micro\metre}) below the field-off drop at \qty{20}{\second}. Then
 it slows and widens (2.05 to \qty{2.10}{\milli\metre} at \qty{100}{\second}, against \qty{1.90}{\milli\metre})
@@ -137,16 +138,20 @@ for 1, 2 and \qty{3}{\milli\metre}.
 While the whole drop conducts, its strongest pull is at its lowest point and draws it down. Once it hangs
 below the limit, its conducting part ends in a flat face inside it, and the strongest pull moves to that
 face's edge on the drop's sides, 7 to 56 times the typical pull on the conducting surface
-(Fig.~\ref{fig:cut}b). That edge is numerical, so neither the size of the delay nor its direction is a
-prediction. A melt whose charge relaxes in much less than the drop's two minutes would conduct all the way
-down; a run with the whole drop conducting would test that.
+(Fig.~\ref{fig:cut}b). That edge is numerical. With the limit at \qty{5}{\milli\metre}, \qty{0.5}{\milli\metre}
+above the collector, the whole drop conducts until it is nearly down, as a melt whose charge relaxes in much
+less than its two minutes of growth would. The field then draws it into a column that runs away toward the
+collector, 2.5 to \qty{0.5}{\milli\metre} in \qty{5.5}{\second}, and it touches \qty{48}{\second}
+\emph{before} the field-off drop, with 9 to \qty{14}{\kilo\volt\per\milli\metre} in the last millimetre,
+well above the roughly \qty{3}{\kilo\volt\per\milli\metre} at which air breaks down. So neither the size of
+the field's effect nor its direction is a prediction.
 
 \begin{figure}[h]
   \centering
   \includegraphics[width=\textwidth]{fig/fig2_cut.pdf}
   \caption{How deep the melt may conduct, on \qty{50}{\micro\metre} cells. (a) Height of the lowest point
-    of the melt against time with the field off (orange) and on, the melt conducting to 1, 2 or
-    \qty{3}{\milli\metre} below the tip (light to dark blue; \qty{2}{\milli\metre} is the default of
+    of the melt against time with the field off (orange) and on, the melt conducting to 1, 2, 3 or
+    \qty{5}{\milli\metre} below the tip (light to dark blue; \qty{2}{\milli\metre} is the default of
     Fig.~\ref{fig:real}). Dotted, each depth; diamonds, the drop's lowest point passing it; dots, first
     contact. (b) The \qty{2}{\milli\metre} run at \qty{81}{\second}: melt that conducts (dark) and melt that
     does not (light), equipotentials every \qty{10}{\percent} of the voltage, and the four surface cells
@@ -218,10 +223,11 @@ Three cell sizes, 50, 25 and \qty{12.5}{\micro\metre} &
   Not converged, all set by the neck the melt leaves through (Section~\ref{sec:cells}). \\
 How deep the melt conducts &
   Sets the field's effect: the drop reaches the collector 7.4, about 11 and \qty{17.0}{\second} after the
-  field-off drop for depths of 1, 2 and \qty{3}{\milli\metre}. \\
+  field-off drop for depths of 1, 2 and \qty{3}{\milli\metre}, and \qty{48}{\second} before it for
+  \qty{5}{\milli\metre}. \\
 Mass &
-  Conserved to \qty{0.24}{\percent} until contact (\qty{0.6}{\percent} at the printed feed); after contact
-  off by up to \qty{1.3}{\percent}, and by up to \qty{5.4}{\percent} while a thread is drawn thin at the
+  Conserved to \qty{0.3}{\percent} until contact (\qty{0.6}{\percent} at the printed feed); after contact
+  off by up to \qty{3.3}{\percent}, and by up to \qty{5.4}{\percent} while a thread is drawn thin at the
   printed feed, which is not yet explained. \\
 Symmetry &
   Held mirror-symmetric until contact, as the set-up is; otherwise round-off pushes the column up to
@@ -246,7 +252,7 @@ Symmetry &
 \vfill
 {\footnotesize\color{inkthree}\sffamily M3LB (\href{https://github.com/alexderosis/M3LB}{github.com/alexderosis/M3LB},
 branch \texttt{electrowriting}), double precision: \texttt{demonstrator/mew\_nozzle -feed 0.0208}, with
-\texttt{-nofield}, and \texttt{-lc 1} or \texttt{3} for the conducting depth; cells \texttt{-R 8} (the
+\texttt{-nofield}, and \texttt{-lc 1}, \texttt{3} or \texttt{5} for the conducting depth; cells \texttt{-R 8} (the
 default) and \texttt{-R 4 -Ucol 0.04}. The earlier readings: \texttt{-feed s} or \texttt{min},
 \texttt{-V 12}, \texttt{-R 16 -Ucol 0.01}. Figures: \texttt{paper/mew\_nozzle/make\_figs.py}.\par}
 

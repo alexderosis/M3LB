@@ -9954,8 +9954,13 @@ Stated plainly, because each has been measured.
   below the cut, the conductor ends in a flat face inside it, and the
   strongest pull sits at that face's edge on the drop's sides, 7--56 times the
   median over the conducting surface; while the whole drop conducts it sits at
-  the drop's lowest point. Neither the size nor the sign of the delay is
-  therefore a prediction. A leaky-dielectric melt would replace the cut, and
+  the drop's lowest point. With the melt conducting down to 0.5\,mm above the
+  collector (\code{-lc 5}) the sign reverses: the field draws the drop into a
+  column that runs away toward the collector, 2.5 to 0.5\,mm in 5.5\,s, and it
+  touches $48$\,s \emph{before} the field-off drop, the field under it reaching
+  9--14\,kV/mm, above the breakdown strength of air, which the model does not
+  have. Neither the size nor the sign of the field's effect is therefore a
+  prediction. A leaky-dielectric melt would replace the cut, and
   \code{FsElectric} does not have one.
 \item \textbf{A mirror-symmetric free surface does not stay symmetric, and a
   thread drawn below a cell creates mass.} Neither is diagnosed. In
