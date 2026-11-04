@@ -92,6 +92,29 @@
 //  3 kV/mm), which the model does not have. FsElectric has no leaky
 //  dielectric; a measured conductivity is what would choose between these.
 //
+//  WHAT THE EXPERIMENT SAYS (Murat Kilic, 2026-11-04), AND WHAT IT CHANGES.
+//   - VISCOSITY, measured at 120 C (a rotational sweep, pcl120.xls): close to
+//     Newtonian at 780-850 Pa s over 0.4-16 1/s (mean 816) against the nominal
+//     500 here; the bore's wall shear rate at the real feed is 3.3 1/s, inside
+//     that range. Above ~20 1/s the measured STRESS FALLS as the rate rises
+//     (14.8 kPa -> 33 Pa), a rheometer failure such as edge fracture, not the
+//     melt: unusable. -mu 820 runs it; the default stays 500 so that every
+//     number above is reproduced.
+//   - CONDUCTIVITY, not measured: an estimate of 1e-11 S/cm rising to 1e-4 S/cm
+//     at the cone's tip. Even at the low end the charge relaxes in eps0 eps_r /
+//     sigma ~ 0.03 s (eps_r ~ 3), against seconds for the meniscus and minutes
+//     for the drop, so the WHOLE drop is a conductor: -lc 5 is the physical
+//     case, not the default -lc 2. A conductivity that varies with charge would
+//     matter only in the jet (~0.1 s of flight), which a planar model cannot
+//     resolve.
+//   - WETTING: no melt is seen around the tip, so the default non-wetted nozzle
+//     is the right one; the simulated shape matches what is observed.
+//  At 820 Pa s (50 um, Ca_feed 4.52, t_vc 5.47 s) the melt comes out more like a
+//  column: field off it touches at 91.271 s, not 110.325 s, with 0.79 mm^2 within
+//  1 mm of the tip; with the whole drop conducting (-lc 5) at 64.731 s (0.5 mm
+//  reached at 40.18 s, against 34.22 s at 500 Pa s), so the field brings contact
+//  about 27 s sooner. One grid only: quote these as 50 um numbers.
+//
 //  THE TWO EARLIER READINGS OF TABLE 1, measured 2026-11-03, FP64, 4 threads
 //  (about 80 s of wall clock per simulated second at 25 um; run it with
 //  taskpolicy -B, CLAUDE.md's machine note). Viscosity 500 Pa s and surface
@@ -155,6 +178,21 @@
 //  on any grid (front, tip melt and contact time agree within 1.4 %); quote no
 //  absolute number here as converged, and no difference after contact either
 //  (AFTER CONTACT, below).
+//  PINNING THE NECK DOES NOT CURE IT EITHER (real feed, field off, 2026-11-04).
+//  -film 0.1 seeds melt under the whole tip face and -wet 60 holds it there: the
+//  neck stays 0.9-1.0 mm on both grids for the whole run, set by the nozzle's
+//  edge rather than the cell. The grids agree at first (lowest point 4.138 /
+//  4.125 mm at 20 s) and then DRIFT APART, the finer drop sagging more slowly:
+//  +0.09 mm at 60 s, +0.26 at 100 s, +0.54 at 134.4 s, when the 50 um drop
+//  touches (134.487 s); the 25 um drop is still 0.1125 mm up at 150 s, about
+//  153.5 s extrapolated, 14 % later where the non-wetted pair was 5 % apart. So
+//  a second grid effect, in the drop and not at the nozzle, slows the finer
+//  drop, and in the non-wetted runs it partly cancelled the neck's. NOT
+//  DIAGNOSED; the first suspect is the free surface's stiffness under a gentle
+//  load, which grows with the wavelength in cells (CLAUDE.md). The control
+//  (-film 0.1 without -wet) sheds the film back to the 0.6 mm neck by ~20 s and
+//  touches at 108.002 s, so it is the law that holds the edge. The experiment's
+//  nozzle is not wetted anyway: -film is a numerical probe, not the set-up.
 //
 //  WHAT IT SAYS. At the real feed the bore's capillary number is 2.8, and with
 //  nothing to carry it away the melt hangs from the nozzle as a drop that grows
@@ -325,6 +363,12 @@ struct Opts {
   // nozzle then reads as gas in the curvature, a non-wetting wall. The collector
   // and the feed piston keep reading as gas either way.
   double wet    = -1;
+  // -film MM: also seed a melt film MM mm thick under the WHOLE tip face, so the
+  // melt starts out hanging from the nozzle's outer edge instead of from the
+  // bore. With -wet it is a wetted nozzle, whose contact line otherwise moves
+  // only by numerical slip and would never get there; without -wet it is the
+  // control, a film on a non-wetting nozzle. 0, the default, seeds the bore only.
+  double film   = 0;
   std::string out;
 };
 
@@ -356,6 +400,7 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(a, "-nrec"))   o.nrec = true;
       else if (!std::strcmp(a, "-nosym"))  o.sym = false;
       else if (!std::strcmp(a, "-wet"))    o.wet = num();
+      else if (!std::strcmp(a, "-film"))   o.film = num() * 1e-3;      // mm
       else if (!std::strcmp(a, "-feed") && i + 1 < argc) feed = argv[++i];
       else if (!std::strcmp(a, "-out") && i + 1 < argc)  o.out = argv[++i];
       else {
@@ -451,11 +496,16 @@ int main(int argc, char** argv) {
     }
     const Domain dd = d;
     const Index hx = d.hx, hy = d.hy;
+    const Index filmc = Index(std::lround(o.film / dx));
+    if (filmc > 0)
+      std::printf("  melt film seeded under the whole tip face: %.3f mm, %lld rows (-film)\n",
+                  double(filmc) * dx * 1e3, (long long)filmc);
     fs.initialize(KOKKOS_LAMBDA(Index n) {
       Index px, py, pz; dd.coords(n, px, py, pz);
       const Index x = px - hx, y = py - hy;
       const bool slot = y >= ytip && x >= xc - R && x < xc + R && y < ny - 1;
-      return typename FS::Seed{slot ? Real(1) : Real(0), Real(1)};
+      const bool film = y < ytip && y >= ytip - filmc && x >= xc - R - lipc && x < xc + R + lipc;
+      return typename FS::Seed{(slot || film) ? Real(1) : Real(0), Real(1)};
     });
     // The collector and the feed piston are static walls with a velocity: the
     // moving-wall bounce-back of the obstacle path. Tangential at the

@@ -9961,7 +9961,20 @@ Stated plainly, because each has been measured.
   9--14\,kV/mm, above the breakdown strength of air, which the model does not
   have. Neither the size nor the sign of the field's effect is therefore a
   prediction. A leaky-dielectric melt would replace the cut, and
-  \code{FsElectric} does not have one.
+  \code{FsElectric} does not have one. The experiment's estimate of the melt's
+  conductivity, $10^{-11}$ to $10^{-4}$\,S/cm (not measured), relaxes charge in
+  at most about $0.03$\,s, far faster than the drop changes, so the whole drop
+  conducts and \code{-lc 5} is the physical case.
+\item \textbf{Pinning the melt's neck does not make \code{mew\_nozzle}'s column
+  grid-independent.} With the melt held at the nozzle's outer edge
+  (\code{-film 0.1 -wet 60}, field off, real feed) the neck stays 0.9--1.0\,mm
+  on 50 and 25\,$\mu$m cells, set by the nozzle rather than the cell. Yet the
+  finer drop sags more slowly and the gap grows: the lowest points are
+  $0.01$\,mm apart at 20\,s and $0.54$\,mm apart when the coarse drop touches
+  (134.5\,s), and the fine one touches about 19\,s later, against 5\,s for the
+  non-wetted pair, in which the neck's opposite effect partly cancels it. Not
+  diagnosed; the free surface's stiffness under a gentle load, which grows with
+  the wavelength in cells, is the first suspect.
 \item \textbf{A mirror-symmetric free surface does not stay symmetric, and a
   thread drawn below a cell creates mass.} Neither is diagnosed. In
   \code{mew\_nozzle} an advancing front amplifies round-off until the column

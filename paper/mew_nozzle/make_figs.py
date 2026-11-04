@@ -79,7 +79,7 @@ def series(name):
 def fig1():
     """The corrected feed: (a) the lowest point against time, field on and off on two grids;
     (b, c) the drop at 100 s on 25 um cells, field off and on."""
-    fig = plt.figure(figsize=(6.5, 2.3))
+    fig = plt.figure(figsize=(6.5, 2.1))
     gs = fig.add_gridspec(1, 3, width_ratios=[1.75, 1, 1], wspace=0.30)
     ax = fig.add_subplot(gs[0])
     runs = [("F_feed_0p0208_nofield", ORANGE, "-", "off, 25 µm"), ("R4_F_feed_0p0208_nofield", ORANGE, DASH, "off, 50 µm"),
@@ -121,7 +121,7 @@ def fig2():
     """How deep the melt conducts, 50 um cells: (a) the lowest point against time, field off and
     on with the melt conducting to 1, 2, 3 and 5 mm below the tip; (b) the 2 mm run at 80 s, where
     the strongest pull sits."""
-    fig = plt.figure(figsize=(6.5, 2.3))
+    fig = plt.figure(figsize=(6.5, 2.1))
     gs = fig.add_gridspec(1, 2, width_ratios=[1.75, 1.0], wspace=0.16)
     ax = fig.add_subplot(gs[0])
     runs = [("R4_F_feed_0p0208_nofield", ORANGE, None, "field off"),
