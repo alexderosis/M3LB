@@ -9940,6 +9940,47 @@ Stated plainly, because each has been measured.
   cell, which the heights read as curvature noise of $0.06/R$ at $R=32$; not
   diagnosed further. With a contact angle the cells by the wall keep the old
   curvature, and \code{sessile\_drop} then misses $90^\circ$ by $1.3^\circ$.
+  The ripples are the slowing, and smoothing them out is not the cure.
+  Smoothing the heights with $[1\,2\,1]/4$ before the differences
+  (\code{set\_height\_fit}) restores the rate: at $R=64$ it is $0.695$, $0.890$,
+  $0.973$ and $0.997$ with 0, 1, 2 and 3 passes. But at any one width the rate
+  still falls as $R$ grows, the width that reaches the exact rate growing by
+  about one pass per doubling of $R$, and turned $45^\circ$ three passes still
+  give $0.825$ at $R=64$. A width that grows with the drop is a fixed physical
+  filter, whose own error does not refine away, so it is the source of the
+  ripples that has to be fixed. The obvious wider fit, a least-squares parabola
+  over 5 or 7 columns, answers a zigzag with curvature of the wrong sign and
+  blows up a static drop. \emph{The ripples come from the mass exchange.} A
+  flat band of liquid sliding along itself should change no cell's fill, and
+  \code{validation/fs\_band} finds the column sums scattering by about a tenth
+  of the distance slid, in cells, whatever the box --- exactly zero at slope 0
+  and to round-off at slope 1, where every surface cell has the same
+  neighbourhood, and nonzero at slopes $1/2$ and $3/7$, where the steps are
+  uneven. The exchange weights each link's net population flux by 1 to a full
+  cell, by the mean fill to a surface cell and by 0 to gas, and that sum
+  vanishes for a sliding surface only where the cell's neighbourhood is
+  symmetric about the flow: from the initial state alone it predicts every
+  surface cell's change at correlation $0.9998$--$0.9999$ and amplitude
+  $0.9994$--$1.0004$. Weighting by the upwind fill instead is worse. With the
+  surface tension and surface speed of the $R=32$ drop, the sliding band
+  settles at curvature noise of the same order as the drop's. A fix has to
+  keep the full flux on the links to full cells, whose mass is their density.
+  \emph{The fix, opt-in and 2-D only:} \code{set\_exchange\_geometric} routes
+  every diagonal link's flux half through each cell beside its corner, so that
+  a face carries $\rho\,\mathbf{u}\cdot\mathbf{n}_f$ exactly in a uniform
+  flow, and weights each face by how much of it a straight-line reconstruction
+  of the surface wets (1 against a full cell, 0 against gas), which makes the
+  exchange exact for a planar surface sliding or advancing;
+  \code{exchange\_donor} weights a face from the cell the flux leaves, and
+  \code{surface\_follows\_line} switches a cell on as soon as that line
+  reaches into it rather than when its neighbour converts. With all three the
+  band's scatter is $10^{-6}$--$10^{-4}$ along and across at slopes $1/2$ and
+  $3/7$, mass is conserved, and the free drop with plain three-column heights
+  relaxes at $1.060$, $1.020$, $1.010$ and $1.003$ of the exact rate at
+  $R=8$, 16, 32 and 64, and $1.110$, $1.049$, $1.019$ and $1.007$ turned
+  $45^\circ$: it converges. A static drop then carries a spurious current of up
+  to $3.6\times10^{-5}$ rather than round-off. Walls, contact angles and 3-D are
+  untested.
 \item \textbf{A planar (2-D) electrified meniscus is not a Taylor cone, and a
   melt-electrowriting jet is not resolvable in one.} A straight-sided 2-D wedge
   has no curvature to balance $\varepsilon_0E^2/2$, so there is no conical

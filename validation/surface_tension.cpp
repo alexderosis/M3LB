@@ -116,6 +116,29 @@
 //  (-exact) its kappa carries 0.997 / 1.001 / 0.997 of the mode-2 curvature at
 //  t = 0 at R = 8 / 16 / 32; the dynamics then ripple the fill and it keeps
 //  about half -- the solver member's banner has that.
+//  -hfit N (2026-11-05, with -hf) smooths the heights over N columns before the
+//  differences (FreeSurfaceSolver::height_fit, whose banner has the full table).
+//  It tests those ripples, and they ARE the slowing: at R = 16 / 32 / 64 the
+//  rate goes 0.897 / 0.795 / 0.695 with three columns, 1.015 / 1.002 / 0.973
+//  with seven and 1.057 / 1.011 / 0.997 with nine. It is not a cure: at any one
+//  width the rate still falls as R grows, and turned 45 degrees nine columns
+//  give 0.969 / 0.825 at R = 32 / 64. A least-squares parabola over five or
+//  seven columns was tried first and answers a zigzag with curvature of the
+//  wrong sign (the same banner); with it the static sections drifted the mass
+//  by up to 85 %. THE RIPPLES COME FROM THE MASS EXCHANGE: validation/fs_band
+//  slides a flat band along itself, which should change no fill, and finds the
+//  exchange's link weights drifting every surface cell where the steps are
+//  uneven, predicted cell by cell from its formula (FreeSurfaceSolver's
+//  mass_exchange() has the account).
+//  -geom [-donor] [-follow] (2026-11-05) is the fix: FreeSurfaceSolver's
+//  exchange_geometric, exchange_donor and surface_follows_line. With all three
+//  and plain 3-column heights the rate is 1.060 / 1.020 / 1.010 / 1.003 of the
+//  exact one at R = 8 / 16 / 32 / 64 and turned 45 degrees 1.110 / 1.049 /
+//  1.019 / 1.007, clean exponentials, the curvature keeping all of the mode-2
+//  part to the end -- the drop CONVERGES, in both orientations. -geom alone
+//  gives 1.083 / 1.037 / 1.016 / 0.941 and fails at 45 degrees (0.537 at
+//  R = 16). The static sections pass with all three, the spurious current up to
+//  3.6e-5 at R = 12 where the default holds round-off.
 //  THE CONTROLS that make these numbers mean something. -nosigma runs the
 //  solver with no surface tension against the same reference: the ellipse does
 //  not move (rate 0, mass to 1e-12), so everything measured is capillary.
@@ -150,6 +173,13 @@ namespace {
 bool g_nrec = false;
 // -hf: FreeSurfaceSolver::height_function, opt-in (2026-11-04), in every section.
 bool g_hf = false;
+// -hf -hfit N: FreeSurfaceSolver::height_fit, the heights fitted over N columns
+// (odd, 3 to 9; 3 is the central difference and the default).
+int g_hfit = 3;
+// -geom: FreeSurfaceSolver::set_exchange_geometric, the face-routed mass exchange (2-D).
+bool g_geom = false;
+// -geom -donor / -follow: exchange_donor, surface_follows_line.
+bool g_donor = false, g_follow = false;
 // -rate -nosigma: the CONTROL. sigma and the reference are computed as usual
 // but the solver runs with no surface tension, so nothing drives the shape and
 // any relaxation it shows is numerical.
@@ -186,6 +216,10 @@ Result run(Index N, double R0, double sigma, double nu, std::size_t nsteps,
   s.set_surface_tension(Real(sigma));
   s.set_normal_reconstruction(g_nrec);
   s.set_height_function(g_hf);
+  s.set_height_fit(g_hfit);
+  s.set_exchange_geometric(g_geom);
+  s.exchange_donor = g_donor;
+  s.surface_follows_line = g_follow;
   s.set_geometry([&](Index, Index, Index) -> FsCell { return FsGas; });
 
   const Domain dd = d;
@@ -499,7 +533,8 @@ void hf_failures(const Domain& d, Index N, const HF& hf, const HE& he,
       const Index n = d.id(x, y);
       if (hf(n) != FsInterface) continue;
       Real k;
-      if (FS::height_curvature(d, hf, col, hnx(n), hny(n), Real(0), n, k)) continue;
+      if (FS::height_curvature(d, hf, col, hnx(n), hny(n), Real(0), n, k, (g_hfit - 1) / 2))
+        continue;
       ++total;
       if (shown >= maxprint) continue;
       ++shown;
@@ -561,6 +596,10 @@ Rate relax(Index N, double R0, double Oh, double nu, double ecc, bool diag,
   s.set_surface_tension(g_nosig ? Real(0) : Real(sigma));
   s.set_normal_reconstruction(g_nrec);
   s.set_height_function(g_hf && !g_nosig);
+  s.set_height_fit(g_hfit);
+  s.set_exchange_geometric(g_geom);
+  s.exchange_donor = g_donor;
+  s.surface_follows_line = g_follow;
   if (g_fo >= 0.0) s.fill_offset = Real(g_fo);
   s.set_geometry([&](Index, Index, Index) -> FsCell { return FsGas; });
 
@@ -710,6 +749,10 @@ int main(int argc, char** argv) {
       sigma = std::atof(argv[++i]);
     else if (!std::strcmp(argv[i], "-nrec")) g_nrec = true;
     else if (!std::strcmp(argv[i], "-hf")) g_hf = true;
+    else if (!std::strcmp(argv[i], "-hfit") && i + 1 < argc) g_hfit = std::atoi(argv[++i]);
+    else if (!std::strcmp(argv[i], "-geom")) g_geom = true;
+    else if (!std::strcmp(argv[i], "-donor")) g_donor = true;
+    else if (!std::strcmp(argv[i], "-follow")) g_follow = true;
     else if (!std::strcmp(argv[i], "-nosigma")) g_nosig = true;
     else if (!std::strcmp(argv[i], "-exact")) g_exact = true;
     else if (!std::strcmp(argv[i], "-dump") && i + 1 < argc) g_dump = argv[++i];
@@ -724,7 +767,7 @@ int main(int argc, char** argv) {
     else if (!std::strncmp(argv[i], "--kokkos", 8)) {}
     else {
       std::fprintf(stderr, "surface_tension: unknown option '%s'. NOTHING WAS RUN.\n"
-                           "  -v  -steps N  -sigma S  -nrec  -hf\n"
+                           "  -v  -steps N  -sigma S  -nrec  -hf [-hfit N]  -geom [-donor] [-follow]\n"
                            "  -rate [-oh X] [-ecc E] [-efold W] [-rmin R] [-rmax R] [-diag] [-nosigma] [-exact] [-dump FILE] [-fo X]\n",
                    argv[i]);
       return 2;
@@ -738,6 +781,14 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "surface_tension: -nosigma is a control for -rate only. NOTHING WAS RUN.\n");
     return 2;
   }
+  if ((g_donor || g_follow) && !g_geom) {
+    std::fprintf(stderr, "surface_tension: -donor and -follow refine -geom. NOTHING WAS RUN.\n");
+    return 2;
+  }
+  if (g_hfit != 3 && (!g_hf || g_hfit < 3 || g_hfit > 9 || g_hfit % 2 == 0)) {
+    std::fprintf(stderr, "surface_tension: -hfit N needs -hf and an odd N from 3 to 9. NOTHING WAS RUN.\n");
+    return 2;
+  }
   if (rate && !(oh >= 2.0 && ecc_r > 1.0 && efolds > 0.0 && rmin >= 4.0 && rmax >= rmin)) {
     std::fprintf(stderr, "surface_tension -rate: need -oh >= 2, -ecc > 1, -efold > 0,"
                          " 4 <= -rmin <= -rmax. NOTHING WAS RUN.\n");
@@ -748,9 +799,13 @@ int main(int argc, char** argv) {
   int failures = 0, checks = 0;
   if (rate) {
     std::printf("relaxation of a free 2-D drop, mode 2, against the exact linear rate\n");
-    std::printf("backend %s   precision %s   %s%s\n", Kokkos::DefaultExecutionSpace::name(),
+    std::printf("backend %s   precision %s   %s%s", Kokkos::DefaultExecutionSpace::name(),
                 precision_name(), g_nrec ? "normal reconstruction ON  " : "",
                 g_hf ? "height functions ON" : "");
+    if (g_hf && g_hfit != 3) std::printf(", fitted over %d columns", g_hfit);
+    if (g_geom) std::printf("   geometric exchange ON%s%s", g_donor ? ", donor" : "",
+                            g_follow ? ", follows line" : "");
+    std::printf("\n");
     if (g_nosig)
       std::printf("CONTROL: surface tension OFF in the solver; the reference is the run with it on\n");
     const double nu = 1.0 / 6.0;

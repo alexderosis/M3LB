@@ -433,7 +433,8 @@ static void seed_and_kappa(FS& s, const std::vector<Real>& fill,
 // function, at each of `where`: NaN where it is not well formed. Where it is, the
 // solver's pass 5 must have written exactly this value.
 template <class FS>
-static std::vector<double> host_heights(const FS& s, const std::vector<Index>& where) {
+static std::vector<double> host_heights(const FS& s, const std::vector<Index>& where,
+                                        int hw = 1) {
   auto hf = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.flags());
   auto he = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.fill());
   auto nx = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.normal_x());
@@ -445,7 +446,7 @@ static std::vector<double> host_heights(const FS& s, const std::vector<Index>& w
   std::vector<double> out;
   for (Index n : where) {
     Real k;
-    out.push_back(FS::height_curvature(s.domain(), hf, col, nx(n), ny(n), nz(n), n, k)
+    out.push_back(FS::height_curvature(s.domain(), hf, col, nx(n), ny(n), nz(n), n, k, hw)
                       ? double(k) : std::nan(""));
   }
   return out;
@@ -578,6 +579,200 @@ static void run_height_function() {
   }
 }
 
+// 8. height_fit (2-D): the heights smoothed with [1 2 1]/4 before the central
+// differences. On exact fills the solver must write the host stencil's value; an
+// inclined plane must still read zero; and a ZIGZAG between neighbouring columns
+// must read exactly zero once smoothed, where the central difference reads
+// +-4 delta with the restoring sign. The zigzag is the check that fails for a
+// fit whose second difference answers it with the WRONG sign: the least-squares
+// parabola over five columns tried first reads -4 delta/7 there (see the member
+// height_fit), and surface tension then grows the zigzag instead of flattening it.
+static void run_height_fit() {
+  using FS = FreeSurfaceSolver<D2Q9>;
+  const double tol32 = (sizeof(Real) == 4) ? 1e-5 : 1e-12;
+  // (a) the disc of section 7, R = 16
+  {
+    const Index N = 48;
+    const double R = 16.0, xc = 24.3, yc = 23.8;
+    Domain d(N, N, 1, true, true, true);
+    std::vector<Real> fill(d.n_padded, Real(0));
+    for (Index y = 0; y < N; ++y)
+      for (Index x = 0; x < N; ++x)
+        fill[d.id(x, y)] = snap(disc_rect_area(R, x - 0.5 - xc, x + 0.5 - xc, y - 0.5 - yc, y + 0.5 - yc));
+    for (int cols = 5; cols <= 9; cols += 2) {
+      FS s(d);
+      s.set_surface_tension(Real(1e-6));
+      s.set_height_function(true);
+      s.set_height_fit(cols);
+      s.set_geometry([&](Index, Index, Index) -> FsCell { return FsGas; });
+      std::vector<double> k; std::vector<Index> w;
+      seed_and_kappa(s, fill, k, w);
+      const std::vector<double> hh = host_heights(s, w, (cols - 1) / 2);
+      double worst = 0, mean = 0, mismatch = 0;
+      int nh = 0;
+      for (std::size_t i = 0; i < k.size(); ++i) {
+        if (std::isnan(hh[i])) continue;
+        ++nh;
+        worst = std::max(worst, std::fabs(k[i] * R - 1.0));
+        mean += k[i] * R;
+        mismatch = std::max(mismatch, std::fabs(k[i] - hh[i]));
+      }
+      mean /= double(nh);
+      std::printf("  disc R = 16, %d columns: heights on %d of %d cells, mean kappa R %.5f,"
+                  " worst |kappa R - 1| %.4f\n", cols, nh, int(k.size()), mean, worst);
+      check::ok(int(s.height_function_cells()) == nh && nh > 0,
+                "fit disc: the solver used heights where the host stencil holds");
+      check::near(mismatch, 0.0, tol32, "fit disc: and wrote exactly the host's value there");
+      // Smoothing a circle's heights reads it slightly tighter: the mean was
+      // +0.89 / +1.65 / +2.05 % at 5 / 7 / 9 columns on the first run, a second-
+      // order bias (surface_tension's static drop shows it falling with R). A
+      // regression guard set from that run, not a derived bound.
+      check::near(mean, 1.0, 0.025, "fit disc: mean kappa R within 2.5 % at R = 16");
+    }
+  }
+  // (b) the inclined plane of section 7: a smoothed line is the same line
+  {
+    const Index N = 40;
+    Domain d(N, N, 1, false, false, true);
+    std::vector<Real> fill(d.n_padded, Real(0));
+    for (Index y = 0; y < N; ++y)
+      for (Index x = 0; x < N; ++x)
+        fill[d.id(x, y)] = snap(halfplane_rect_area(3.0 / 7.0, 11.3, x - 0.5, x + 0.5, y - 0.5, y + 0.5));
+    for (int cols = 5; cols <= 9; cols += 2) {
+      FS s(d);
+      s.set_surface_tension(Real(1e-6));
+      s.set_height_function(true);
+      s.set_height_fit(cols);
+      s.set_geometry([&](Index, Index, Index) -> FsCell { return FsGas; });
+      std::vector<double> k; std::vector<Index> w;
+      seed_and_kappa(s, fill, k, w);
+      const int hw = (cols - 1) / 2;
+      double worst = 0; int inner = 0;
+      for (std::size_t i = 0; i < k.size(); ++i) {
+        Index px, py, pz; d.coords(w[i], px, py, pz);
+        const Index x = px - d.hx;
+        if (x < 6 + hw || x > N - 7 - hw) continue;   // the wider stencil reaches the halo
+        worst = std::max(worst, std::fabs(k[i]));
+        ++inner;
+      }
+      std::printf("  plane, slope 3/7, %d columns: worst |kappa| over %d inner cells %.3e\n", cols, inner, worst);
+      check::ok(inner > 20, "fit plane: inner interface cells found");
+      check::near(worst, 0.0, tol32, "fit plane: kappa is zero to round-off");
+    }
+  }
+  // (c) a zigzag on a flat surface: liquid below y = 11.3 + delta (-1)^x,
+  // periodic in x (N even), so every column of the interface row is exact.
+  {
+    const Index N = 24;
+    const double c0 = 11.3, delta = 0.1;
+    Domain d(N, N, 1, true, false, true);
+    std::vector<Real> fill(d.n_padded, Real(0));
+    for (Index y = 0; y < N; ++y)
+      for (Index x = 0; x < N; ++x) {
+        const double h = c0 + ((x % 2) ? -delta : delta);
+        fill[d.id(x, y)] = snap(std::min(1.0, std::max(0.0, h - (double(y) - 0.5))));
+      }
+    for (int cols = 3; cols <= 9; cols += 2) {
+      FS s(d);
+      s.set_surface_tension(Real(1e-6));
+      s.set_height_function(true);
+      s.set_height_fit(cols);
+      s.set_geometry([&](Index, Index, Index) -> FsCell { return FsGas; });
+      std::vector<double> k; std::vector<Index> w;
+      seed_and_kappa(s, fill, k, w);
+      double lo = 1e30, hi = -1e30;                // kappa (-1)^x: the restoring sign is +
+      for (std::size_t i = 0; i < k.size(); ++i) {
+        Index px, py, pz; d.coords(w[i], px, py, pz);
+        const double v = k[i] * (((px - d.hx) % 2) ? -1.0 : 1.0);
+        lo = std::min(lo, v); hi = std::max(hi, v);
+      }
+      std::printf("  zigzag, delta = %.1f, %d columns: kappa (-1)^x from %.6f to %.6f over %d cells\n",
+                  delta, cols, lo, hi, int(k.size()));
+      check::ok(int(k.size()) == int(N) && int(s.height_function_cells()) == int(N),
+                "zigzag: one interface row, heights on every cell");
+      if (cols == 3) {
+        check::near(lo, 4.0 * delta, tol32, "zigzag, 3 columns: kappa = +4 delta (-1)^x, restoring");
+        check::near(hi, 4.0 * delta, tol32, "zigzag, 3 columns: the same at every cell");
+      } else {
+        check::near(lo, 0.0, tol32, "zigzag, smoothed: kappa is zero, never of the wrong sign");
+        check::near(hi, 0.0, tol32, "zigzag, smoothed: at every cell");
+      }
+    }
+  }
+}
+
+// 9. exchange_geometric with exchange_donor and surface_follows_line (2-D): a
+// band of liquid of slope 3/7 in free fall in a periodic box, pushed along itself
+// and across itself. The exact motion keeps every column's liquid the same, so
+// the column sums' scatter is pure error (validation/fs_band has the argument
+// and the full measurement). The default exchange runs the same band as the
+// control the check must be able to tell apart: it ripples by about a tenth of
+// the distance moved. Gates set from the first run (along / across, 1.6 cells:
+// 3e-6 / 2.2e-5 with the geometric exchange, 0.12 / 0.056 without; mass 1.5e-15
+// / 1.8e-10), as regression guards.
+static double band_ripple(bool geo, bool across, double& drift) {
+  using FS = FreeSurfaceSolver<D2Q9>;
+  const Index Nx = 56, Ny = 24;
+  const double s = 3.0 / 7.0, c1 = 0.2137 * double(Ny), T = 0.5 * double(Ny) + 0.31, g = 5e-8;
+  const double tl = std::sqrt(58.0);
+  const double dir[2] = {across ? -3.0 / tl : 7.0 / tl, across ? 7.0 / tl : 3.0 / tl};
+  Domain d(Nx, Ny, 1, true, true, true);
+  FS fs(d);
+  fs.coll.omega = FS::omega_from_viscosity(Real(1.0 / 6.0));
+  fs.set_exchange_geometric(geo);
+  fs.exchange_donor = geo;
+  fs.surface_follows_line = geo;
+  fs.set_geometry([&](Index, Index, Index) -> FsCell { return FsGas; });
+  Kokkos::View<Real*> fv("fill", d.n_padded);
+  auto h = Kokkos::create_mirror_view(fv);
+  for (Index n = 0; n < d.n_padded; ++n) h(n) = Real(0);
+  for (Index y = 0; y < Ny; ++y)
+    for (Index x = 0; x < Nx; ++x) {
+      double a = 0.0;                              // the band's copies a period apart
+      for (int k = -2; k <= 2; ++k)
+        a += halfplane_rect_area(s, c1 + T + k * double(Ny), x - 0.5, x + 0.5, y - 0.5, y + 0.5)
+           - halfplane_rect_area(s, c1 + k * double(Ny), x - 0.5, x + 0.5, y - 0.5, y + 0.5);
+      h(d.id(x, y)) = snap(a);
+    }
+  Kokkos::deep_copy(fv, h);
+  fs.initialize(KOKKOS_LAMBDA(Index n) { return FS::Seed{fv(n), Real(1)}; });
+  fs.set_gravity(Real(g * dir[0]), Real(g * dir[1]));
+  const double m0 = double(fs.total_mass());
+  for (int t = 0; t < 8000; ++t) fs.step();      // moves g t^2 / 2 = 1.6 cells
+  drift = (double(fs.total_mass()) - m0) / m0;
+  auto he = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs.fill());
+  auto hf = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs.flags());
+  std::vector<double> S(Nx, 0.0);
+  for (Index x = 0; x < Nx; ++x)
+    for (Index y = 0; y < Ny; ++y) {
+      const Index n = d.id(x, y);
+      S[x] += hf(n) == FsFluid ? 1.0 : (hf(n) == FsInterface ? double(he(n)) : 0.0);
+    }
+  double mean = 0.0, rms = 0.0;
+  for (double v : S) mean += v;
+  mean /= double(Nx);
+  for (double v : S) rms += (v - mean) * (v - mean);
+  return std::sqrt(rms / double(Nx));
+}
+
+static void run_geometric_exchange() {
+  const bool f32 = sizeof(Real) == 4;
+  for (int across = 0; across < 2; ++across) {
+    double dg = 0, dd = 0;
+    const double rg = band_ripple(true, across == 1, dg);
+    const double rd = band_ripple(false, across == 1, dd);
+    std::printf("  band %s itself, 1.6 cells: column-sum scatter %.3e geometric, %.3e default;"
+                " mass %.2e / %.2e\n", across ? "across" : "along ", rg, rd, dg, dd);
+    check::near(rg, 0.0, 1e-4, across ? "geometric exchange: a band moving across itself keeps its columns"
+                                      : "geometric exchange: a band sliding along itself keeps its columns");
+    check::ok(rd > 100.0 * rg, "and the default exchange, the control, ripples a hundred times more");
+    // FP32: a total of ~650 summed in single precision over 8000 steps drifts by
+    // 5e-6 along and 3e-5 across, as the default exchange does (5e-6 / 5e-5).
+    check::near(dg, 0.0, f32 ? 1e-4 : (across ? 1e-8 : 1e-12),
+                "geometric exchange: mass conserved");
+  }
+}
+
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   {
@@ -605,6 +800,10 @@ int main(int argc, char** argv) {
     run_contact_angle();
     std::printf("\n7. height-function curvature on exact fills: disc, plane, ball\n");
     run_height_function();
+    std::printf("\n8. smoothed height fit (height_fit): disc, plane, zigzag\n");
+    run_height_fit();
+    std::printf("\n9. geometric mass exchange: a band in free fall, along and across itself\n");
+    run_geometric_exchange();
   }
   const int rc = check::report("free_surface");
   Kokkos::finalize();

@@ -453,7 +453,10 @@ class FreeSurfaceSolver {
   //  drop -- which a second difference of heights reads as curvature noise of
   //  0.06/R, and kappa's mode-2 part falls to about half the shape's. That is
   //  NOT the conversion hysteresis (fill_offset 1e-5 moves the rates by under
-  //  1 %) and it is not diagnosed further.
+  //  1 %). It is the MASS EXCHANGE (2026-11-05): see mass_exchange(). With
+  //  exchange_geometric, exchange_donor and surface_follows_line the same
+  //  heights relax the drop at 1.003 of the exact rate at R = 64 (1.007 turned
+  //  45 degrees); those members have the numbers.
   //  With a contact angle, cells whose stencil meets the wall keep pass 4's
   //  kappa and the law, and the mixture is biased: sessile_drop -hf narrows the
   //  90- and 120-degree windows (half-widths 1.2 and 2.5 degrees against 4.8
@@ -462,6 +465,138 @@ class FreeSurfaceSolver {
   //  misses 90 by 1.3. Do not use it with wetting until the wall has ghost
   //  heights.
   bool height_function = false;
+
+  // HOW MANY COLUMNS THE HEIGHTS ARE TAKEN OVER (set_height_fit), 2-D only. 3,
+  // the default, is the central difference above, unchanged. 5, 7 or 9 smooth
+  // the heights with [1 2 1]/4 once, twice or three times before the central
+  // differences, so the second difference answers a wavenumber k along the
+  // surface with -4 sin^2(k/2) cos^(2p)(k/2) after p passes: a ripple a cell or
+  // two long is damped out of kappa, a parabola keeps its h' and h'' exactly,
+  // and no wavenumber gets a curvature of the wrong sign. It exists to test the
+  // ripples named above. What it costs: every column of the wider stencil must
+  // be well formed, so more cells keep pass 4's kappa near walls and in thin
+  // films; and the zigzag, k = pi, gets no capillary restoring force at all.
+  // A LEAST-SQUARES PARABOLA OVER 5 OR 7 COLUMNS WAS TRIED FIRST AND IS UNSTABLE
+  // (2026-11-05). Its second-difference weights are (j^2 - 2)/7 over five
+  // columns, which give a zigzag +4/7 where the central difference gives -4, so
+  // surface tension pumps the zigzag instead of flattening it; over seven,
+  // (j^2 - 4)/42, the same holds in a band around k = 2 pi/3. It was right on
+  // exact fills (0.999 of an ellipse's mode-2 curvature at R = 32) and blew up
+  // the moment anything moved: surface_tension -hf's static drop drifted its
+  // mass by up to 85 % and its spurious current reached 0.045 (five columns)
+  // and 0.039 (seven), against round-off with three.
+  // MEASURED 2026-11-05 (validation/surface_tension -rate -hf -hfit N, Oh = 3):
+  // the rate over the exact one at R = 16 / 32 / 64,
+  //      columns   along x                    turned 45 degrees
+  //         3      0.897 / 0.795 / 0.695      0.696 / 0.367 / 0.284
+  //         5      0.982 / 0.922 / 0.890      0.958 / 0.495 / 0.440
+  //         7      1.015 / 1.002 / 0.973      1.093 / 0.853 / 0.692
+  //         9      1.057 / 1.011 / 0.997      1.332 / 0.969 / 0.825
+  // So the ripples ARE the slowing: damping them out of kappa restores the rate,
+  // and with nine columns the R = 64 drop relaxes at 0.997 of it, a clean
+  // exponential (halves 0.996 and 0.995) whose curvature keeps 0.92 of the
+  // shape's mode-2 part to the end. But it is NOT A CURE. At any one width the
+  // rate still falls as R grows -- along x the width that reaches the exact
+  // rate goes up by about one pass per doubling of R (five at 16, seven at 32,
+  // nine at 64) -- and turned 45 degrees nine columns still give 0.825 at
+  // R = 64. A width that grows with the drop is a fixed physical filter, whose
+  // own error does not refine away. The source of the ripples is what needs
+  // fixing, and it is the mass exchange (mass_exchange()); smoothed, the
+  // curvature merely stops seeing them while they keep growing in the fill
+  // (validation/fs_band). With the exchange fixed (exchange_geometric and its
+  // two refinements) three columns converge and no smoothing is needed. Small
+  // drops pay twice: at R = 8 seven
+  // columns leave 20 of 44 interface cells on pass 4's kappa and nine 28 of 36,
+  // the wider fits' rates there scatter from 0.97 to 1.34, and the static
+  // Laplace error is +3.4 / +1.3 / +0.8 / +0.3 % at R = 8 / 12 / 16 / 24 with
+  // five columns and +4.7 / +2.9 / +1.5 / +0.7 % with seven.
+  int height_fit = 3;
+
+  // THE MASS EXCHANGE BETWEEN TWO INTERFACE CELLS, WEIGHTED BY THE UPWIND FILL.
+  // Off by default, and mass_exchange() is then exactly what it was. The
+  // default weights the net population flux across a link by the MEAN of the
+  // two cells' fills, which along the surface is a centred advection of the
+  // fill, with nothing to damp a cell-scale ripple; on, it weights it by the
+  // fill of the cell the net flux leaves. Both vanish at rest and both conserve
+  // mass pair by pair. MEASURED 2026-11-05 (validation/fs_band -upwind) and
+  // WORSE: a band sliding along itself ripples by 0.36 of a cell after 10 cells
+  // against 0.19 with the mean, and swept across, its surface thickens from 320
+  // to 1376 interface cells. The ripples do not come from which fill weights the
+  // link; they come from the links that are not weighted (mass_exchange()).
+  bool exchange_upwind = false;
+
+  // THE MASS EXCHANGE THROUGH FACES, WEIGHTED BY HOW MUCH OF EACH FACE IS WET
+  // (2-D, opt-in through set_exchange_geometric; mass_exchange() is otherwise
+  // exactly what it was). See mass_exchange() for what it replaces and why.
+  // Each interface cell's surface is reconstructed as a straight line -- the
+  // normal from height functions where its three columns are well formed and
+  // from the Youngs gradient of the fill where not, placed to hold the cell's
+  // fill exactly -- and every face gets the wet fraction of that line: 1 against
+  // a Fluid cell, 0 against Gas, and between two interface cells the mean of the
+  // two cells' estimates, so both sides agree and mass is conserved pair by
+  // pair. Every diagonal link's net flux is routed half through each of the two
+  // cells beside its corner, so each face carries axis(n->j) plus half of the
+  // four diagonal links that cross it, and for a uniform flow that sum is the
+  // finite-volume face flux rho u.n_f exactly. A link to a Gas cell has no
+  // populations to read, so its flux is the equilibrium difference of the
+  // liquid cell at its other end. Then dm = -sum_faces W_f Phi_f, and for a
+  // planar surface sum_faces W_f n_f = -l n, the surface's length in the cell
+  // times its normal: liquid sliding along a flat surface moves no fill, and
+  // liquid crossing it fills each cell at rho l u_n, its exact rate. Mass stays
+  // conserved because a Fluid cell's faces all carry weight 1 and Fluid never
+  // touches Gas. Checked on the exact fills of validation/fs_band before it was
+  // written: along the band 1e-16 (slope 1/2) and 5e-15 (3/7), across it the
+  // exact rate to 8e-15, with height-function or exact normals alike.
+  // It needs one conversion rule of its own (see classify()): it fills a cell
+  // at its exact rate, which falls to zero as the surface leaves, so cells can
+  // stop inside the hysteresis band and be stranded.
+  // MEASURED 2026-11-05, ALONE (exchange_donor and surface_follows_line below
+  // are what complete it). fs_band, sliding along itself at slope 3/7: the
+  // column sums scatter by 1.8-3.5e-5 of a cell over 10 cells, against 0.04-0.26
+  // with the default exchange, and mass holds to 6e-15. Swept ACROSS itself at
+  // slopes 1/2 and 3/7 it is no better than the default (0.02-0.07): that error
+  // is in when cells switch on, not in how mass moves. surface_tension -rate
+  // -hf -geom (Oh = 3): 1.083 / 1.037 / 1.016 / 0.941 of the exact rate at
+  // R = 8 / 16 / 32 / 64 (default exchange 1.030 / 0.897 / 0.795 / 0.695), and
+  // turned 45 degrees 0.830 / 0.537 / 0.652 at R = 8 / 16 / 32, not exponential.
+  bool exchange_geometric = false;
+  void set_exchange_geometric(bool on) {
+    if (on && L::D != 2)
+      Kokkos::abort("FreeSurfaceSolver::set_exchange_geometric: the face-routed exchange is 2-D only");
+    exchange_geometric = on;
+    if (on && wf_.size() == 0) wf_ = View1D<Real>("fs_wetface", 8 * dom_.n_padded);
+  }
+
+  // Two refinements of exchange_geometric, each read only with it on.
+  // exchange_donor: between two interface cells, weight a face by the
+  // reconstruction of the cell its net flux LEAVES rather than by the mean of
+  // the two. The same cell from either side, so it conserves mass; it matters
+  // where one cell has just been switched on and holds no surface of its own
+  // yet, which the mean would weight at half.
+  // surface_follows_line: switch a cell to Interface as soon as an interface
+  // neighbour's reconstructed line reaches into it -- a Gas cell when the
+  // shared face or corner is wet, a Fluid cell when it is dry (promote()) --
+  // instead of waiting for that neighbour to convert. On an inclined surface the
+  // line enters the next cell before this one is full, and until then the
+  // next cell can hold none of the liquid that has reached it.
+  // MEASURED 2026-11-05, ALL THREE ON. fs_band over 10 cells: across itself the
+  // column sums scatter by 7e-6 to 9e-5 (slope 1/2) and 5e-6 to 6e-5 (3/7),
+  // against 0.02-0.07 without the two, and along itself by 1.4-3.8e-6; at slope
+  // 1 by round-off; the surface keeps its thickness. Either alone does much
+  // less: donor 0.005-0.032 across, follow 0.001-0.058 and a thickened surface.
+  // THE FREE DROP NOW CONVERGES (surface_tension -rate -hf -geom -donor -follow,
+  // Oh = 3, 3-column heights): 1.060 / 1.020 / 1.010 / 1.003 of the exact rate
+  // at R = 8 / 16 / 32 / 64, and turned 45 degrees 1.110 / 1.049 / 1.019 /
+  // 1.007, every decay a clean exponential (rms of ln eps 3e-4 to 1.1e-2), the
+  // curvature keeping all of the mode-2 part to the end (0.99-1.13) and its
+  // scatter 0.0011-0.0073 x R against 0.044 at R = 32 with the default. What it
+  // costs at rest: the static sections pass, but the spurious current is up to
+  // 3.6e-5 (R = 12) where the default holds round-off -- a straight line drawn
+  // through a curved surface's cell reaches a little into cells the circle
+  // does not, and switches them on. Not measured: walls, contact angles, 3-D
+  // (the setter refuses it), and any flow but these two.
+  bool exchange_donor = false;
+  bool surface_follows_line = false;
 
   bool drop_detached = true;   // isolated specks -> gas; see classify()
 
@@ -595,6 +730,13 @@ class FreeSurfaceSolver {
   void set_height_function(bool on) {
     height_function = on;
     if (on) allocate_curvature();
+  }
+  // Columns in the height fit (the member height_fit): odd, 3 to 9, and 3 in 3-D.
+  // Read only while height_function is on.
+  void set_height_fit(int columns) {
+    if (columns < 3 || columns > 9 || columns % 2 == 0 || (L::D != 2 && columns != 3))
+      Kokkos::abort("FreeSurfaceSolver::set_height_fit: need an odd 3 to 9 columns, and 3 in 3-D");
+    height_fit = columns;
   }
   // Interface cells the last curvature pass gave a height-function kappa, and
   // those it left on pass 4's because a column was not well formed. Both 0
@@ -873,11 +1015,12 @@ class FreeSurfaceSolver {
     // pass 5 (opt-in): height functions, over pass 4's value where well formed.
     if (height_function) {
       Index used = 0, fell = 0;
+      const int hw = (height_fit - 1) / 2;
       Kokkos::parallel_reduce("fs_kappa_hf", Range(0, dom_.n_padded),
         KOKKOS_LAMBDA(Index n, Index& u, Index& f) {
           if (flags(n) != FsInterface) return;
           Real k = Real(0);
-          if (height_curvature(d, flags, cf, knx(n), kny(n), knz(n), n, k)) {
+          if (height_curvature(d, flags, cf, knx(n), kny(n), knz(n), n, k, hw)) {
             kap(n) = k;
             ++u;
           } else {
@@ -902,6 +1045,82 @@ class FreeSurfaceSolver {
     return v < 0 ? Index(0) : (v >= s ? s - 1 : v);
   }
 
+  // exchange_geometric's reconstruction, read by surface_follows_line: does the
+  // line of interface cell j reach into the cell at offset (dx, dy) from it?
+  // For a Gas cell, is the shared face (axis) or corner (diagonal) wet; for a
+  // Fluid cell, is it dry; for an Interface cell, does the line cross the shared
+  // face (axis offsets only). A margin of 1e-3 keeps a line that merely touches a
+  // face or corner from switching anything.
+  template <class WV>
+  KOKKOS_INLINE_FUNCTION static bool line_reaches(const WV& wf, Index j, int dx, int dy,
+                                                  std::uint8_t want) {
+    const Real tol = Real(1e-3);
+    if (dx == 0 || dy == 0) {
+      const int f = dx > 0 ? 0 : (dx < 0 ? 1 : (dy > 0 ? 2 : 3));
+      const Real w = wf(8 * j + f);
+      if (want == FsGas) return w > tol;
+      if (want == FsFluid) return w < Real(1) - tol;
+      return w > tol && w < Real(1) - tol;
+    }
+    if (want != FsGas && want != FsFluid) return false;
+    const int c = dx > 0 ? (dy > 0 ? 4 : 7) : (dy > 0 ? 5 : 6);
+    const Real dc = wf(8 * j + c);
+    return want == FsGas ? dc < -tol : dc > tol;
+  }
+
+  // One height-function column through padded coordinates p, offset (k, l)
+  // along the tangential axes t1, t2, along the axis a on which the liquid lies
+  // toward +s: its height in z, or false where it is not well formed. cf is the
+  // fill of interface cells (clamped to [0, 1] here).
+  //
+  // Each column is walked from the cell's own row, t = 0, with t counted
+  // toward the GAS: toward the liquid to the first Fluid cell (t_L), then
+  // toward the gas to the first Gas cell (t_G), meeting only Interface cells
+  // between. Its height is where the liquid ends, measured from that shared
+  // row: t_L + 1/2 plus the fill of the cells between. Where a fixed window of
+  // seven would have held the column it is the same number; at 45 degrees,
+  // where the neighbouring column's transition sits a cell or two further
+  // out, a fixed window centred on a nearly empty cell missed it (8 of the 56
+  // interface cells of an R = 8 drop, all on the diagonals). The reach is
+  // seven because five was one short in 3-D: on exact fills of a ball the
+  // corner columns of a cell near (1,1,1) cross four interface cells two
+  // rows out, so the first Fluid cell is six away (124 of 1416 cells failed).
+  template <class FlagV, class ColV>
+  KOKKOS_INLINE_FUNCTION static bool hf_column(const Domain& d, const FlagV& flags,
+                                               const ColV& cf, const Index p[3], int a, int s,
+                                               int t1, int t2, int k, int l, Real& z) {
+    constexpr int J = 7;                             // reach, each way
+    auto at = [&](int t) {                           // the cell t steps toward the gas
+      Index q[3] = {p[0], p[1], p[2]};
+      q[a] -= Index(s * t);
+      q[t1] += Index(k);
+      if (L::D == 3) q[t2] += Index(l);
+      return d.idp(hf_axis(q[0], d.hx, d.nx, d.sx, d.periodic[0]),
+                   hf_axis(q[1], d.hy, d.ny, d.sy, d.periodic[1]),
+                   hf_axis(q[2], d.hz, d.nz, d.sz, d.periodic[2]));
+    };
+    int tl = 1;                                      // toward the liquid: first Fluid
+    for (int t = 0; t >= -J; --t) {
+      const std::uint8_t f = flags(at(t));
+      if (f == FsFluid) { tl = t; break; }
+      if (f != FsInterface && f != FsGas) return false;
+    }
+    if (tl > 0) return false;
+    int tg = tl;                                     // toward the gas: first Gas
+    z = Real(tl) + Real(0.5);
+    for (int t = tl + 1; t <= J; ++t) {
+      const Index m = at(t);
+      const std::uint8_t f = flags(m);
+      if (f == FsGas) { tg = t; break; }
+      if (f == FsFluid) { z += Real(1); continue; }  // full, past a part-full cell
+      if (f != FsInterface) return false;
+      Real c = cf(m);
+      c = c < Real(0) ? Real(0) : (c > Real(1) ? Real(1) : c);
+      z += c;
+    }
+    return tg != tl;                                 // false: no gas within reach
+  }
+
   // The height-function curvature at interface cell n, or false where the
   // stencil is not well formed. See the member height_function. The heights are
   // the LIQUID in each seven-cell window, whichever side the liquid is on, so
@@ -911,7 +1130,8 @@ class FreeSurfaceSolver {
   template <class FlagV, class ColV>
   KOKKOS_INLINE_FUNCTION static bool height_curvature(const Domain& d, const FlagV& flags,
                                                       const ColV& cf, Real nx_, Real ny_,
-                                                      Real nz_, Index n, Real& kappa) {
+                                                      Real nz_, Index n, Real& kappa,
+                                                      int hw = 1) {
     const Real nv[3] = {nx_, ny_, nz_};
     int a = 0;
     for (int k = 1; k < L::D; ++k)
@@ -920,57 +1140,37 @@ class FreeSurfaceSolver {
     const int s = nv[a] > Real(0) ? 1 : -1;          // the liquid lies toward +s along a
     const int t1 = (L::D == 2) ? 1 - a : (a + 1) % 3;
     const int t2 = (a + 2) % 3;                      // read only in 3-D
-    // Each column is walked from the cell's own row, t = 0, with t counted
-    // toward the GAS: toward the liquid to the first Fluid cell (t_L), then
-    // toward the gas to the first Gas cell (t_G), meeting only Interface cells
-    // between. Its height is where the liquid ends, measured from that shared
-    // row: t_L + 1/2 plus the fill of the cells between. Where a fixed window of
-    // seven would have held the column it is the same number; at 45 degrees,
-    // where the neighbouring column's transition sits a cell or two further
-    // out, a fixed window centred on a nearly empty cell missed it (8 of the 56
-    // interface cells of an R = 8 drop, all on the diagonals). The reach is
-    // seven because five was one short in 3-D: on exact fills of a ball the
-    // corner columns of a cell near (1,1,1) cross four interface cells two
-    // rows out, so the first Fluid cell is six away (124 of 1416 cells failed).
-    constexpr int J = 7;                             // reach, each way
     constexpr int lw = (L::D == 3) ? 1 : 0;
     Index p[3];
     d.coords(n, p[0], p[1], p[2]);
+    // The height of column (k, l), or false where it is not well formed.
+    auto column = [&](int k, int l, Real& z) -> bool {
+      return hf_column(d, flags, cf, p, a, s, t1, t2, k, l, z);
+    };
+    // height_fit (2-D only; the setter refuses it in 3-D): the 2 hw + 1 heights
+    // smoothed hw - 1 times with [1 2 1]/4, then the central differences of the
+    // middle three. Each pass multiplies the second difference's response to a
+    // wavenumber k by cos^2(k/2), never negative, and leaves a parabola's h' and
+    // h'' exact. See the member height_fit for the least-squares fit this is not.
+    if (L::D == 2 && hw > 1) {
+      Real g[9] = {Real(0), Real(0), Real(0), Real(0), Real(0),
+                   Real(0), Real(0), Real(0), Real(0)};          // hw <= 4
+      for (int k = -hw; k <= hw; ++k)
+        if (!column(k, 0, g[k + hw])) return false;
+      for (int pass = 1; pass < hw; ++pass)      // in place: g[i] reads i, i+1, i+2
+        for (int i = 0; i <= 2 * (hw - pass); ++i)
+          g[i] = Real(0.25) * (g[i] + Real(2) * g[i + 1] + g[i + 2]);
+      const Real hx = Real(0.5) * (g[2] - g[0]);  // g[0..2]: columns -1, 0, 1
+      const Real hxx = g[2] - Real(2) * g[1] + g[0];
+      const Real q = Real(1) + hx * hx;
+      kappa = -hxx / (q * Kokkos::sqrt(q));
+      return true;
+    }
     Real h[3][3] = {{Real(0), Real(0), Real(0)}, {Real(0), Real(0), Real(0)},
                     {Real(0), Real(0), Real(0)}};
     for (int k = -1; k <= 1; ++k)
-      for (int l = -lw; l <= lw; ++l) {
-        auto at = [&](int t) {                       // the cell t steps toward the gas
-          Index q[3] = {p[0], p[1], p[2]};
-          q[a] -= Index(s * t);
-          q[t1] += Index(k);
-          if (L::D == 3) q[t2] += Index(l);
-          return d.idp(hf_axis(q[0], d.hx, d.nx, d.sx, d.periodic[0]),
-                       hf_axis(q[1], d.hy, d.ny, d.sy, d.periodic[1]),
-                       hf_axis(q[2], d.hz, d.nz, d.sz, d.periodic[2]));
-        };
-        int tl = 1;                                  // toward the liquid: first Fluid
-        for (int t = 0; t >= -J; --t) {
-          const std::uint8_t f = flags(at(t));
-          if (f == FsFluid) { tl = t; break; }
-          if (f != FsInterface && f != FsGas) return false;
-        }
-        if (tl > 0) return false;
-        int tg = tl;                                 // toward the gas: first Gas
-        Real z = Real(tl) + Real(0.5);
-        for (int t = tl + 1; t <= J; ++t) {
-          const Index m = at(t);
-          const std::uint8_t f = flags(m);
-          if (f == FsGas) { tg = t; break; }
-          if (f == FsFluid) { z += Real(1); continue; }  // full, past a part-full cell
-          if (f != FsInterface) return false;
-          Real c = cf(m);
-          c = c < Real(0) ? Real(0) : (c > Real(1) ? Real(1) : c);
-          z += c;
-        }
-        if (tg == tl) return false;                  // no gas within reach
-        h[k + 1][l + 1] = z;
-      }
+      for (int l = -lw; l <= lw; ++l)
+        if (!column(k, l, h[k + 1][l + 1])) return false;
     const Real hx = Real(0.5) * (h[2][1] - h[0][1]);
     const Real hxx = h[2][1] - Real(2) * h[1][1] + h[0][1];
     if (L::D == 2) {
@@ -1570,10 +1770,35 @@ class FreeSurfaceSolver {
   }
 
   // Pass 2. Mass across faces, from the post-collision state of both cells.
+  //
+  // THIS IS WHERE THE FILL RIPPLES COME FROM, and they are not a bug in it but
+  // what it is. Each link of an interface cell carries its net population flux
+  // weighted by 1 to a Fluid cell, by the mean fill to an Interface cell and by
+  // 0 to Gas. For liquid sliding ALONG a flat surface the fills should not
+  // change, and with equilibrium populations each link's net flux is
+  // -2 w_i rho (c_i . u)/cs^2, so the weights sum that to zero only where the
+  // cell's neighbourhood is symmetric about the flow. A surface at slope 0 or 1
+  // has every cell alike and is exact (validation/fs_band: zero and 4e-15); at
+  // slope 1/2 or 3/7 the steps are uneven and each cell drifts by its own
+  // amount -- the formula, evaluated from the initial state, predicts the
+  // solver's change cell by cell at correlation 0.9998-0.9999 and amplitude
+  // 0.9994-1.0004 -- so at first the column sums scatter by about a tenth of
+  // the distance slid, in cells, whatever the box. A drop's surface has every
+  // slope and its relaxation slides liquid along it; given that drop's surface
+  // tension and surface speed, a sliding band settles at curvature noise of the
+  // same order as the drop's (fs_band; the drop's is under height_function). The
+  // fluid-link weight cannot simply be changed: a Fluid cell's mass IS its
+  // density, so its links must carry the full flux or mass is not conserved.
+  // THE FIX is exchange_geometric with exchange_donor and surface_follows_line
+  // (opt-in, 2-D): the flux routed through faces and weighted by how much of
+  // each face the reconstructed surface wets, and cells switched on where that
+  // surface reaches; this pass is then not called (mass_exchange_geometric()).
   void mass_exchange() {
+    if (exchange_geometric) { mass_exchange_geometric(); return; }
     const auto acc = pop_.template access<0>();
     const Domain d = dom_;
     auto flags = flags_; auto mass = mass_, eps = eps_;
+    const bool upw = exchange_upwind;
 
     Kokkos::parallel_for("fs_mass_exchange", Range(0, dom_.n_padded),
       KOKKOS_LAMBDA(Index n) {
@@ -1594,14 +1819,148 @@ class FreeSurfaceSolver {
             // Two partly filled cells can only exchange in proportion to how
             // much liquid there is to exchange. The mean of the two fill levels
             // is symmetric between them, which is what keeps the pair's total
-            // mass unchanged.
-            dm += Real(0.5) * (e0 + eps(j)) * (in - out);
+            // mass unchanged. exchange_upwind takes the fill of the cell the net
+            // flow comes FROM instead -- the same cell seen from either side, so
+            // it is just as conservative -- and see that member for why.
+            const Real w = upw ? ((in > out) ? eps(j) : e0) : Real(0.5) * (e0 + eps(j));
+            dm += w * (in - out);
           }
           // Gas and wall neighbours exchange nothing.
         }
         mass(n) += dm;
       });
     Kokkos::fence();
+  }
+
+  // Pass 2, geometric (exchange_geometric, 2-D): the wet fraction of every face
+  // of every interface cell, then the exchange through faces. See the member.
+  void mass_exchange_geometric() {
+    if constexpr (L::D != 2) {
+      Kokkos::abort("FreeSurfaceSolver: exchange_geometric is 2-D only");
+    } else {
+      if (wf_.size() == 0) wf_ = View1D<Real>("fs_wetface", 8 * dom_.n_padded);
+      struct Tab { int i[9]; };                    // direction index of (dx, dy)
+      Tab tab{};
+      for (int i = 0; i < Q; ++i) tab.i[(cvel<L>(i, 0) + 1) * 3 + (cvel<L>(i, 1) + 1)] = i;
+      const auto acc = pop_.template access<0>();
+      const Domain d = dom_;
+      auto flags = flags_; auto mass = mass_, eps = eps_, wf = wf_;
+      auto rho = rho_, ux = ux_, uy = uy_, uz = uz_;
+      const bool donor = exchange_donor;
+
+      Kokkos::parallel_for("fs_wet_faces", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+        if (flags(n) != FsInterface) return;
+        Neighbours<L> nb;
+        d.template fill_neighbours<L, NF, NS>(n, nb);
+        auto clamp01 = [](Real v) { return v < Real(0) ? Real(0) : (v > Real(1) ? Real(1) : v); };
+        const Real e0 = clamp01(eps(n));
+        auto colour = [&](int dx, int dy) {
+          const std::uint8_t f = flags(nb.j[tab.i[(dx + 1) * 3 + (dy + 1)]]);
+          return f == FsFluid ? Real(1) : (f == FsInterface ? clamp01(eps(nb.j[tab.i[(dx + 1) * 3 + (dy + 1)]]))
+                                                            : (f == FsGas ? Real(0) : e0));
+        };
+        // Youngs: the gradient of the fill, which points into the liquid.
+        const Real gx = (colour(1, 1) + Real(2) * colour(1, 0) + colour(1, -1))
+                      - (colour(-1, 1) + Real(2) * colour(-1, 0) + colour(-1, -1));
+        const Real gy = (colour(1, 1) + Real(2) * colour(0, 1) + colour(-1, 1))
+                      - (colour(1, -1) + Real(2) * colour(0, -1) + colour(-1, -1));
+        Real nx = -gx, ny = -gy;                   // the normal into the GAS
+        const int a = Kokkos::fabs(gx) >= Kokkos::fabs(gy) ? 0 : 1;
+        const Real ga = a == 0 ? gx : gy;
+        if (ga != Real(0)) {                       // height functions where they hold
+          const int sg = ga > Real(0) ? 1 : -1;    // the liquid lies toward +sg along a
+          Index p[3];
+          d.coords(n, p[0], p[1], p[2]);
+          Real z[3];
+          bool ok = true;
+          for (int k = -1; k <= 1 && ok; ++k) ok = hf_column(d, flags, eps, p, a, sg, 1 - a, 2, k, 0, z[k + 1]);
+          if (ok) {
+            const Real zp = Real(0.5) * (z[2] - z[0]);
+            const Real q = Real(1) / Kokkos::sqrt(Real(1) + zp * zp);
+            const Real nt = -zp * q, na = -Real(sg) * q;
+            nx = a == 0 ? na : nt;
+            ny = a == 0 ? nt : na;
+          }
+        }
+        const Real l1 = Kokkos::fabs(nx) + Kokkos::fabs(ny);
+        if (!(l1 > Real(0))) {                     // no direction at all: wet in proportion
+          for (int f = 0; f < 4; ++f) wf(8 * n + f) = e0;
+          for (int c = 4; c < 8; ++c) wf(8 * n + c) = Real(0);   // on the line: reaches nowhere
+          return;
+        }
+        nx /= l1;  ny /= l1;
+        // The line n.x = alpha (cell centred, liquid below it) holding fill e0.
+        const Real m1 = Kokkos::fmin(Kokkos::fabs(nx), Kokkos::fabs(ny));
+        const Real m2 = Kokkos::fmax(Kokkos::fabs(nx), Kokkos::fabs(ny));
+        Real ap;
+        if (m1 < Real(1e-12))                         ap = e0;
+        else if (e0 < m1 / (Real(2) * m2))            ap = Kokkos::sqrt(Real(2) * m1 * m2 * e0);
+        else if (e0 <= Real(1) - m1 / (Real(2) * m2)) ap = m2 * e0 + Real(0.5) * m1;
+        else ap = Real(1) - Kokkos::sqrt(Real(2) * m1 * m2 * (Real(1) - e0));
+        const Real al = ap - Real(0.5);
+        auto wet = [&](Real x0, Real y0, Real x1, Real y1) {
+          const Real d0 = nx * x0 + ny * y0 - al, d1 = nx * x1 + ny * y1 - al;
+          if (d0 <= Real(0) && d1 <= Real(0)) return Real(1);
+          if (d0 >= Real(0) && d1 >= Real(0)) return Real(0);
+          return d0 < Real(0) ? -d0 / (d1 - d0) : -d1 / (d0 - d1);
+        };
+        const Real h = Real(0.5);
+        wf(8 * n + 0) = wet( h, -h,  h,  h);       // +x
+        wf(8 * n + 1) = wet(-h, -h, -h,  h);       // -x
+        wf(8 * n + 2) = wet(-h,  h,  h,  h);       // +y
+        wf(8 * n + 3) = wet(-h, -h,  h, -h);       // -y
+        // and the signed distance of each corner from the line, negative in the
+        // liquid: (+,+), (-,+), (-,-), (+,-). Read by surface_follows_line.
+        wf(8 * n + 4) = nx * h + ny * h - al;
+        wf(8 * n + 5) = -nx * h + ny * h - al;
+        wf(8 * n + 6) = -nx * h - ny * h - al;
+        wf(8 * n + 7) = nx * h - ny * h - al;
+      });
+      Kokkos::fence();
+
+      Kokkos::parallel_for("fs_mass_exchange_faces", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+        if (flags(n) != FsInterface) return;
+        Neighbours<L> nb;
+        d.template fill_neighbours<L, NF, NS>(n, nb);
+        auto at = [&](int dx, int dy) { return nb.j[tab.i[(dx + 1) * 3 + (dy + 1)]]; };
+        auto dir = [&](int dx, int dy) { return tab.i[(dx + 1) * 3 + (dy + 1)]; };
+        auto solid = [](std::uint8_t f) { return f == FsSolid || f == FsExcluded; };
+        auto liquid = [](std::uint8_t f) { return f == FsFluid || f == FsInterface; };
+        // The net flux from cell ia to cell ib along direction i (c_i = ib - ia).
+        auto delta = [&](Index ia, Index ib, int i) -> Real {
+          const std::uint8_t fa = flags(ia), fb = flags(ib);
+          if (solid(fa) || solid(fb)) return Real(0);
+          const bool la = liquid(fa), lb = liquid(fb);
+          if (la && lb) return acc.dst(ia, i) - acc.dst(ib, opp(i));
+          if (!la && !lb) return Real(0);
+          const Index m = la ? ia : ib;
+          return Collision::seed_value(i, rho(m), ux(m), uy(m), uz(m))
+               - Collision::seed_value(opp(i), rho(m), ux(m), uy(m), uz(m));
+        };
+        const int ex[4] = {1, -1, 0, 0}, ey[4] = {0, 0, 1, -1};
+        const int back[4] = {1, 0, 3, 2};          // the same face, seen from the other cell
+        Real dm = Real(0);
+        for (int f = 0; f < 4; ++f) {
+          const int px = -ey[f], py = ex[f];       // along the face
+          const Index j = at(ex[f], ey[f]);
+          const std::uint8_t fj = flags(j);
+          if (fj == FsGas || solid(fj)) continue;
+          const Real phi = delta(n, j, dir(ex[f], ey[f]))
+              + Real(0.5) * (delta(n, at(ex[f] + px, ey[f] + py), dir(ex[f] + px, ey[f] + py))
+                           + delta(n, at(ex[f] - px, ey[f] - py), dir(ex[f] - px, ey[f] - py))
+                           + delta(at(px, py), j, dir(ex[f] - px, ey[f] - py))
+                           + delta(at(-px, -py), j, dir(ex[f] + px, ey[f] + py)));
+          // exchange_donor: the face as the cell the flux LEAVES reconstructs it,
+          // the same cell from either side since phi changes sign with it.
+          const Real W = fj == FsFluid ? Real(1)
+                       : donor ? (phi > Real(0) ? wf(8 * n + f) : wf(8 * j + back[f]))
+                               : Real(0.5) * (wf(8 * n + f) + wf(8 * j + back[f]));
+          dm -= W * phi;
+        }
+        mass(n) += dm;
+      });
+      Kokkos::fence();
+    }
   }
 
   //----------------------------------------------------------------------------
@@ -1645,6 +2004,9 @@ class FreeSurfaceSolver {
     const Real off = fill_offset;
     const bool do_detach = drop_detached;
     const bool nrf = no_refill;
+    const bool geo = exchange_geometric;
+    const bool follow = exchange_geometric && surface_follows_line;
+    auto wf = wf_;
 
     Kokkos::parallel_for("fs_classify", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
       const std::uint8_t fl = flags(n);
@@ -1682,20 +2044,53 @@ class FreeSurfaceSolver {
       // here writes it -- so reading a neighbour's is safe.
       Neighbours<L> nb;
       d.template fill_neighbours<L, NF, NS>(n, nb);
-      bool has_gas = false, has_liquid = false;
+      bool has_gas = false, has_liquid = false, has_fluid = false;
       for (int i = 1; i < Q; ++i) {
         const std::uint8_t fj = flags(nb.j[i]);
         if (fj == FsGas) has_gas = true;
-        else if (fj == FsFluid || fj == FsInterface) has_liquid = true;
+        else if (fj == FsFluid || fj == FsInterface) {
+          has_liquid = true;
+          if (fj == FsFluid) has_fluid = true;
+        }
         // A cell resting against a wall has something holding it, so it is not
         // the free-falling speck the rule is about. Without this an obstacle
         // sweeping past leaves a trail of cells that the detached rule deletes.
         else if (fj == FsSolid) has_liquid = true;
       }
-      (void)has_gas;
       if (!has_liquid && do_detach) {   // a speck in free fall
         newf(n) = FsGas;
         excess(n) = mass(n);
+        return;
+      }
+      // exchange_geometric only. It fills a cell at its exact rate, which falls
+      // to zero as the surface leaves the cell, so a cell can stop INSIDE the
+      // hysteresis band -- just over 1, or just under 0 -- and be left behind
+      // when the surface moves on, buried among Fluid cells (or stranded among
+      // Gas) with a net flux of zero and no way to convert. Measured on
+      // fs_band's 45-degree band swept across itself: interface cells at
+      // 1.0007-1.0009 between Fluid ones, at -0.0009 between Gas ones, and the
+      // surface 2.25 times as thick. Only a cell already PAST its bound is
+      // converted, so the mass handed on is less than fill_offset; the general
+      // buried-cell rule the banner above rejects declared 30 %-full cells full.
+      // surface_follows_line puts the surface where the lines say it is, so a
+      // cell an interface neighbour's line crosses is ON the surface whatever
+      // its fill, and switching it would undo promote() the next step.
+      bool on_line = false;
+      if (follow)
+        for (int i = 1; i < Q && !on_line; ++i) {
+          const Index j = nb.j[i];
+          if (flags(j) == FsInterface &&
+              line_reaches(wf, j, -cvel<L>(i, 0), -cvel<L>(i, 1), FsInterface))
+            on_line = true;
+        }
+      if (geo && !on_line) {
+        if (e > Real(1) && !has_gas) {
+          newf(n) = FsFluid;
+          excess(n) = mass(n) - r;
+        } else if (e < Real(0) && !has_fluid) {
+          newf(n) = FsGas;
+          excess(n) = mass(n);
+        }
       }
     });
     Kokkos::fence();
@@ -1774,6 +2169,8 @@ class FreeSurfaceSolver {
   void promote() {
     const Domain d = dom_;
     auto flags = flags_, newf = newf_, fin = final_;
+    const bool follow = exchange_geometric && surface_follows_line;
+    auto wf = wf_;
     Kokkos::parallel_for("fs_promote", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
       const std::uint8_t was = flags(n);
       if (was == FsSolid || was == FsExcluded) { fin(n) = was; return; }
@@ -1790,6 +2187,18 @@ class FreeSurfaceSolver {
       if (now == FsFluid) {
         for (int i = 1; i < Q; ++i)
           if (newf(nb.j[i]) == FsGas) { now = FsInterface; break; }
+      }
+      // surface_follows_line: a Gas cell that an interface neighbour's line
+      // enters, or a Fluid cell it leaves, holds part of the surface and becomes
+      // Interface NOW rather than when that neighbour converts. Only cells that
+      // were already Gas or Fluid: a cell converting this step has published its
+      // excess, and keeping it Interface would count that twice.
+      if (follow && ((was == FsGas && now == FsGas) || (was == FsFluid && now == FsFluid))) {
+        for (int i = 1; i < Q; ++i) {
+          const Index j = nb.j[i];
+          if (flags(j) != FsInterface || newf(j) != FsInterface) continue;
+          if (line_reaches(wf, j, -cvel<L>(i, 0), -cvel<L>(i, 1), was)) { now = FsInterface; break; }
+        }
       }
       fin(n) = now;
     });
@@ -1890,6 +2299,7 @@ class FreeSurfaceSolver {
   View1D<Real> mass_, eps_, excess_;
   // Curvature working set. Empty until set_surface_tension() is called.
   View1D<Real> cf_, cfs_, knx_, kny_, knz_, kap_;
+  View1D<Real> wf_;                   // exchange_geometric: wet fraction of each face, 4 per cell
   Index hf_used_ = 0, hf_fell_ = 0;   // the last height-function pass's coverage
   // Wall cells the contact-angle law rewrote this step. Empty until
   // set_contact_angle() is called.
