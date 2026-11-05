@@ -9979,8 +9979,10 @@ Stated plainly, because each has been measured.
   relaxes at $1.060$, $1.020$, $1.010$ and $1.003$ of the exact rate at
   $R=8$, 16, 32 and 64, and $1.110$, $1.049$, $1.019$ and $1.007$ turned
   $45^\circ$: it converges. A static drop then carries a spurious current of up
-  to $3.6\times10^{-5}$ rather than round-off. Walls, contact angles and 3-D are
-  untested.
+  to $3.6\times10^{-5}$ rather than round-off. At walls it narrows the contact
+  angle's windows and leaves a bias (the contact-angle item below), and on
+  \code{mew\_nozzle}'s nozzle it turns a diverging ladder into a slowly
+  converging one (the pinned-neck item below). 3-D is untested.
 \item \textbf{A planar (2-D) electrified meniscus is not a Taylor cone, and a
   melt-electrowriting jet is not resolvable in one.} A straight-sided 2-D wedge
   has no curvature to balance $\varepsilon_0E^2/2$, so there is no conical
@@ -10054,7 +10056,19 @@ Stated plainly, because each has been measured.
   25--34\,\% more slowly than with the default curvature on every grid, and
   14--22\,\% more slowly per halving of the cell with either. The cells at the
   nozzle keep the default curvature, and with it the contact angle, so this
-  tests that mixture rather than height functions alone.
+  tests that mixture rather than height functions alone. With height functions
+  \emph{and} the geometric mass exchange (the free-drop item above), the
+  non-wetted nozzle at the real feed touches at $109.4$, $96.3$ and
+  $86.4$\,s on 100, 50 and 25\,$\mu$m cells, against $111.2$, $110.3$ and
+  $105.0$\,s with neither: the gaps now shrink ($-13.1$ then $-9.9$\,s) where
+  they grew ($-0.9$ then $-5.4$\,s), the second $0.74$--$0.80$ of the first at
+  every 0.05\,mm of height from 3.0 down to 0.15\,mm, and through 2.0 to
+  1.25\,mm the finer drop now falls
+  faster rather than more slowly. The neck is still the bore plus four cells,
+  and what is left closes in more slowly than the neck's excess over the bore,
+  which halves with each refinement: an apparent order of $0.41$ at contact over
+  three grids, so no contact time from this ladder is converged, and what
+  converges that slowly is not diagnosed.
 \item \textbf{A mirror-symmetric free surface does not stay symmetric, and a
   thread drawn below a cell creates mass.} Neither is diagnosed. In
   \code{mew\_nozzle} an advancing front amplifies round-off until the column
@@ -10078,7 +10092,18 @@ Stated plainly, because each has been measured.
   fill patterns that change the true curvature without changing $\kappa$, a
   fixed absolute tolerance that becomes a relative one growing with $R$. The
   free-drop item above measures that mechanism away from any wall; at the wall
-  it remains a reading. In \code{mew\_nozzle} a wetting nozzle ($60^\circ$, 50\,$\mu$m
+  it remains a reading. With the geometric mass exchange of that item
+  (\code{-geom -donor -follow}) the windows stop widening: at $R_0=32$ their
+  half-widths at 60, 90 and $120^\circ$ are 3.4, 2.1 and $4.0^\circ$, and 3.5,
+  0.5 and $2.3^\circ$ with height functions, against 6.9, 7.5 and
+  $10.8^\circ$. What is left is a bias --- with height functions the
+  $90^\circ$ window closes onto its angle from below, its midpoint at
+  $-5.2$, $-2.6$ and $-1.2^\circ$ at $R_0=8$, 16 and 32, and $150^\circ$ is
+  out of reach, 9 to $20^\circ$ low --- from an angle imposed only through the
+  default curvature in the cells by the wall; ghost heights at the wall are the
+  missing piece. Some of these drops still creep at the end of the run
+  (spurious currents to $2.5\times10^{-4}$), so the windows are not final.
+  In \code{mew\_nozzle} a wetting nozzle ($60^\circ$, 50\,$\mu$m
   cells) widens the melt's neck by one cell a side by 2.9\,s and no further by
   4.3\,s: the contact line on the tip face moves only by numerical slip, and
   the melt's capillary speed $\gamma/\mu$ is 0.06\,mm/s against a 2\,mm/s

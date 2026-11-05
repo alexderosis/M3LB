@@ -593,8 +593,19 @@ class FreeSurfaceSolver {
   // costs at rest: the static sections pass, but the spurious current is up to
   // 3.6e-5 (R = 12) where the default holds round-off -- a straight line drawn
   // through a curved surface's cell reaches a little into cells the circle
-  // does not, and switches them on. Not measured: walls, contact angles, 3-D
-  // (the setter refuses it), and any flow but these two.
+  // does not, and switches them on. AT WALLS: a diagonal link with a wall beside
+  // its corner sends all its flux through the other cell, and one with walls on
+  // both sides is booked directly (mass_exchange_geometric()); the first version
+  // dropped the half routed into the wall and lost 3 % of mew_nozzle's feed in
+  // 3 s at the nozzle's corners, against +0.5 % for the default exchange, and
+  // +0.4 % once fixed. A flat wall never meets the case: sessile_drop reads the
+  // same to every printed digit with either. Its contact-angle windows are in
+  // its banner (narrower, biased). On mew_nozzle's non-wetted nozzle, with
+  // height functions, the contact-time ladder no longer diverges: each halving
+  // of the cell moves contact 0.75 times as far as the last, where the default
+  // exchange moves it 5.8 times as far -- but that is an apparent order of 0.41,
+  // too slow to quote a contact time (that file's banner). Not measured: 3-D
+  // (the setter refuses it).
   bool exchange_donor = false;
   bool surface_follows_line = false;
 
@@ -1945,11 +1956,17 @@ class FreeSurfaceSolver {
           const Index j = at(ex[f], ey[f]);
           const std::uint8_t fj = flags(j);
           if (fj == FsGas || solid(fj)) continue;
+          // A diagonal link's flux goes half through each cell beside its corner,
+          // and ALL of it through this face when the other cell is a wall: a route
+          // through a wall carries nothing, and the half dropped there is mass a
+          // Fluid end gains or loses through its populations with no interface
+          // cell to book it (-3 % of the feed in mew_nozzle in 3 s, the first time).
+          auto share = [&](int ox, int oy) { return solid(flags(at(ox, oy))) ? Real(1) : Real(0.5); };
           const Real phi = delta(n, j, dir(ex[f], ey[f]))
-              + Real(0.5) * (delta(n, at(ex[f] + px, ey[f] + py), dir(ex[f] + px, ey[f] + py))
-                           + delta(n, at(ex[f] - px, ey[f] - py), dir(ex[f] - px, ey[f] - py))
-                           + delta(at(px, py), j, dir(ex[f] - px, ey[f] - py))
-                           + delta(at(-px, -py), j, dir(ex[f] + px, ey[f] + py)));
+              + share(px, py) * delta(n, at(ex[f] + px, ey[f] + py), dir(ex[f] + px, ey[f] + py))
+              + share(-px, -py) * delta(n, at(ex[f] - px, ey[f] - py), dir(ex[f] - px, ey[f] - py))
+              + share(ex[f] + px, ey[f] + py) * delta(at(px, py), j, dir(ex[f] - px, ey[f] - py))
+              + share(ex[f] - px, ey[f] - py) * delta(at(-px, -py), j, dir(ex[f] + px, ey[f] + py));
           // exchange_donor: the face as the cell the flux LEAVES reconstructs it,
           // the same cell from either side since phi changes sign with it.
           const Real W = fj == FsFluid ? Real(1)
@@ -1957,6 +1974,18 @@ class FreeSurfaceSolver {
                                : Real(0.5) * (wf(8 * n + f) + wf(8 * j + back[f]));
           dm -= W * phi;
         }
+        // A diagonal link with walls on BOTH sides of its corner has no face to
+        // pass through, but its populations still stream: book it directly, by
+        // the default exchange's rule (1 to Fluid, the mean fill to Interface).
+        for (int sx = -1; sx <= 1; sx += 2)
+          for (int sy = -1; sy <= 1; sy += 2) {
+            if (!solid(flags(at(sx, 0))) || !solid(flags(at(0, sy)))) continue;
+            const Index c = at(sx, sy);
+            const std::uint8_t fc = flags(c);
+            if (!liquid(fc)) continue;
+            const Real W = fc == FsFluid ? Real(1) : Real(0.5) * (eps(n) + eps(c));
+            dm -= W * delta(n, c, dir(sx, sy));
+          }
         mass(n) += dm;
       });
       Kokkos::fence();

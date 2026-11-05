@@ -92,6 +92,34 @@
 //  functions needs ghost heights at the wall; until it has them -hf is a probe
 //  here, not a model.
 //
+//  -geom -donor -follow (2026-11-05) run it with FreeSurfaceSolver's
+//  face-routed mass exchange, which makes surface_tension's free drop converge
+//  (that file and the solver's members have the account). THE WINDOWS STOP
+//  WIDENING: at R0 = 8 / 16 / 32 the half-widths at 60 / 90 / 120 degrees are
+//      default curvature    0.09 / 2.00 / 3.38   4.14 / 2.23 / 2.12   5.49 / 3.66 / 4.02
+//      with -hf as well     2.16 / 3.05 / 3.51   2.11 / 1.11 / 0.47   0.04 / 0.97 / 2.28
+//  against the table's 1.99 / 2.91 / 6.87, 3.86 / 4.80 / 7.50 and
+//  2.09 / 4.86 / 10.80 -- so most of the widening was the exchange's ripples,
+//  pinning the line as they pin a free drop. What is left is a BIAS. With the
+//  default curvature the midpoints sit at -1.36 / +1.73 / +4.19 (60), -3.60 /
+//  -1.76 / -0.91 (90) and -5.26 / -0.24 / -1.66 (120), and 60 falls outside its
+//  window at R0 = 8 (58.557-58.731) and 32 (60.806-67.573). With -hf the 90
+//  window closes onto its angle from below, midpoints -5.21 / -2.59 / -1.24,
+//  halving with each doubling, but 90 lies outside it on all three grids
+//  (88.291-89.233 at R0 = 32); 60 and 120 end within 0.4 and 1.9 degrees. 150
+//  is out of reach either way: 9.3-12.2 low, and 16.6-20.3 low with -hf. The
+//  angle acts only through pass 4's curvature in the cells by the wall, so the
+//  missing piece is unchanged: ghost heights at the wall. Law off, the wall
+//  still reads as gas at 148.6 / 151.6 / 150.1 (153.6 at R0 = 32 with -hf).
+//  NOT EVERY DROP HAS STOPPED, so these windows are what 2500 R0 steps give,
+//  not final states. With the default curvature every 60-120 run ends with a
+//  spurious current of 1.6e-5 to 2.3e-4, against the table's 7e-9 to 6e-6, its
+//  angle still moving by up to 0.02 degrees over the last 5 % of the run. With
+//  -hf all but two end at rest (round-off to 1.4e-5); those two are the 60-degree
+//  drops seeded from above at R0 = 16 and 32, still moving by -0.13 and +0.04
+//  degrees (2.4-2.5e-4), so the 60-degree windows with -hf are not final. Mass
+//  within 1.7e-4 at 60-120 either way; 30 degrees settles in neither.
+//
 //  The default run (ctest) is R0 = 16 at 40000 steps; -ladder adds R0 = 8 and
 //  32, ungated; -static runs the estimator test above; -theta/-seed/-R0 make
 //  one run, with -series and -profile to watch it. The gates were measured in
@@ -117,6 +145,9 @@ namespace {
 bool g_profile = false;   // -profile: print the column heights h(x) at the end
 bool g_static = false;    // -static: the curvature estimator alone, nothing stepped
 bool g_hf = false;        // -hf: FreeSurfaceSolver::height_function (2026-11-04)
+// -geom [-donor] [-follow]: FreeSurfaceSolver's exchange_geometric, exchange_donor and
+// surface_follows_line (2026-11-05; 2-D only).
+bool g_geom = false, g_donor = false, g_follow = false;
 
 struct Result {
   double A = 0, h = 0, theta = 0, R = 0, dp = 0, laplace = 0;
@@ -179,6 +210,9 @@ Result run(double R0, double theta_deg, double seed_deg, double sigma, double nu
   s.coll.omega = FS::omega_from_viscosity(Real(nu));
   s.set_surface_tension(Real(sigma));
   s.set_height_function(g_hf);
+  s.set_exchange_geometric(g_geom);
+  s.exchange_donor = g_donor;
+  s.surface_follows_line = g_follow;
   if (theta_deg > 0) s.set_contact_angle(Real(theta_deg * M_PI / 180.0));
   const Index nyi = ny;
   s.set_geometry([&](Index, Index y, Index) -> FsCell {
@@ -312,6 +346,9 @@ void static_kappa(double R, double theta_deg, bool wall, double sigma) {
   s.coll.omega = FS::omega_from_viscosity(Real(1.0 / 6.0));
   s.set_surface_tension(Real(sigma));
   s.set_height_function(g_hf);
+  s.set_exchange_geometric(g_geom);
+  s.exchange_donor = g_donor;
+  s.surface_follows_line = g_follow;
   if (wall) s.set_contact_angle(Real(theta_deg * M_PI / 180.0));
   const Index nyi = ny;
   s.set_geometry([&](Index, Index y, Index) -> FsCell {
@@ -376,6 +413,9 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "-static")) g_static = true;
     else if (!std::strcmp(argv[i], "-ladder")) ladder = true;
     else if (!std::strcmp(argv[i], "-hf")) g_hf = true;
+    else if (!std::strcmp(argv[i], "-geom")) g_geom = true;
+    else if (!std::strcmp(argv[i], "-donor")) g_donor = true;
+    else if (!std::strcmp(argv[i], "-follow")) g_follow = true;
     else if (!std::strcmp(argv[i], "-lat") && i + 1 < argc) {
       const char* l = argv[++i];
       if (!std::strcmp(l, "d3q27")) d3 = true;
@@ -388,9 +428,14 @@ int main(int argc, char** argv) {
     else {
       std::fprintf(stderr, "sessile_drop: unknown option '%s'. NOTHING WAS RUN.\n"
                            "  -steps N  -sigma S  -theta DEG (one run; 0 = law off)  -seed DEG  -R0 R\n"
-                           "  -series  -ladder  -lat d2q9|d3q27  -hf\n", argv[i]);
+                           "  -series  -ladder  -lat d2q9|d3q27  -hf  -geom [-donor] [-follow]\n", argv[i]);
       return 2;
     }
+  }
+  if (((g_donor || g_follow) && !g_geom) || (g_geom && d3)) {
+    std::fprintf(stderr, "sessile_drop: -donor and -follow refine -geom, which is 2-D only (D2Q9)."
+                         " NOTHING WAS RUN.\n");
+    return 2;
   }
 
   Kokkos::initialize(argc, argv);
@@ -401,6 +446,9 @@ int main(int argc, char** argv) {
     std::printf("backend %s   precision %s   lattice %s   sigma %.4g   nu %.4f   %zu steps\n\n",
                 Kokkos::DefaultExecutionSpace::name(), precision_name(),
                 d3 ? "D3Q27 (nz = 1)" : "D2Q9", sigma, nu, nsteps);
+    if (g_hf || g_geom)
+      std::printf("   %s%s%s%s%s\n\n", g_hf ? "height functions ON   " : "", g_geom ? "geometric exchange ON" : "",
+                  g_donor ? ", donor" : "", g_follow ? ", follows line" : "", "");
     // The ladder scales the run with the drop: relaxation slows as R0 grows.
     auto go = [&](double R0, double th, double seed) {
       const std::size_t n = ladder ? std::size_t(double(nsteps) * R0 / 16.0) : nsteps;

@@ -225,6 +225,34 @@
 //  holds the drop back is not diagnosed. The runs are results/mew_nozzle's
 //  *_wet60_film_hf files; the 25 um series ends at its last complete row,
 //  150.684 s.
+//  THE GEOMETRIC EXCHANGE TURNS THE LADDER ROUND, AND IT STILL DOES NOT
+//  CONVERGE (2026-11-05). The non-wetted nozzle at the real feed, field off,
+//  with -hf -geom -donor -follow (the exchange that makes surface_tension's
+//  free drop converge) touches at 109.394 / 96.302 / 86.434 s on 100 / 50 /
+//  25 um cells, against 111.241 / 110.325 / 104.968 s with the default
+//  curvature and exchange: its gaps SHRINK, -13.09 then -9.87 s, where the
+//  default's grow, -0.92 then -5.36 s. Timing the lowest point through each
+//  height by interpolating between its whole-cell steps, the second gap is
+//  0.74-0.80 of the first at every 0.05 mm from 3.0 down to 0.15 mm (0.92 at
+//  3.9 mm) and 0.754 at contact, against 1.5-4.0 and 5.8 with the default.
+//  Through 2.0 to 1.25 mm, timed between whole-cell steps, the drop now falls
+//  FASTER on a finer grid, 0.0445 / 0.0498 / 0.0541 mm/s against 0.0434 /
+//  0.0411 / 0.0403, so whatever slowed the finer drop (THE GRID EFFECT IS IN
+//  THE CAPILLARY TERM, above) no longer wins. The neck is unchanged, 0.800 /
+//  0.600 / 0.500 mm at 40 s in both, the bore plus four cells. What is left
+//  closes in more slowly than the neck: its excess over the bore halves with
+//  each refinement, and a timing that followed it smoothly would halve its
+//  gaps too, where these fall to three quarters -- an apparent order of 0.41
+//  at contact over three grids. So 86.4 s is not a converged contact time, no
+//  extrapolation means anything, and what converges that slowly is not
+//  diagnosed. -follow switches a cell on when the reconstructed line reaches
+//  it, so it may read contact early by up to a cell of descent (2.2 / 1.0 /
+//  0.46 s at the speeds above); allowing all of it the ratio is still 0.73.
+//  The ledger at contact is +0.40 / +0.13 / +0.04 % (default +0.36 / +0.11 /
+//  +0.08 %). The build that ran these reruns the stored 50 um default series
+//  row for row to t = 12 s, so the two families differ only in the options.
+//  Series in results/mew_nozzle: R2_F_feed_0p0208_nofield (100 um, default,
+//  run alongside) and *_nofield_hf_geom (-hf -geom -donor -follow).
 //
 //  WHAT IT SAYS. At the real feed the bore's capillary number is 2.8, and with
 //  nothing to carry it away the melt hangs from the nozzle as a drop that grows
@@ -414,6 +442,13 @@ struct Opts {
   // low (the 90-degree window misses 90 by 1.3 degrees), so -hf with -wet is a
   // probe, not a model.
   bool   hf     = false;
+  // -geom [-donor] [-follow]: FreeSurfaceSolver's exchange_geometric, exchange_donor
+  // and surface_follows_line (2026-11-05), the mass exchange that makes
+  // validation/surface_tension's free drop converge with -hf. Its first version
+  // lost 3 % of the feed at the nozzle's corners (fixed: FreeSurfaceSolver's
+  // banner). With -hf it turns this case's ladder round without converging it
+  // (THE GEOMETRIC EXCHANGE TURNS THE LADDER ROUND, above); with -wet, untested.
+  bool   geom = false, donor = false, follow = false;
   std::string out;
 };
 
@@ -448,6 +483,9 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(a, "-film"))   o.film = num() * 1e-3;      // mm
       else if (!std::strcmp(a, "-nosigma")) o.sigma = false;
       else if (!std::strcmp(a, "-hf"))     o.hf = true;
+      else if (!std::strcmp(a, "-geom"))   o.geom = true;
+      else if (!std::strcmp(a, "-donor"))  o.donor = true;
+      else if (!std::strcmp(a, "-follow")) o.follow = true;
       else if (!std::strcmp(a, "-feed") && i + 1 < argc) feed = argv[++i];
       else if (!std::strcmp(a, "-out") && i + 1 < argc)  o.out = argv[++i];
       else {
@@ -455,6 +493,11 @@ int main(int argc, char** argv) {
         Kokkos::finalize();
         return 2;
       }
+    }
+    if ((o.donor || o.follow) && !o.geom) {
+      std::printf("mew_nozzle: -donor and -follow refine -geom. NOTHING WAS RUN.\n");
+      Kokkos::finalize();
+      return 2;
     }
     if (!o.sigma && o.hf) {        // before any View exists, like the unknown option
       std::printf("mew_nozzle: -hf changes the curvature, so it needs surface tension;"
@@ -538,6 +581,12 @@ int main(int argc, char** argv) {
     fs.set_normal_reconstruction(o.nrec);
     fs.set_height_function(o.hf);
     if (o.hf) std::printf("  height-function curvature ON (-hf)\n");
+    fs.set_exchange_geometric(o.geom);
+    fs.exchange_donor = o.donor;
+    fs.surface_follows_line = o.follow;
+    if (o.geom)
+      std::printf("  geometric mass exchange ON (-geom)%s%s\n", o.donor ? ", donor" : "",
+                  o.follow ? ", follows the line" : "");
     fs.set_geometry([&](Index x, Index y, Index) -> FsCell {
       if (y == 0 || is_lip(x, y) || is_piston(x, y)) return FsSolid;
       return FsGas;
