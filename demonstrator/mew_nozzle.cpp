@@ -187,12 +187,44 @@
 //  touches (134.487 s); the 25 um drop is still 0.1125 mm up at 150 s, about
 //  153.5 s extrapolated, 14 % later where the non-wetted pair was 5 % apart. So
 //  a second grid effect, in the drop and not at the nozzle, slows the finer
-//  drop, and in the non-wetted runs it partly cancelled the neck's. NOT
-//  DIAGNOSED; the first suspect is the free surface's stiffness under a gentle
-//  load, which grows with the wavelength in cells (CLAUDE.md). The control
+//  drop, and in the non-wetted runs it partly cancelled the neck's. The control
 //  (-film 0.1 without -wet) sheds the film back to the 0.6 mm neck by ~20 s and
 //  touches at 108.002 s, so it is the law that holds the edge. The experiment's
 //  nozzle is not wetted anyway: -film is a numerical probe, not the set-up.
+//  THE GRID EFFECT IS IN THE CAPILLARY TERM (2026-11-04). With surface tension
+//  switched off in the solver (-nosigma) and everything else as in the control
+//  (-film 0.1, field off, real feed) the three grids CONVERGE: first contact at
+//  62.638 / 56.615 / 52.745 s on 100 / 50 / 25 um cells, gaps -6.0 and -3.9 s,
+//  apparent order 0.64. With it on and the edge held (-film 0.1 -wet 60) they
+//  diverge: 123.447 / 134.487 s and, at 25 um, not by 150 s (about 153.5 s
+//  extrapolated), gaps +11.0 and about +19 s. validation/surface_tension -rate
+//  isolates the term on a free drop, with no nozzle, wall or gravity: the
+//  once-smoothed curvature loses a drop's mode-2 deformation into cell-scale
+//  fill patterns, so the drop stops relaxing, and the share of its deformation
+//  it never removes grows with its radius in cells (that file's banner has the
+//  numbers). A finer grid puts the same drop at a larger radius in cells. That
+//  this pinning is what slows the finer drop HERE is consistent with both
+//  measurements and is not shown by either. -hf switches to the height-function
+//  curvature, which removes the free drop's stall but not all of its slowing
+//  (surface_tension's banner). In the control (-film 0.1 without -wet, 100 um)
+//  it changes nothing in the first 10 s and the tip-zone melt by 3 % at 20 s
+//  (1.090 against 1.056 mm^2, the lowest point and width unchanged).
+//  HEIGHT FUNCTIONS DO NOT CONVERGE IT EITHER (2026-11-05). The wetted ladder
+//  above with -hf touches at 154.779 / 175.762 s on 100 / 50 um cells, 31.3
+//  and 41.3 s after the default curvature, a gap of +21.0 s where the default
+//  has +11.0; the 25 um run was stopped by hand at t = 151 s, its lowest point
+//  still 1.14 mm up. Through the same band of heights, about 2.0 down to
+//  1.25 mm, timed between whole-cell steps of the lowest point (at 100 um the
+//  band is 1.95 to 1.25 mm), the drop falls at 0.0296 / 0.0232 / 0.0190 mm/s
+//  against 0.0398 / 0.0340 / 0.0286 with the default, a least-squares slope
+//  agreeing within 2.1 %: 25-34 % slower on every grid, and 14-22 % slower per
+//  halving of the cell with either curvature. More melt stays under the tip,
+//  1.300 / 1.426 / 1.676 mm^2 at 120 s against 1.033 / 1.131 / 1.289. With
+//  -wet the cells at the nozzle keep the default curvature (-hf in Opts), so
+//  this tests that mixture rather than height functions alone, and which part
+//  holds the drop back is not diagnosed. The runs are results/mew_nozzle's
+//  *_wet60_film_hf files; the 25 um series ends at its last complete row,
+//  150.684 s.
 //
 //  WHAT IT SAYS. At the real feed the bore's capillary number is 2.8, and with
 //  nothing to carry it away the melt hangs from the nozzle as a drop that grows
@@ -369,6 +401,19 @@ struct Opts {
   // only by numerical slip and would never get there; without -wet it is the
   // control, a film on a non-wetting nozzle. 0, the default, seeds the bore only.
   double film   = 0;
+  // -nosigma: a DIAGNOSTIC, not the melt. The solver runs with no surface tension
+  // (FreeSurfaceSolver::set_surface_tension(0), which skips the curvature passes
+  // altogether) while every lattice unit is still scaled from the melt's gamma,
+  // so the run differs from the default by the capillary stress alone. It cannot
+  // be combined with -wet, whose contact angle acts only through the curvature.
+  bool   sigma  = true;
+  // -hf: FreeSurfaceSolver::height_function (2026-11-04), the curvature that does
+  // not pin a relaxing drop the way the default does (validation/surface_tension
+  // -rate). Cells whose height stencil meets a wall keep the default curvature,
+  // and with it the -wet law; sessile_drop -hf measures that mixture as biased
+  // low (the 90-degree window misses 90 by 1.3 degrees), so -hf with -wet is a
+  // probe, not a model.
+  bool   hf     = false;
   std::string out;
 };
 
@@ -401,6 +446,8 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(a, "-nosym"))  o.sym = false;
       else if (!std::strcmp(a, "-wet"))    o.wet = num();
       else if (!std::strcmp(a, "-film"))   o.film = num() * 1e-3;      // mm
+      else if (!std::strcmp(a, "-nosigma")) o.sigma = false;
+      else if (!std::strcmp(a, "-hf"))     o.hf = true;
       else if (!std::strcmp(a, "-feed") && i + 1 < argc) feed = argv[++i];
       else if (!std::strcmp(a, "-out") && i + 1 < argc)  o.out = argv[++i];
       else {
@@ -408,6 +455,18 @@ int main(int argc, char** argv) {
         Kokkos::finalize();
         return 2;
       }
+    }
+    if (!o.sigma && o.hf) {        // before any View exists, like the unknown option
+      std::printf("mew_nozzle: -hf changes the curvature, so it needs surface tension;"
+                  " drop -nosigma or -hf. NOTHING WAS RUN.\n");
+      Kokkos::finalize();
+      return 2;
+    }
+    if (!o.sigma && o.wet > 0) {   // before any View exists, like the unknown option
+      std::printf("mew_nozzle: -wet acts through the curvature, so it needs surface tension;"
+                  " drop -nosigma or -wet. NOTHING WAS RUN.\n");
+      Kokkos::finalize();
+      return 2;
     }
     // -feed s: 0.255 mm^3/s as Table 1 prints it. -feed min: 0.255 mm^3/MIN,
     // the reading under which the fan-cooled fibres carry the feed. A number
@@ -473,8 +532,12 @@ int main(int argc, char** argv) {
     FS fs(d);
     fs.coll.omega = FS::omega_from_viscosity(Real(o.nu));
     fs.set_gravity(Real(0), Real(-g_l));
-    fs.set_surface_tension(Real(gam_l));
+    fs.set_surface_tension(o.sigma ? Real(gam_l) : Real(0));
+    if (!o.sigma)
+      std::printf("  surface tension OFF in the solver (-nosigma): a diagnostic, not the melt\n");
     fs.set_normal_reconstruction(o.nrec);
+    fs.set_height_function(o.hf);
+    if (o.hf) std::printf("  height-function curvature ON (-hf)\n");
     fs.set_geometry([&](Index x, Index y, Index) -> FsCell {
       if (y == 0 || is_lip(x, y) || is_piston(x, y)) return FsSolid;
       return FsGas;

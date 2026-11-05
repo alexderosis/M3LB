@@ -415,6 +415,54 @@ class FreeSurfaceSolver {
   // against -0.35 without. See mirror_symmetrize_x() for what does.
   bool normal_reconstruction = false;
 
+  // HEIGHT-FUNCTION CURVATURE, opt-in (2026-11-04). Off (the default), kappa is
+  // the once-smoothed -div(n) of compute_curvature()'s pass 4 and nothing below
+  // runs. On, a fifth pass REPLACES kappa at every interface cell whose height
+  // stencil is well formed: along the axis on which the normal is largest, each
+  // of the three (2-D) or nine (3-D) columns around the cell gives the height
+  // at which its liquid ends, and kappa = -h''/(1 + h'^2)^(3/2) from those
+  // heights (the 3-D form with the cross term). A column is well formed when,
+  // within seven cells either way of the cell's row, it reaches a Fluid cell
+  // toward the liquid and then a Gas cell toward the gas through Interface
+  // cells only, and meets no wall or halo; a cell with any column that is not
+  // keeps pass 4's value, which is what keeps a contact line on the wetting law.
+  //
+  // WHY. pass 4 has fill patterns that change the shape without changing kappa,
+  // and the dynamics find them: surface_tension -rate measured a free drop that
+  // stops relaxing with its deformation invisible to kappa (see the banner of
+  // compute_curvature). A height is a column SUM, so fill moved within a column
+  // does not change it, and moving fill between columns is moving the surface.
+  // What it does NOT do: it is not consulted where the stencil fails (thin
+  // films, walls, columns that graze a small sphere), and it does not change the
+  // normal, so normal_reconstruction and the wetting passes are untouched.
+  //
+  // MEASURED 2026-11-04 (validation/surface_tension, tests/test_free_surface).
+  //  On exact fills: worst |kappa R - 1| 0.0033 on a disc of R = 16, where pass 4
+  //  gives 0.52; 2e-15 on an inclined plane; a ball of R = 9 within 3.3 % (mean
+  //  +0.21 %) where heights are used, with 83 of 1540 cells -- corner columns
+  //  near (1,1,1) that graze a ball this small -- keeping pass 4's kappa.
+  //  On the solver's own static drop: Laplace +0.85 / +0.32 / +0.34 / -0.02 % at
+  //  R = 8 / 12 / 16 / 24 against pass 4's +3.39 / +0.88 / -0.64 / +1.14 %, and the
+  //  spurious current at round-off (5e-16 to 4e-14) against about 5e-6.
+  //  On a free drop relaxing from an ellipse (-rate): no stall, but the rate still
+  //  FALLS as the drop is resolved -- 1.03 / 0.90 / 0.79 / 0.70 of the
+  //  exact one at R = 8 / 16 / 32 / 64, where pass 4 gives 1.27 / 0.80 / 0.05 /
+  //  0.005 -- and the ellipse turned 45 degrees is slower still, 0.74 / 0.70 /
+  //  0.37 / 0.28. The fill field the dynamics leave carries cell-scale
+  //  ripples -- rms 6e-4 of a cell, at most 1.1e-3, over the top of an R = 32
+  //  drop -- which a second difference of heights reads as curvature noise of
+  //  0.06/R, and kappa's mode-2 part falls to about half the shape's. That is
+  //  NOT the conversion hysteresis (fill_offset 1e-5 moves the rates by under
+  //  1 %) and it is not diagnosed further.
+  //  With a contact angle, cells whose stencil meets the wall keep pass 4's
+  //  kappa and the law, and the mixture is biased: sessile_drop -hf narrows the
+  //  90- and 120-degree windows (half-widths 1.2 and 2.5 degrees against 4.8
+  //  and 4.9), widens the 60-degree one (5.4 against 2.9), moves the midpoints
+  //  at 60-150 degrees low by 1.2 to 11 degrees, and the 90-degree window
+  //  misses 90 by 1.3. Do not use it with wetting until the wall has ghost
+  //  heights.
+  bool height_function = false;
+
   bool drop_detached = true;   // isolated specks -> gas; see classify()
 
   // NO CELL MAY BECOME LIQUID THAT WAS GAS. Off by default, and everything in
@@ -542,6 +590,17 @@ class FreeSurfaceSolver {
     sigma = s;
     if (s != Real(0)) allocate_curvature();
   }
+  // Acts only where kappa is computed, i.e. with surface tension (or the normal
+  // reconstruction) on; with sigma = 0 it is computed and never read.
+  void set_height_function(bool on) {
+    height_function = on;
+    if (on) allocate_curvature();
+  }
+  // Interface cells the last curvature pass gave a height-function kappa, and
+  // those it left on pass 4's because a column was not well formed. Both 0
+  // unless height_function is on.
+  Index height_function_cells() const { return hf_used_; }
+  Index height_function_fallbacks() const { return hf_fell_; }
   // theta in radians, through the liquid, strictly inside (0, pi): the ghost
   // colour carries cot(theta), which has no finite value at either end.
   void set_contact_angle(Real theta) {
@@ -598,9 +657,26 @@ class FreeSurfaceSolver {
   //  normals from the bulk, and that is a real error of this construction; it
   //  is why kappa is used only at interface cells, where the band is centred.
   //
+  //  AND THIS CURVATURE PINS SLOW DEFORMATIONS, MORE SO ON A FINER GRID
+  //  (measured 2026-11-04, validation/surface_tension -rate). A free 2-D drop
+  //  relaxing from an ellipse loses the mode-2 part of this kappa into
+  //  cell-scale fill patterns: at R = 32 it reads 0.91 of the exact 3 eps/R at
+  //  the start and about 0 within 0.7 relaxation times, while the drop is still
+  //  0.62 as deformed as it began, so nothing drives it and it stops. What is
+  //  left has a curvature of its own, 3 eps/R, of 0.0018 / 0.0027 / 0.0020 per
+  //  cell where the runs end at R = 16 / 32 / 64: a tolerance about fixed in
+  //  CELLS, so a finer grid puts more of a given shape below it. Neither
+  //  normal_reconstruction nor turning the ellipse 45 degrees removes it. The
+  //  case's banner has the rates. A curvature built from column sums of the
+  //  fill does not see fill moved within a column; that is height_function
+  //  (opt-in, pass 5 below), which removes the stall and not the slowing.
+  //
   //  WITH A CONTACT ANGLE (wetting, opt-in) three passes are added, 1b, 2b and
   //  3b, each rewriting the wall cells beside the liquid in the field the next
   //  pass reads; see the member `wetting` for the condition they impose.
+  //
+  //  WITH height_function (opt-in) a fifth pass overwrites pass 4's kappa
+  //  wherever a height stencil is well formed; see that member.
   //----------------------------------------------------------------------------
   // A wall cell's view of the liquid: its gradient-lattice neighbours that are
   // open (Fluid, Interface or Gas), the unit normal into the domain they define,
@@ -793,6 +869,122 @@ class FreeSurfaceSolver {
       kap(n) = -icsg * div;
     });
     Kokkos::fence();
+
+    // pass 5 (opt-in): height functions, over pass 4's value where well formed.
+    if (height_function) {
+      Index used = 0, fell = 0;
+      Kokkos::parallel_reduce("fs_kappa_hf", Range(0, dom_.n_padded),
+        KOKKOS_LAMBDA(Index n, Index& u, Index& f) {
+          if (flags(n) != FsInterface) return;
+          Real k = Real(0);
+          if (height_curvature(d, flags, cf, knx(n), kny(n), knz(n), n, k)) {
+            kap(n) = k;
+            ++u;
+          } else {
+            ++f;
+          }
+        }, used, fell);
+      hf_used_ = used;
+      hf_fell_ = fell;
+    }
+  }
+
+  // One padded coordinate moved by any offset: wrapped in a periodic direction,
+  // clamped into the padded array (onto the halo, which no stencil accepts) in
+  // a walled one. Domain's own helper assumes an offset of one; this stencil
+  // reaches three.
+  KOKKOS_INLINE_FUNCTION static Index hf_axis(Index v, Index h, Index n, Index s, bool per) {
+    if (per) {
+      Index r = (v - h) % n;
+      if (r < 0) r += n;
+      return h + r;
+    }
+    return v < 0 ? Index(0) : (v >= s ? s - 1 : v);
+  }
+
+  // The height-function curvature at interface cell n, or false where the
+  // stencil is not well formed. See the member height_function. The heights are
+  // the LIQUID in each seven-cell window, whichever side the liquid is on, so
+  // kappa = -h''/(1 + h'^2)^(3/2) is positive for a drop on either side of it:
+  // over the top of a disc h = c - x^2/(2R), and under it the liquid is counted
+  // from the other end and h has the same form.
+  template <class FlagV, class ColV>
+  KOKKOS_INLINE_FUNCTION static bool height_curvature(const Domain& d, const FlagV& flags,
+                                                      const ColV& cf, Real nx_, Real ny_,
+                                                      Real nz_, Index n, Real& kappa) {
+    const Real nv[3] = {nx_, ny_, nz_};
+    int a = 0;
+    for (int k = 1; k < L::D; ++k)
+      if (Kokkos::fabs(nv[k]) > Kokkos::fabs(nv[a])) a = k;
+    if (!(Kokkos::fabs(nv[a]) > Real(0))) return false;
+    const int s = nv[a] > Real(0) ? 1 : -1;          // the liquid lies toward +s along a
+    const int t1 = (L::D == 2) ? 1 - a : (a + 1) % 3;
+    const int t2 = (a + 2) % 3;                      // read only in 3-D
+    // Each column is walked from the cell's own row, t = 0, with t counted
+    // toward the GAS: toward the liquid to the first Fluid cell (t_L), then
+    // toward the gas to the first Gas cell (t_G), meeting only Interface cells
+    // between. Its height is where the liquid ends, measured from that shared
+    // row: t_L + 1/2 plus the fill of the cells between. Where a fixed window of
+    // seven would have held the column it is the same number; at 45 degrees,
+    // where the neighbouring column's transition sits a cell or two further
+    // out, a fixed window centred on a nearly empty cell missed it (8 of the 56
+    // interface cells of an R = 8 drop, all on the diagonals). The reach is
+    // seven because five was one short in 3-D: on exact fills of a ball the
+    // corner columns of a cell near (1,1,1) cross four interface cells two
+    // rows out, so the first Fluid cell is six away (124 of 1416 cells failed).
+    constexpr int J = 7;                             // reach, each way
+    constexpr int lw = (L::D == 3) ? 1 : 0;
+    Index p[3];
+    d.coords(n, p[0], p[1], p[2]);
+    Real h[3][3] = {{Real(0), Real(0), Real(0)}, {Real(0), Real(0), Real(0)},
+                    {Real(0), Real(0), Real(0)}};
+    for (int k = -1; k <= 1; ++k)
+      for (int l = -lw; l <= lw; ++l) {
+        auto at = [&](int t) {                       // the cell t steps toward the gas
+          Index q[3] = {p[0], p[1], p[2]};
+          q[a] -= Index(s * t);
+          q[t1] += Index(k);
+          if (L::D == 3) q[t2] += Index(l);
+          return d.idp(hf_axis(q[0], d.hx, d.nx, d.sx, d.periodic[0]),
+                       hf_axis(q[1], d.hy, d.ny, d.sy, d.periodic[1]),
+                       hf_axis(q[2], d.hz, d.nz, d.sz, d.periodic[2]));
+        };
+        int tl = 1;                                  // toward the liquid: first Fluid
+        for (int t = 0; t >= -J; --t) {
+          const std::uint8_t f = flags(at(t));
+          if (f == FsFluid) { tl = t; break; }
+          if (f != FsInterface && f != FsGas) return false;
+        }
+        if (tl > 0) return false;
+        int tg = tl;                                 // toward the gas: first Gas
+        Real z = Real(tl) + Real(0.5);
+        for (int t = tl + 1; t <= J; ++t) {
+          const Index m = at(t);
+          const std::uint8_t f = flags(m);
+          if (f == FsGas) { tg = t; break; }
+          if (f == FsFluid) { z += Real(1); continue; }  // full, past a part-full cell
+          if (f != FsInterface) return false;
+          Real c = cf(m);
+          c = c < Real(0) ? Real(0) : (c > Real(1) ? Real(1) : c);
+          z += c;
+        }
+        if (tg == tl) return false;                  // no gas within reach
+        h[k + 1][l + 1] = z;
+      }
+    const Real hx = Real(0.5) * (h[2][1] - h[0][1]);
+    const Real hxx = h[2][1] - Real(2) * h[1][1] + h[0][1];
+    if (L::D == 2) {
+      const Real q = Real(1) + hx * hx;
+      kappa = -hxx / (q * Kokkos::sqrt(q));
+      return true;
+    }
+    const Real hy = Real(0.5) * (h[1][2] - h[1][0]);
+    const Real hyy = h[1][2] - Real(2) * h[1][1] + h[1][0];
+    const Real hxy = Real(0.25) * (h[2][2] - h[2][0] - h[0][2] + h[0][0]);
+    const Real q = Real(1) + hx * hx + hy * hy;
+    kappa = -(hxx * (Real(1) + hy * hy) + hyy * (Real(1) + hx * hx) - Real(2) * hxy * hx * hy)
+            / (q * Kokkos::sqrt(q));
+    return true;
   }
 
   // A contact angle acts only through the curvature and only once it has been
@@ -1046,6 +1238,7 @@ class FreeSurfaceSolver {
   View1D<Real> kappa() const { return kap_; }
   View1D<Real> normal_x() const { return knx_; }
   View1D<Real> normal_y() const { return kny_; }
+  View1D<Real> normal_z() const { return knz_; }
   const Domain& domain() const { return dom_; }
   std::size_t timestep() const { return t_; }
 
@@ -1697,6 +1890,7 @@ class FreeSurfaceSolver {
   View1D<Real> mass_, eps_, excess_;
   // Curvature working set. Empty until set_surface_tension() is called.
   View1D<Real> cf_, cfs_, knx_, kny_, knz_, kap_;
+  Index hf_used_ = 0, hf_fell_ = 0;   // the last height-function pass's coverage
   // Wall cells the contact-angle law rewrote this step. Empty until
   // set_contact_angle() is called.
   View1D<std::uint8_t> wet_;

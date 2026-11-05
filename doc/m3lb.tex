@@ -9911,8 +9911,35 @@ Stated plainly, because each has been measured.
   that capillarity alone restores, $25\,\%$. The hydrostatic floor recorded for
   \code{recoil} falls with the deflection in cells; this one does not, and it
   is the capillary response to a curvature radius of a few hundred cells. Not
-  diagnosed. Any free-surface deflection of a cell or two should be quoted
-  with it.
+  diagnosed on the film itself; it is consistent with the pinning measured on a
+  free drop in the next item. Any free-surface deflection of a cell or two should
+  be quoted with it.
+\item \textbf{The free surface's curvature pins slow deformations, and a finer
+  grid pins harder.} \code{validation/surface\_tension -rate} relaxes a free
+  2-D drop from an ellipse of aspect 1.1 against the exact linear rate of a
+  viscous drop in a void, $\sigma/(\mu R)$ in the Stokes limit, with the
+  finite-$\mathrm{Oh}$ root computed exactly. At $\mathrm{Oh}=3$ the drop
+  relaxes $1.27$, $0.80$, $0.05$ and $0.005$ times as fast as it should at
+  $R=8$, 16, 32 and 64 cells; from $R=32$ it stops, $0.62$ and then $0.88$ as
+  deformed as it began. At $\mathrm{Oh}=10$ the $R=32$ drop stops at $0.619$
+  against $0.618$, so the stall is set by the geometry and not by the size of
+  $\sigma$, and neither the normal reconstruction nor an ellipse turned
+  $45^\circ$ removes it. The solver's own $\kappa$ shows the mechanism: its
+  mode-2 part is $0.91$ of the exact $3\varepsilon/R$ at the start and about zero
+  once the drop has stopped, the deformation having moved into cell-scale fill
+  patterns that the once-smoothed curvature cannot tell from a circle. What is
+  left has a curvature of its own of $0.002$--$0.003$ per cell at $R=16$, 32
+  and 64, about fixed in cells, so the same physical shape is pinned harder on a
+  finer grid. Height functions (\code{set\_height\_function}, opt-in), which
+  build $\kappa$ from column sums of the fill, remove the stall but not the
+  slowing. A static drop improves outright --- Laplace within $0.85\,\%$ at
+  $R=8$ and $0.34\,\%$ above, spurious currents at round-off --- but a relaxing
+  drop still runs $1.03$, $0.90$, $0.79$ and $0.70$ times as fast as it should
+  at $R=8$, 16, 32 and 64, and $0.74$, $0.70$, $0.37$ and $0.28$ times turned
+  $45^\circ$. The fill the dynamics leave ripples by about $6\times10^{-4}$ of a
+  cell, which the heights read as curvature noise of $0.06/R$ at $R=32$; not
+  diagnosed further. With a contact angle the cells by the wall keep the old
+  curvature, and \code{sessile\_drop} then misses $90^\circ$ by $1.3^\circ$.
 \item \textbf{A planar (2-D) electrified meniscus is not a Taylor cone, and a
   melt-electrowriting jet is not resolvable in one.} A straight-sided 2-D wedge
   has no curvature to balance $\varepsilon_0E^2/2$, so there is no conical
@@ -9972,9 +9999,21 @@ Stated plainly, because each has been measured.
   finer drop sags more slowly and the gap grows: the lowest points are
   $0.01$\,mm apart at 20\,s and $0.54$\,mm apart when the coarse drop touches
   (134.5\,s), and the fine one touches about 19\,s later, against 5\,s for the
-  non-wetted pair, in which the neck's opposite effect partly cancels it. Not
-  diagnosed; the free surface's stiffness under a gentle load, which grows with
-  the wavelength in cells, is the first suspect.
+  non-wetted pair, in which the neck's opposite effect partly cancels it. The
+  effect is in the capillary term: with surface tension switched off in the
+  solver (\code{-nosigma}, the edge seeded as before) the grids converge, first
+  contact at $62.6$, $56.6$ and $52.7$\,s on 100, 50 and 25\,$\mu$m cells
+  (apparent order $0.64$). That the curvature's pinning (the free-drop item
+  above) is what slows the finer drop here is consistent with both
+  measurements and shown by neither. Height functions (\code{-hf}) do not
+  converge it either: the same ladder touches at $154.8$ and $175.8$\,s on 100
+  and 50\,$\mu$m cells, 31 and 41\,s after the default curvature, and the
+  25\,$\mu$m drop was still $1.14$\,mm up when that run was stopped at
+  151\,s. Through the same heights, about 2.0 down to 1.25\,mm, the drop falls
+  25--34\,\% more slowly than with the default curvature on every grid, and
+  14--22\,\% more slowly per halving of the cell with either. The cells at the
+  nozzle keep the default curvature, and with it the contact angle, so this
+  tests that mixture rather than height functions alone.
 \item \textbf{A mirror-symmetric free surface does not stay symmetric, and a
   thread drawn below a cell creates mass.} Neither is diagnosed. In
   \code{mew\_nozzle} an advancing front amplifies round-off until the column
@@ -9993,11 +10032,12 @@ Stated plainly, because each has been measured.
   $120^\circ$, with midpoints within $3^\circ$ of it, but whose half-width grows
   from 2--4$^\circ$ at $R_0=8$ to 7--11$^\circ$ at $R_0=32$. Refinement pins the
   line harder. Below about $45^\circ$ the curvature next to the wall is biased
-  and a $30^\circ$ drop does not settle. A reading that fits the trend, not
-  proven: a static state needs uniform $\kappa$, and the once-smoothed
-  curvature admits fill patterns that change the true curvature without
-  changing $\kappa$, a fixed absolute tolerance that becomes a relative one
-  growing with $R$. In \code{mew\_nozzle} a wetting nozzle ($60^\circ$, 50\,$\mu$m
+  and a $30^\circ$ drop does not settle. A reading that fits the trend: a
+  static state needs uniform $\kappa$, and the once-smoothed curvature admits
+  fill patterns that change the true curvature without changing $\kappa$, a
+  fixed absolute tolerance that becomes a relative one growing with $R$. The
+  free-drop item above measures that mechanism away from any wall; at the wall
+  it remains a reading. In \code{mew\_nozzle} a wetting nozzle ($60^\circ$, 50\,$\mu$m
   cells) widens the melt's neck by one cell a side by 2.9\,s and no further by
   4.3\,s: the contact line on the tip face moves only by numerical slip, and
   the melt's capillary speed $\gamma/\mu$ is 0.06\,mm/s against a 2\,mm/s

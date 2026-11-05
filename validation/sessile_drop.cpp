@@ -53,7 +53,8 @@
 //  interface cell, contact line included), so the contact line can stop
 //  wherever those patterns absorb the mismatch. A fixed absolute tolerance in
 //  kappa is a relative one that grows with R, which is the trend measured. Not
-//  proven; the cure is not known.
+//  proven here; surface_tension -rate measures the same mechanism on a free drop
+//  with no wall (2026-11-04). The cure is not known.
 //
 //  150 DEGREES is lopsided -- midpoint -6.1 / +0.4 / -5.5 at R0 = 8 / 16 / 32,
 //  and at R0 = 8 the window misses 150 by 0.27 -- and 30 DEGREES does not
@@ -77,6 +78,19 @@
 //  Lattice: D2Q9 with D2Q9 curvature, as demonstrator/mew_nozzle and the other
 //  free-surface cases. -lat d3q27 runs the same drop at nz = 1 and reproduced
 //  D2Q9 to every printed digit (R0 = 8, 60 degrees, seeded at 75).
+//
+//  -hf (2026-11-04) runs it with FreeSurfaceSolver::height_function, the
+//  curvature that stops a free drop pinning (surface_tension -rate). Cells
+//  whose height stencil meets the wall keep the default curvature, and with it
+//  this law, and the mixture FAILS A GATE: at 60 / 90 / 120 / 150 degrees the
+//  drops stop at 52.59-63.45 / 86.41-88.72 / 116.35-121.28 / 133.69-143.66,
+//  half-widths 5.4 / 1.2 / 2.5 / 5.0 against the default's 2.9 / 4.8 / 4.9 /
+//  13.2, every midpoint low by 1.2 to 11.3 degrees, and 90 lies 1.3 outside
+//  its window. All eight of those drops end at rest (spurious 3e-16 to 6e-10).
+//  That the bias comes from the cells by the wall, where the two curvatures
+//  meet, is a reading and not a measurement. A contact angle with height
+//  functions needs ghost heights at the wall; until it has them -hf is a probe
+//  here, not a model.
 //
 //  The default run (ctest) is R0 = 16 at 40000 steps; -ladder adds R0 = 8 and
 //  32, ungated; -static runs the estimator test above; -theta/-seed/-R0 make
@@ -102,6 +116,7 @@ namespace {
 
 bool g_profile = false;   // -profile: print the column heights h(x) at the end
 bool g_static = false;    // -static: the curvature estimator alone, nothing stepped
+bool g_hf = false;        // -hf: FreeSurfaceSolver::height_function (2026-11-04)
 
 struct Result {
   double A = 0, h = 0, theta = 0, R = 0, dp = 0, laplace = 0;
@@ -163,6 +178,7 @@ Result run(double R0, double theta_deg, double seed_deg, double sigma, double nu
   FS s(d);
   s.coll.omega = FS::omega_from_viscosity(Real(nu));
   s.set_surface_tension(Real(sigma));
+  s.set_height_function(g_hf);
   if (theta_deg > 0) s.set_contact_angle(Real(theta_deg * M_PI / 180.0));
   const Index nyi = ny;
   s.set_geometry([&](Index, Index y, Index) -> FsCell {
@@ -295,6 +311,7 @@ void static_kappa(double R, double theta_deg, bool wall, double sigma) {
   FS s(d);
   s.coll.omega = FS::omega_from_viscosity(Real(1.0 / 6.0));
   s.set_surface_tension(Real(sigma));
+  s.set_height_function(g_hf);
   if (wall) s.set_contact_angle(Real(theta_deg * M_PI / 180.0));
   const Index nyi = ny;
   s.set_geometry([&](Index, Index y, Index) -> FsCell {
@@ -358,6 +375,7 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "-profile")) g_profile = true;
     else if (!std::strcmp(argv[i], "-static")) g_static = true;
     else if (!std::strcmp(argv[i], "-ladder")) ladder = true;
+    else if (!std::strcmp(argv[i], "-hf")) g_hf = true;
     else if (!std::strcmp(argv[i], "-lat") && i + 1 < argc) {
       const char* l = argv[++i];
       if (!std::strcmp(l, "d3q27")) d3 = true;
@@ -370,7 +388,7 @@ int main(int argc, char** argv) {
     else {
       std::fprintf(stderr, "sessile_drop: unknown option '%s'. NOTHING WAS RUN.\n"
                            "  -steps N  -sigma S  -theta DEG (one run; 0 = law off)  -seed DEG  -R0 R\n"
-                           "  -series  -ladder  -lat d2q9|d3q27\n", argv[i]);
+                           "  -series  -ladder  -lat d2q9|d3q27  -hf\n", argv[i]);
       return 2;
     }
   }
