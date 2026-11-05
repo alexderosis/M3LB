@@ -4,8 +4,8 @@ usage: python3 make_figs.py [results/mew_nozzle]
 
 Reads the series (tracked) and frames (the .npy frames are git-ignored: rerun the
 cases first, see the footer of main.tex) that demonstrator/mew_nozzle writes for
-the corrected feed, 0.0208 mm^3/s, and writes fig/fig1_real.pdf and
-fig/fig2_cut.pdf. Colours follow tools/anim_mew_nozzle.py, so the note and the
+the corrected feed, 0.0208 mm^3/s, and writes fig/fig1_real.pdf,
+fig/fig2_cut.pdf and fig/fig3_cells.pdf. Colours follow tools/anim_mew_nozzle.py, so the note and the
 animations read the same: melt blue, field off orange; the depth to which the
 melt conducts is a light-to-dark blue ramp. The figures of the two earlier
 readings of the feed were dropped with the correction; git has them.
@@ -161,6 +161,34 @@ def fig2():
     plt.close(fig)
 
 
+def fig3():
+    """First contact of the field-off drop (500 Pa s, non-wetted nozzle) against the cell size,
+    with the earlier surface model and the corrected one (-hf -geom -donor -follow). The times
+    are the ones the runs printed: the series sample every few hundred steps and cannot give
+    them (demonstrator/mew_nozzle's banner, THE GEOMETRIC EXCHANGE TURNS THE LADDER ROUND)."""
+    cells = np.array([100.0, 50.0, 25.0])
+    earlier = np.array([111.241, 110.325, 104.968])   # R2_F_, R4_F_, F_feed_0p0208_nofield
+    corrected = np.array([109.394, 96.302, 86.434])   # the same with _hf_geom
+    fig, ax = plt.subplots(figsize=(2.45, 1.95))
+    ax.plot(cells, earlier, color=INK3, ls=DASH, lw=1.2, marker="o", ms=4.2, mfc="white",
+            mec=INK3, mew=1.0, label="earlier surface model")
+    ax.plot(cells, corrected, color=ORANGE, lw=1.6, marker="o", ms=4.4, mec="white", mew=0.7,
+            label="corrected surface model")
+    ax.set_xscale("log", base=2)
+    ax.set_xticks(cells)
+    ax.set_xticklabels(["100", "50", "25"])
+    ax.minorticks_off()
+    ax.set_xlim(125, 20)                      # refinement reads left to right
+    ax.set_ylim(70, 116)
+    ax.set_xlabel("cell size [µm]")
+    ax.set_ylabel("first contact [s]")
+    style(ax)
+    ax.legend(loc="lower left", frameon=False, handlelength=2.2, labelspacing=0.25, fontsize=6.6)
+    fig.subplots_adjust(left=0.2, right=0.97, bottom=0.21, top=0.97)
+    fig.savefig(os.path.join(OUT, "fig3_cells.pdf"))
+    plt.close(fig)
+
+
 def draw_conducting(ax, fl, ph, marks=0):
     """A field-on frame by what the potential sees: melt that conducts (at the nozzle's potential)
     dark, melt below the conducting depth light, equipotentials every 10 % through everything the
@@ -212,4 +240,5 @@ if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     fig1()
     fig2()
+    fig3()
     print("wrote", ", ".join(sorted(os.listdir(OUT))))
