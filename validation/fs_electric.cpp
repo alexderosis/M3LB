@@ -55,6 +55,31 @@
 //  the frozen row reads 21.6 % short at s = 1 and 27.3 % at s = 2 (9.2 / 19.5 %
 //  without), and B2's consistency 8.9 % (2.95 %). It makes this floor worse.
 //
+//  C. THREE DIMENSIONS (2026-11-05), D3Q27 free surface + D3Q7 TRT potential,
+//  the path FsElectric took for demonstrator/mew_cone3d. Sections A and B print
+//  exactly what they printed before it, all 29 lines.
+//      C1. A1 turned 90 degrees            the film's normal along z, the pattern
+//          (ny = 4, uniform in y)          along x: mode and mean equal A1's to
+//                                          the LAST BIT (0.0, not 1e-16), as they
+//                                          must -- D3Q7 on a y-uniform field is
+//                                          D2Q5's five-point problem
+//      C2. conducting sphere in a uniform  e2 against the exact |E|^2 in the gas
+//          field (N = 8a, sphere at 1/2)   within two cells: amplitude (least-
+//                                          squares slope) 1.04123 at a = 5,
+//                                          1.00131 at a = 10; mean error +0.0082
+//                                          and +0.0003 of 3 E0; rms 0.0690 and
+//                                          0.0707 of 3 E0
+//  THE SPHERE'S SCATTER DOES NOT FALL WITH ITS RADIUS, AND THAT WAS A WRONG
+//  PREDICTION. The first gates asked the rms to fall from a = 5 to 10 and to
+//  sit under 5 %; it read 6.9 and 7.1 %. Each gas cell beside a staircase sees
+//  the steps next to it, which do not shrink as the sphere grows, so the
+//  cell-by-cell field carries a ~7 % scatter while its amplitude converges (an
+//  error 31x smaller at twice the radius -- two points, so no order is
+//  claimed). C2's gates are therefore regression guards set from this run: the
+//  amplitude and the mean, which converge, and the scatter at its own level.
+//  Deleting the z gradient from FsElectric fails all six C checks (C1 by 100 %,
+//  the sphere's amplitude by 75 %). The run takes 48 s, C 9 s of it.
+//
 //  WHAT THIS DOES NOT TEST. A conductor whose potential is not uniform; a
 //  surface sharper than the field's resolution (a cone tip); any field
 //  stronger than F = 0.4 of the restoring force, where the linear theory and
@@ -330,6 +355,144 @@ FieldResult field_only(int s, double Ftarget, int shape, double amp) {
   return R;
 }
 
+//------------------------------------------------------------------------------
+// C. THE THREE-DIMENSIONAL PATH (2026-11-05), D3Q27 free surface + D3Q7 TRT.
+//------------------------------------------------------------------------------
+using L3  = D3Q27;
+using PL3 = D3Q7;
+using FS3 = FreeSurfaceSolver<L3>;
+
+// C1: A1 turned so that the film's normal is z and the electrode's pattern runs
+// along x, on ny = 4 periodic planes. D3Q7's steady state on a field that does
+// not depend on y is D2Q5's five-point one (anti-bounce-back included), and the
+// 3 x 3 x 3 mean over three identical planes is the 3 x 3 one, so the answer
+// must be A1's to round-off: the z axis, the z loops and the block in z are
+// what is new, and they reproduce what the 2-D path validated.
+FieldResult field_only3(int s, double Ftarget, double delta) {
+  const Index Lx = 128 * s, Ny = 4, h0 = 24 * s, d0 = 32 * s, Lz = h0 + d0 + 2;
+  constexpr double cs2 = double(lbm::cs2<L3, double>());
+  const double k = 2.0 * M_PI / double(Lx), kd0 = k * double(d0);
+  const double sigma = 1e-3, g = sigma * k * k, restore = g + sigma * k * k;
+  const double E0 = 1.0 / double(d0);
+  const double C = Ftarget * restore / (2.0 * E0 * E0 * k / std::tanh(kd0));
+  Domain d(Lx, Ny, Lz, true, true, false);
+  FS3 fs(d);
+  fs.set_geometry([&](Index, Index, Index z) -> FsCell {
+    return (z == 0 || z == Lz - 1) ? FsSolid : FsGas;
+  });
+  const Domain dd = d;
+  const Index hz = d.hz;
+  const Real hr = Real(h0);
+  fs.initialize(KOKKOS_LAMBDA(Index n) {
+    Index px, py, pz; dd.coords(n, px, py, pz);
+    Real e = hr - (Real(pz - hz) - Real(0.5));
+    e = e < Real(0) ? Real(0) : (e > Real(1) ? Real(1) : e);
+    return typename FS3::Seed{e, Real(1)};
+  });
+  FsElectric<PL3> el(d, Real(10));
+  el.coef = Real(C);
+  el.set_roles(
+      [&](Index, Index, Index z) { return (z == 0 || z == Lz - 1) ? ElecElectrode : ElecFree; },
+      [&](Index x, Index, Index z) -> Real {
+        return z == 0 ? Real(1) : Real(delta * std::cos(k * double(x)));
+      });
+  el.refresh(fs);
+  el.initialize(Real(0.5));
+  el.relax(20000);
+  el.apply(fs);
+  el.relax(20000);
+  FieldResult R;
+  R.dphi = el.apply(fs);
+  auto hr2 = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs.rho_G_of);
+  auto hf  = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs.flags());
+  double a1 = 0, mean = 0;
+  for (Index x = 0; x < Lx; ++x) {
+    double pe = 0; int c = 0;
+    for (Index y = 0; y < Ny; ++y)
+      for (Index z = 1; z < Lz - 1; ++z)
+        if (hf(d.id(x, y, z)) == FsInterface) { pe += (1.0 - double(hr2(d.id(x, y, z)))) * cs2; ++c; }
+    pe = c ? pe / c : 0.0;
+    mean += pe; a1 += pe * std::cos(k * double(x));
+  }
+  R.mean = mean / double(Lx);
+  R.mode = 2.0 * a1 / double(Lx);
+  double ztop = 0;
+  for (Index x = 0; x < Lx; ++x) {
+    Index top = 0;
+    for (Index z = 1; z < Lz - 1; ++z)
+      if (el.cell(x, 0, z) == ScalarDirichlet) top = z;
+    ztop += double(top) + 0.5;
+  }
+  ztop /= double(Lx);
+  const double df = double(Lz) - 1.5 - ztop, Ef = 1.0 / df;
+  R.mean_exact = C * Ef * Ef;
+  R.exact = -2.0 * C * Ef * delta * k / std::sinh(k * df);
+  return R;
+}
+
+// C2: a conducting sphere of radius a cells in a uniform field, the one exact
+// curved conductor in 3-D: |E|^2 = E0^2 [cos^2 t (1 + 2 a^3/r^3)^2
+// + sin^2 t (1 - a^3/r^3)^2] at distance r from its centre, t from the field.
+// Plates at z = 0 (potential 0) and z = N - 1 (1), zero-field frames on the
+// four sides, the sphere at 1/2 on the mid-plane; N = 8a puts the nearest image
+// 8a away, a correction of order (1/8)^3. Compared cell by cell over the gas
+// within two cells of the sphere, in units of the polar surface field 3 E0.
+struct SphereResult { double slope = 0, mean = 0, rms = 0, dphi = 0; long cells = 0; };
+
+SphereResult sphere3(int a) {
+  const Index N = 8 * a;
+  Domain d(N, N, N, false, false, false);
+  FS3 fs(d);
+  fs.set_geometry([&](Index, Index, Index) -> FsCell { return FsGas; });
+  const double c = 0.5 * double(N - 1);        // the mid-plane, in cell-centre coordinates
+  const Domain dd = d;
+  const Index hx = d.hx, hy = d.hy, hz = d.hz;
+  const Real ar = Real(a), cr = Real(c);
+  fs.initialize(KOKKOS_LAMBDA(Index n) {
+    Index px, py, pz; dd.coords(n, px, py, pz);
+    const Real X = Real(px - hx) - cr, Y = Real(py - hy) - cr, Z = Real(pz - hz) - cr;
+    Real e = ar + Real(0.5) - Kokkos::sqrt(X * X + Y * Y + Z * Z);
+    e = e < Real(0) ? Real(0) : (e > Real(1) ? Real(1) : e);
+    return typename FS3::Seed{e, Real(1)};
+  });
+  FsElectric<PL3> el(d, Real(10));
+  el.coef = Real(1);
+  el.liquid_value = Real(0.5);
+  el.set_roles(
+      [&](Index x, Index y, Index z) {
+        if (z == 0 || z == N - 1) return ElecElectrode;
+        if (x == 0 || x == N - 1 || y == 0 || y == N - 1) return ElecFrame;
+        return ElecFree;
+      },
+      [&](Index, Index, Index z) -> Real { return z == N - 1 ? Real(1) : Real(0); });
+  el.refresh(fs);
+  el.initialize(Real(0.5));
+  SphereResult R;
+  R.dphi = 1;
+  const double tol = sizeof(Real) == 4 ? 1e-6 : 1e-10;
+  for (int it = 0; it < 40 && R.dphi > tol; ++it) { el.relax(1000); R.dphi = el.apply(fs); }
+  const double E0 = 1.0 / double(N - 2), a3 = double(a) * a * a;
+  double se = 0, se2 = 0, num = 0, den = 0;
+  for (Index z = 1; z < N - 1; ++z)
+    for (Index y = 1; y < N - 1; ++y)
+      for (Index x = 1; x < N - 1; ++x) {
+        if (el.cell(x, y, z) != ScalarBulk) continue;
+        const double X = double(x) - c, Y = double(y) - c, Z = double(z) - c;
+        const double r = std::sqrt(X * X + Y * Y + Z * Z);
+        if (r > double(a) + 2.0) continue;
+        const double ct2 = Z * Z / (r * r), q = a3 / (r * r * r);
+        const double ex2 = E0 * E0 * (ct2 * (1 + 2 * q) * (1 + 2 * q) + (1 - ct2) * (1 - q) * (1 - q));
+        const double e2 = double(el.e2(x, y, z));
+        const double err = (std::sqrt(e2) - std::sqrt(ex2)) / (3.0 * E0);
+        se += err; se2 += err * err; ++R.cells;
+        num += e2 * ex2; den += ex2 * ex2;
+      }
+  R.mean = se / double(R.cells);
+  R.rms = std::sqrt(se2 / double(R.cells));
+  R.slope = num / den;                         // least-squares e2 = slope * exact^2
+  return R;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -423,6 +586,36 @@ int main(int argc, char** argv) {
                std::fabs((r2.amp - r2.eta_tw) / r2.eta_tw), 0.25);
     std::printf("  mass drift: B0 %.1e  B1 %.1e  B2 %.1e\n", r0.mass_drift, r1.mass_drift,
                 r2.mass_drift);
+
+    // ---- C. three dimensions: D3Q27 free surface + D3Q7 potential ------------
+    std::printf("\n-- C1. A1 in 3-D (normal z, pattern along x, uniform in y): A1 to round-off --\n");
+    {
+      const FieldResult f2 = field_only(1, F, 0, delta);
+      const FieldResult f3 = field_only3(1, F, delta);
+      const double e3 = (f3.mode - f3.exact) / std::fabs(f3.exact);
+      const double dmode = std::fabs(f3.mode - f2.mode) / std::fabs(f2.mode);
+      const double dmean = std::fabs(f3.mean - f2.mean) / std::fabs(f2.mean);
+      std::printf("  3-D mode %.10e  2-D mode %.10e  exact %.5e  err %+.5f   dphi %.1e\n",
+                  f3.mode, f2.mode, f3.exact, e3, f3.dphi);
+      std::printf("  3-D mean %.10e  2-D mean %.10e\n", f3.mean, f2.mean);
+      verdict_le("C1: |3-D - 2-D| / 2-D, stress mode 1", dmode, fp32 ? 1e-4 : 1e-10);
+      verdict_le("C1: |3-D - 2-D| / 2-D, mean stress", dmean, fp32 ? 1e-4 : 1e-10);
+    }
+
+    std::printf("\n-- C2. conducting sphere in a uniform field: |E| within 2 cells, per 3 E0 --\n");
+    {
+      // Gates set from the first run and NOT derived (banner): the amplitude and
+      // the mean converge, the cell-by-cell scatter does not.
+      const SphereResult q5 = sphere3(5), q10 = sphere3(10);
+      for (const auto& [a, q] : {std::pair{5, q5}, std::pair{10, q10}})
+        std::printf("  a = %2d  N = %3d  cells %6ld  slope(e2 vs exact^2) %.5f  mean %+.5f  rms %.5f"
+                    "  dphi %.1e\n", a, 8 * a, q.cells, q.slope, q.mean, q.rms, q.dphi);
+      verdict_le("C2: a = 10, |slope - 1| (the field's amplitude)", std::fabs(q10.slope - 1.0), 0.01);
+      verdict_le("C2: |slope - 1| at a = 10 over a = 5 (it falls)",
+                 std::fabs(q10.slope - 1.0) / std::fabs(q5.slope - 1.0), 0.5);
+      verdict_le("C2: a = 10, |mean |E| error| / (3 E0)", std::fabs(q10.mean), 0.005);
+      verdict_le("C2: rms |E| error / (3 E0), both radii (staircase)", std::max(q5.rms, q10.rms), 0.08);
+    }
     std::printf("\n%s: %d checks, %d failures\n", failures ? "FAIL" : "PASS", checks, failures);
   }
   Kokkos::finalize();

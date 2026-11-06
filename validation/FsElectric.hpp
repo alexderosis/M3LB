@@ -12,6 +12,22 @@
 //  is the free surface's floor at one-to-two-cell deflections, not this file's;
 //  that case's banner says how it was separated.
 //
+//  THREE DIMENSIONS (2026-11-05). With a Domain of nz > 1 every loop runs over
+//  z, the gradient gains d/dz, and the stress is the mean over a 3 x 3 x 3
+//  block; a geometry callback may take (x, y, z), and a 2-D case keeps (x, y).
+//  At nz = 1 the arithmetic is the old one in the old order: fs_electric's 2-D
+//  rows and a 12 s field-on mew_nozzle rerun (250 series rows) reproduce bit
+//  for bit. fs_electric's section C measures the new path: A1 turned so that
+//  the field runs along z equals A1 to the last bit, and a conducting sphere in
+//  a uniform field gets the exact field's amplitude within 0.13 % at a radius
+//  of 10 cells, with a cell-by-cell scatter of ~7 % of the polar field that
+//  does not shrink with the radius -- the staircase, seen from the next cell.
+//  The host loops are single-threaded and run once per refresh. Measured in
+//  mew_cone3d (80 x 80 x 136, a refresh every 20 fluid steps, 40 s simulated,
+//  2026-11-06): the field -- those loops and the twenty potential steps between
+//  them -- took 3,440 s against 18,298 s in the free surface (26 ms a step),
+//  19 %. They grow with the box.
+//
 //  THE MODEL. The liquid is an equipotential conductor at the potential of the
 //  electrode it touches (the nozzle), the gas is vacuum, and the field is
 //  quasi-static. The traction on a conductor is then purely normal and purely
@@ -61,6 +77,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <type_traits>
 #include <vector>
 
 namespace lbm {
@@ -93,21 +110,24 @@ class FsElectric {
         phi_(std::size_t(d.n_padded), Real(0)),
         e2_(std::size_t(d.n_padded), Real(0)) {}
 
-  // fn(x, y) -> ElecRole; val(x, y) -> the electrode's potential.
+  // fn(x, y) -> ElecRole; val(x, y) -> the electrode's potential. A 3-D case
+  // passes fn(x, y, z) and val(x, y, z); a 2-D one may keep two arguments.
   template <class RoleFn, class ValFn>
   void set_roles(RoleFn fn, ValFn val) {
-    for (Index y = 0; y < d_.ny; ++y)
-      for (Index x = 0; x < d_.nx; ++x) {
-        const Index n = d_.id(x, y, 0);
-        role_[n]  = fn(x, y);
-        value_[n] = val(x, y);
-      }
+    for (Index z = 0; z < d_.nz; ++z)
+      for (Index y = 0; y < d_.ny; ++y)
+        for (Index x = 0; x < d_.nx; ++x) {
+          const Index n = d_.id(x, y, z);
+          role_[n]  = at(fn, x, y, z);
+          value_[n] = at(val, x, y, z);
+        }
   }
-  // fn(x, y) -> bool: may liquid here conduct? Default: everywhere.
+  // fn(x, y[, z]) -> bool: may liquid here conduct? Default: everywhere.
   template <class Fn>
   void set_conduct_region(Fn fn) {
-    for (Index y = 0; y < d_.ny; ++y)
-      for (Index x = 0; x < d_.nx; ++x) ok_[d_.id(x, y, 0)] = fn(x, y) ? 1 : 0;
+    for (Index z = 0; z < d_.nz; ++z)
+      for (Index y = 0; y < d_.ny; ++y)
+        for (Index x = 0; x < d_.nx; ++x) ok_[d_.id(x, y, z)] = at(fn, x, y, z) ? 1 : 0;
   }
 
   //----------------------------------------------------------------------------
@@ -121,32 +141,33 @@ class FsElectric {
     auto hf = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs.flags());
     auto he = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs.fill());
     int changed = 0;
-    for (Index y = 0; y < d_.ny; ++y)
-      for (Index x = 0; x < d_.nx; ++x) {
-        const Index n = d_.id(x, y, 0);
-        std::uint8_t c;
-        if (role_[n] == ElecElectrode)      c = ScalarDirichlet;
-        else if (role_[n] == ElecFrame)     c = ScalarAdiabatic;
-        else {
-          const std::uint8_t f = hf(n);
-          const bool liquid = f == FsFluid || (f == FsInterface && he(n) >= Real(0.5));
-          if (f == FsSolid)                 c = ScalarAdiabatic;   // an insulating wall
-          else if (liquid && ok_[n])        c = ScalarDirichlet;
-          else                              c = ScalarBulk;
+    for (Index z = 0; z < d_.nz; ++z)
+      for (Index y = 0; y < d_.ny; ++y)
+        for (Index x = 0; x < d_.nx; ++x) {
+          const Index n = d_.id(x, y, z);
+          std::uint8_t c;
+          if (role_[n] == ElecElectrode)      c = ScalarDirichlet;
+          else if (role_[n] == ElecFrame)     c = ScalarAdiabatic;
+          else {
+            const std::uint8_t f = hf(n);
+            const bool liquid = f == FsFluid || (f == FsInterface && he(n) >= Real(0.5));
+            if (f == FsSolid)                 c = ScalarAdiabatic;   // an insulating wall
+            else if (liquid && ok_[n])        c = ScalarDirichlet;
+            else                              c = ScalarBulk;
+          }
+          if (c != cls_[n]) ++changed;
+          cls_[n] = c;
         }
-        if (c != cls_[n]) ++changed;
-        cls_[n] = c;
-      }
     const auto& cls = cls_;
     const auto& role = role_;
     const auto& val = value_;
     const Real lv = liquid_value;
     const Domain& dd = d_;
-    pot_.set_geometry([&](Index x, Index y, Index) -> std::uint8_t {
-      return cls[dd.id(x, y, 0)];
+    pot_.set_geometry([&](Index x, Index y, Index z) -> std::uint8_t {
+      return cls[dd.id(x, y, z)];
     });
-    pot_.set_wall_values([&](Index x, Index y, Index) -> Real {
-      const Index n = dd.id(x, y, 0);
+    pot_.set_wall_values([&](Index x, Index y, Index z) -> Real {
+      const Index n = dd.id(x, y, z);
       return role[n] == ElecElectrode ? val[n] : lv;
     });
     return changed;
@@ -177,13 +198,17 @@ class FsElectric {
       dmax = std::max(dmax, std::fabs(double(v - phi_[n])));
       phi_[n] = v;
     }
-    for (Index y = 0; y < d_.ny; ++y)
-      for (Index x = 0; x < d_.nx; ++x) {
-        const Index n = d_.id(x, y, 0);
-        if (cls_[n] != ScalarBulk) { e2_[n] = Real(0); continue; }
-        const Real gx = deriv(x, y, 1, 0), gy = deriv(x, y, 0, 1);
-        e2_[n] = gx * gx + gy * gy;
-      }
+    const bool three = d_.nz > 1;
+    for (Index z = 0; z < d_.nz; ++z)
+      for (Index y = 0; y < d_.ny; ++y)
+        for (Index x = 0; x < d_.nx; ++x) {
+          const Index n = d_.id(x, y, z);
+          if (cls_[n] != ScalarBulk) { e2_[n] = Real(0); continue; }
+          const Real gx = deriv(x, y, z, 1, 0, 0), gy = deriv(x, y, z, 0, 1, 0);
+          Real e = gx * gx + gy * gy;
+          if (three) { const Real gz = deriv(x, y, z, 0, 0, 1); e += gz * gz; }
+          e2_[n] = e;
+        }
 
     if (!fs.rho_G_of.data()) fs.rho_G_of = View1D<Real>("rho_G_of", d_.n_padded);
     if (h_rg_.extent(0) != std::size_t(d_.n_padded))
@@ -197,35 +222,46 @@ class FsElectric {
     // becomes one between two calls would otherwise feel no pull at all until
     // the next. The first version wrote interface cells only, and a surface
     // that moved a cell between calls lost its stress there.
-    for (Index y = 0; y < d_.ny; ++y)
-      for (Index x = 0; x < d_.nx; ++x) {
-        const Index n = d_.id(x, y, 0);
-        const std::uint8_t f = hf(n);
-        if ((f != FsInterface && f != FsFluid && f != FsGas) || !ok_[n]) continue;
-        Real s = 0; int c = 0;
-        for (int dy = -1; dy <= 1; ++dy)
-          for (int dx = -1; dx <= 1; ++dx) {
-            Index m;
-            if (!neighbour(x, y, dx, dy, m)) continue;
-            if (cls_[m] != ScalarBulk) continue;
-            s += e2_[m]; ++c;
-          }
-        if (c == 0) continue;
-        const Real pe = coef * s / Real(c);
-        if (f == FsInterface) max_pe_ = std::max(max_pe_, double(pe));
-        h_rg_(n) = rho_G0 - pe * ics;
-      }
+    // In 3-D the block is 3 x 3 x 3; in 2-D (nz = 1) it stays the 3 x 3 of the
+    // plane, summed in the same order, so a 2-D case is unchanged bit for bit.
+    const int zr = three ? 1 : 0;
+    for (Index z = 0; z < d_.nz; ++z)
+      for (Index y = 0; y < d_.ny; ++y)
+        for (Index x = 0; x < d_.nx; ++x) {
+          const Index n = d_.id(x, y, z);
+          const std::uint8_t f = hf(n);
+          if ((f != FsInterface && f != FsFluid && f != FsGas) || !ok_[n]) continue;
+          Real s = 0; int c = 0;
+          for (int dz = -zr; dz <= zr; ++dz)
+            for (int dy = -1; dy <= 1; ++dy)
+              for (int dx = -1; dx <= 1; ++dx) {
+                Index m;
+                if (!neighbour(x, y, z, dx, dy, dz, m)) continue;
+                if (cls_[m] != ScalarBulk) continue;
+                s += e2_[m]; ++c;
+              }
+          if (c == 0) continue;
+          const Real pe = coef * s / Real(c);
+          if (f == FsInterface) max_pe_ = std::max(max_pe_, double(pe));
+          h_rg_(n) = rho_G0 - pe * ics;
+        }
     Kokkos::deep_copy(fs.rho_G_of, h_rg_);
     return dmax;
   }
 
   double max_stress() const { return max_pe_; }
-  Real phi(Index x, Index y) const { return phi_[d_.id(x, y, 0)]; }
-  Real e2(Index x, Index y) const { return e2_[d_.id(x, y, 0)]; }
-  std::uint8_t cell(Index x, Index y) const { return cls_[d_.id(x, y, 0)]; }
+  Real phi(Index x, Index y, Index z = 0) const { return phi_[d_.id(x, y, z)]; }
+  Real e2(Index x, Index y, Index z = 0) const { return e2_[d_.id(x, y, z)]; }
+  std::uint8_t cell(Index x, Index y, Index z = 0) const { return cls_[d_.id(x, y, z)]; }
   Pot& potential() { return pot_; }
 
  private:
+  // A geometry callback with (x, y, z) or, for a 2-D case, (x, y).
+  template <class Fn>
+  static auto at(Fn& fn, Index x, Index y, Index z) {
+    if constexpr (std::is_invocable_v<Fn&, Index, Index, Index>) return fn(x, y, z);
+    else return fn(x, y);
+  }
   static Coll make_coll(Real tau) {
     Coll c;
     c.omega  = Real(1) / tau;
@@ -236,20 +272,21 @@ class FsElectric {
   Real wall_value(Index n) const {
     return role_[n] == ElecElectrode ? value_[n] : liquid_value;
   }
-  bool neighbour(Index x, Index y, int dx, int dy, Index& m) const {
-    Index xx = x + dx, yy = y + dy;
+  bool neighbour(Index x, Index y, Index z, int dx, int dy, int dz, Index& m) const {
+    Index xx = x + dx, yy = y + dy, zz = z + dz;
     if (d_.periodic[0]) xx = (xx + d_.nx) % d_.nx;
     if (d_.periodic[1]) yy = (yy + d_.ny) % d_.ny;
-    if (xx < 0 || xx >= d_.nx || yy < 0 || yy >= d_.ny) return false;
-    m = d_.id(xx, yy, 0);
+    if (d_.periodic[2]) zz = (zz + d_.nz) % d_.nz;
+    if (xx < 0 || xx >= d_.nx || yy < 0 || yy >= d_.ny || zz < 0 || zz >= d_.nz) return false;
+    m = d_.id(xx, yy, zz);
     return true;
   }
-  // d phi / d(axis) at bulk cell (x, y), electrode- and mirror-aware.
-  Real deriv(Index x, Index y, int ax, int ay) const {
-    const Index n = d_.id(x, y, 0);
+  // d phi / d(axis) at bulk cell (x, y, z), electrode- and mirror-aware.
+  Real deriv(Index x, Index y, Index z, int ax, int ay, int az) const {
+    const Index n = d_.id(x, y, z);
     const Real p0 = phi_[n];
     Index l, r;
-    const bool hl = neighbour(x, y, -ax, -ay, l), hr = neighbour(x, y, ax, ay, r);
+    const bool hl = neighbour(x, y, z, -ax, -ay, -az, l), hr = neighbour(x, y, z, ax, ay, az, r);
     const std::uint8_t cl = hl ? cls_[l] : std::uint8_t(ScalarAdiabatic);
     const std::uint8_t cr = hr ? cls_[r] : std::uint8_t(ScalarAdiabatic);
     const bool bl = cl == ScalarBulk, br = cr == ScalarBulk;
