@@ -47,13 +47,14 @@
 //  four cells, as in 2-D on every grid -- and is drawn into a column that
 //  narrows to about 0.45 mm just above a rounded end five rows long;
 //  tools/render_cone3d.py draws that end at true scale against Taylor's cone.
-//  The end comes down at 0.06 mm/s to 15 s, then 0.10 (20-24 s), 0.15
-//  (26-28 s), 0.28 (28-30 s), 0.85 (31-32 s) and 2.4 mm/s over its last
-//  0.6 mm (2.7 over the last 0.4), while the strongest field below the tip
-//  goes from about 11 kV/mm at 20 s to 16 at 30 s and 35 at 32.4 s. It
-//  passes 12 kV/mm at 22-24 s, about Peek's corona onset for a sphere of
-//  the end's radius (11-13 kV/mm for 0.3-0.2 mm; an estimate): the run-away
-//  happens where the model's air, which never breaks down, is least like air.
+//  The end comes down at 0.10 mm/s over the first 5 s, slows to 0.06 over
+//  5-15 s, then speeds up: 0.10 (20-24 s), 0.15 (26-28 s), 0.28 (28-30 s),
+//  0.85 (31-32 s) and 2.4 mm/s over its last 0.6 mm (2.7 over the last 0.4),
+//  while the strongest field below the tip goes from about 11 kV/mm at 20 s
+//  to 16 at 30 s and 35 at 32.4 s. It passes 12 kV/mm at 22-24 s, about
+//  Peek's corona onset for a sphere of the end's radius (11-13 kV/mm for
+//  0.3-0.2 mm; an estimate): the run-away happens where the model's air,
+//  which never breaks down, is least like air.
 //  IT ENDS ON THE CONDUCTOR'S EDGE, AS THE 2-D -lc 5 RUN DID (mew_nozzle's
 //  banner). -lc 5 in a 5.5 mm gap leaves the last 0.5 mm insulating, and the
 //  end reaches it at 32.39 s (2-D at the same 820 Pa s: 40.18 s; the gap is
@@ -63,17 +64,33 @@
 //  sharp-edged conductor 0.5 mm above ground -- throws thin sheets (fill ~0.2)
 //  along the plane to the box walls, 2.7 mm from the axis by 39.8 s, with the
 //  reported field rising to 76 kV/mm at their edges. NOTHING AFTER 32.4 s IS
-//  THE MELT; the renderer marks it. 2-D hovered at this edge for 24.5 s before
+//  THE MELT; the renderer marks it. 2-D hovered at this edge for 24.6 s before
 //  touching; this run stopped at 40 s without contact, so a 3-D contact time
 //  is not known. Any -lc short of the gap makes such an edge, and one that
 //  reaches the collector shorts the gap: with the field on, contact is outside
 //  this model.
-//  THE FEED IS 3.45 % HIGH. The piston covers nbore = 52 cells where
-//  pi R^2 = 50.27, and Un_l is set from the nominal area, so the melt enters
-//  at 0.02159 mm^3/s (the slope of the gap volume over 5-40 s), not 0.0208.
-//  The ledger counts nbore and stayed at 2.2e-3 to 4.2e-3. Scaling uin by
-//  pi R^2 / nbore would fix it; not applied, so that the run above is
-//  reproduced.
+//  THE FEED IS 3.8 % HIGH. The melt enters at 0.02159 mm^3/s (the slope of
+//  the gap volume over 5-40 s), not 0.0208. The piston covers nbore = 52
+//  cells where pi R^2 = 50.27 and Un_l is set from the nominal area, which
+//  accounts for 3.45 %. The ledger counts uin x nbore at unit density and
+//  reads 2.2e-3 to 4.2e-3 from the first sample on, and the mass rate it
+//  implies matches the volume rate to 1e-5: the other 0.35 % is mass beyond
+//  the nominal injection, not a lower density; where it enters is not
+//  attributed. Scaling uin by pi R^2 / nbore would remove the 3.45 %; not
+//  applied, so that the run above is reproduced.
+//  THE DATA ARE IN results/mew_cone3d/: the series
+//  R4_feed_0p0208_6p5kV_lc5_mu820_series.csv and the log beside it (stdout of
+//  "-tend 40 -out results/mew_cone3d/R4_feed_0p0208_6p5kV_lc5_mu820"; this
+//  driver reproduced the series' first 0.25 s to every printed digit on
+//  2026-11-06). The series carries the end's heights, times and speeds, the
+//  field, the neck, the feed and the ledger; the log, the two run times. A
+//  speed over a window is z_low at the rows nearest its two ends over its
+//  length; the last 0.6 (0.4) mm run from the first row at or below 1.025
+//  (0.825) mm to the first below the cut. z_low moves in 0.05 mm steps, so a
+//  rate over T seconds is good to 0.05/T mm/s. The column's 0.45 mm, the
+//  end's five rows, the disk and the sheets come from the 82 frames, which
+//  were not kept (571 MB; git ignores them). The 2-D numbers are from
+//  results/mew_nozzle/R4_E_feed_0p0208_6p5kV_lc5_mu820_series.csv.
 //
 //  Usage: mew_cone3d [-R 4] [-Ucol 0.04] [-mu 820] [-V 6.5] [-lc 5] [-feed 0.0208]
 //                    [-W 4] [-nofield] [-nohf] [-nosym] [-M 20] [-tend 20]

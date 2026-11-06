@@ -49,6 +49,10 @@ results/mew_liquefier/*_field.csv
 # demonstrator/mew_nozzle's per-node frames (fill and potential, .npy); the
 # series CSVs, logs and figures beside them are tracked.
 results/mew_nozzle/*.npy
+# demonstrator/mew_cone3d's frames, the same rule: 82 frames of fill and
+# potential on 80 x 80 x 136 are 571 MB for the 40 s run. Its series is
+# tracked, and its log, force-added past *.log.
+results/mew_cone3d/*.npy
 
 # Rendered animations. Regenerable from doc/fig/*.py given a dump, and a dump
 # is itself ignored -- so these are two steps from anything tracked. doc/m3lb.pdf
