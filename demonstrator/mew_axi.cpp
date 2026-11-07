@@ -105,16 +105,18 @@
 //  THE SUCTION THAT DRAWS THE MELT IN ALSO DIMPLES THE APEX, which a real jet
 //  pulls OUT. At the no-fan flow the surface on the axis rises above the ring of
 //  melt round it from about 8 s, by 2.1-2.6 cells over 16-24 s isothermal and
-//  2.4-3.6 over 16-28 s with heat, and the box's lower edge is then within
-//  about a cell of it, at times in it (read off the frames). AND WHERE THE
-//  SURFACE NEARS THE DRAWN CELLS THE FREE SURFACE CREATES MASS: nothing until
-//  the gap closes (the run's own 1e-6 mm^3), then 0.4 % of the jet by 20 s and
-//  7.2 % by contact (5.6 % of the melt) isothermal, 3.1 % by 60 s with heat.
-//  The fan's weaker jet dimples later (from about 20 s with heat) and creates
-//  1.2 % by 60 s; isothermal it creates 1.3 %, all in the 1.9 s before contact
-//  while its column runs down round the box. The same column with no jet runs
-//  to the collector creating none (2e-6 mm^3): it is the draw, not the thin
-//  melt. Neither neighbour of the default does better. A box one cell across
+//  2.4-3.6 over 16-28 s with heat, and the box's lower edge is then within about
+//  a cell of it, at times in it (read off the frames). AND WHERE THE SURFACE
+//  NEARS THE DRAWN CELLS THE FREE SURFACE CREATES MASS: nothing until the gap
+//  closes (the run's own 1e-6 mm^3), then 0.4 % of the jet by 20 s and 0.6 % by
+//  24 s; then the column thins round the box as well, its sides next to the box
+//  from 25 s and in its outer cells from 27 s, and it is 7.2 % by contact (5.6 %
+//  of the melt), isothermal; 3.1 % by 60 s with heat. The fan's weaker jet
+//  dimples later (from about 20 s with heat) and creates 1.2 % by 60 s;
+//  isothermal it creates 1.3 %, all in the 1.9 s before contact while its column
+//  runs down round the box. The same column with no jet runs to the collector
+//  creating none (2e-6 mm^3): it is the draw, not the thin melt. Neither
+//  neighbour of the default does better. A box one cell across
 //  (-jetr 0.05) dimples sooner and creates 0.37 % of the jet by 10 s. One eight
 //  cells deep (-jetdepth 0.4) leaves a cap below it that the field draws into a
 //  thread one or two cells thick, pinching at the box: it creates six times as

@@ -1665,8 +1665,9 @@ class FreeSurfaceSolver {
   // run's own level without a draw. AND THE SURFACE COMES TO THE REGION: the
   // suction that feeds it also pulls a nearby surface towards it. mew_axi's box,
   // four cells in, drew the surface on the axis up 2-3.6 cells over ~10 s, to
-  // within a cell of the box, and from then on the creation came back -- 7.2 %
-  // of the jet by contact. Placing the region deeper did not cure it there (see
+  // within a cell of the box, and from then on the creation came back, faster
+  // once the thinning column's sides closed in on the box as well -- 7.2 % of
+  // the jet by contact. Placing the region deeper did not cure it there (see
   // that banner): what to draw from, and where, is the case's to measure.
   //
   // Requires raw populations: a shifted store (f - w_i) would need the shift
