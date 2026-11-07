@@ -91,7 +91,7 @@
 //  Usage: mew_jet [-dfib UM 20.5] [-vc MMS 35] [-L MM 5.0] [-a0 UM 50] [-T0 C 120]
 //                 [-Tair C 25] [-Nu 0.4] [-kair 0.026] [-E KV_PER_MM 1.1818]
 //                 [-mu 820] [-Ea 31.3] [-gamma 0.030] [-nocool] [-n 4000]
-//                 [-I NA] [-Efile FILE] [-drag [-ndrag 800]] [-out FILE]
+//                 [-I NA] [-Efile FILE] [-drag [-ndrag 800]] [-anim N] [-out FILE]
 //         Without -I: a sweep over the current and the current at which the jet
 //         lands at the collector's speed; -out writes the sweep on 41 currents
 //         from 0.01 to 100 nA as CSV (I_nA, U_mm_s, d_um, T_C). With -I: that
@@ -103,6 +103,9 @@
 //         and, at -I (else half the current that lands the jet at -vc), against
 //         the collector's speed; -out PREFIX writes PREFIX_lag_I.csv,
 //         PREFIX_lag_vc.csv and PREFIX_path_<k>.csv (x_mm, z_mm, d_um, u_mm_s, T_C).
+//         -anim N (implies -drag): also N paths at the same current from 1.0005 to 4
+//         times its free-landing speed (PREFIX_anim.csv, PREFIX_anim_<k>.csv) and
+//         the vertical free landing (PREFIX_anim_free.csv), for tools/anim_mew_jet.py.
 //  The data in results/mew_jet/: sweep_nominal.txt and variants.txt are this
 //  program's printout (the variants are one flag each, as listed above in
 //  WHAT IT SAYS); sweep_*.csv are -out of the sweeps (nominal, -nocool, -Nu 0.2,
@@ -141,6 +144,8 @@ struct Opts {
   bool L_set = false;
   bool drag = false;  // -drag: the jet behind the moving collector (Jet1D.hpp's solve_dragged)
   int ndrag = 800;    // RK4 steps in the vertical tension for it
+  int anim = 0;       // -anim N (with -drag and -out): N paths from 1.0005 to 4 times the free landing,
+                      // for tools/anim_mew_jet.py
 };
 
 double Q_of(const Opts& o) { return kPi * o.dfib * o.dfib / 4.0 * o.vc; }
@@ -257,6 +262,7 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(a, "-I")) o.I = num() * 1e-9;
       else if (!std::strcmp(a, "-drag")) o.drag = true;
       else if (!std::strcmp(a, "-ndrag")) o.ndrag = int(num());
+      else if (!std::strcmp(a, "-anim")) { o.anim = int(num()); o.drag = true; }
       else if (!std::strcmp(a, "-out")) { if (i + 1 >= argc) { std::fprintf(stderr, "mew_jet: -out needs a file\n"); std::exit(2); } o.out = argv[++i]; }
       else { std::fprintf(stderr, "mew_jet: unknown option %s\n", a); Kokkos::finalize(); return 2; }
     }
@@ -347,6 +353,30 @@ int main(int argc, char** argv) {
       if (fb) std::fclose(fb);
       if (!o.out.empty()) std::printf("  wrote %s_lag_I.csv, %s_lag_vc.csv and %s_path_*.csv\n", o.out.c_str(),
                                       o.out.c_str(), o.out.c_str());
+      if (o.anim > 1 && !o.out.empty()) {
+        // the same current at many speeds, closer together just above U where the lag rises fastest,
+        // and the vertical jet that lands freely, for the frames below U
+        FILE* fi = std::fopen((o.out + "_anim.csv").c_str(), "w");
+        if (!fi) { std::fprintf(stderr, "mew_jet: cannot write %s_anim.csv\n", o.out.c_str()); rc = 1; }
+        else {
+          std::fprintf(fi, "k,vc_mm_s,vc_over_U,lag_mm,theta0_deg,H_uN,I_nA,U_mm_s\n");
+          for (int k = 0; k < o.anim; ++k) {
+            const double q = double(k) / (o.anim - 1), m = 1.0005 + (4.0 - 1.0005) * q * q;
+            const Dragged d = solve_dragged(J, u0, o.T0, m * U, o.ndrag);
+            if (!d.ok) { std::printf("  anim %d: no dragged jet at %.4f U\n", k, m); continue; }
+            std::fprintf(fi, "%d,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g\n", k, m * U * 1e3, m, d.lag * 1e3,
+                         d.theta0 * 180.0 / kPi, d.H * 1e6, I * 1e9, U * 1e3);
+            write_path(o.out + "_anim_" + std::to_string(k) + ".csv", d.p, J.Q);
+          }
+          std::fclose(fi);
+          double V0 = tension_scale(J, u0, o.T0);
+          detail::Y e{};
+          Path pf;
+          if (detail::land_at_L(J, 0.0, u0, o.T0, o.ndrag, V0, e) && !detail::integrate_V(J, 0.0, V0, u0, o.T0, o.ndrag, e, &pf))
+            write_path(o.out + "_anim_free.csv", pf, J.Q);
+          std::printf("  wrote %s_anim.csv, %d paths and the free landing\n", o.out.c_str(), o.anim);
+        }
+      }
     } else if (o.I < 0) {
       std::printf("\n   I [nA]  landing speed [mm/s]  diameter there [um]  T there [C]  viscosity x10 at [mm]"
                   "  stretching in 1st mm  N0 [uN]\n");
