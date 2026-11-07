@@ -86,6 +86,8 @@ cmake --build build -j4          # 75 = T4/Turing, 80 = A100, 90 = Hopper
 | two-phase, diffuse, high ratio | `ColourGradientSolver` | no interface equation; width is an *outcome*. **Sub-percent to γ = 20, ~3% at γ = 100, comes apart at γ = 1000** — and the steps needed scale with γ; see the rules below |
 | liquid + void, sharp interface | `FreeSurfaceSolver` | gas not resolved; infinite ratio by construction |
 | + electric pull on a conducting melt | `FreeSurfaceSolver` + `validation/FsElectric.hpp` | the liquid is an equipotential conductor and feels ε0E²/2 through `rho_G_of`; potential by `ScalarSolver` + `ScalarTRT` (D2Q5). Two-way coupling verified to 3 % (`validation/fs_electric.cpp`). No free charge, no leaky dielectric, and liquid far from the electrode must be declared non-conducting or it shorts the gap |
+| round (axisymmetric) liquid + void | `FreeSurfaceSolver::set_axisymmetric` + `AxiGuo` | r-z on D2Q9, x the radius, the axis a mirror on column 0; planar populations plus sources. **The lattice viscosity is bounded near the axis, nu <~ 1 (clean at <= 1/2)** -- see the invariant. Per-node `omega_of` and implicit `drag_of` are opt-in; the potential (`validation/FsElectricAxi.hpp`) and the melt's temperature (`validation/FsHeatAxi.hpp`) are host-side finite volumes on the same cells. `validation/axisym_fs`, `axisym_field`, `axisym_heat`; `demonstrator/mew_axi` |
+| an MEW jet thinner than any grid | `validation/Jet1D.hpp` | not an LBM: a steady slender viscous thread (Trouton tension, surface tension, inertia, a body force per volume -- a convected charge gives I E/Q -- and lumped cooling), drawn, landing freely, or dragged behind a moving collector as a string. Host-side, FP64. Its flow and current are INPUTS. `validation/jet1d`, `demonstrator/mew_jet` |
 
 **Standing rule: do not use a multiphase solver for single-phase or
 single-component flow.** The multiphase path changes the equation of state — the
@@ -950,6 +952,11 @@ These produce plausible, converged, wrong answers rather than crashes.
   cells, and it is not diagnosed. Quote a one-or-two-cell deflection with it
   beside it. A ratio of two runs of the same surface cancels it, which is how
   `fs_electric` verifies its coupling to 3 %.
+  **With height functions it is not** (2026-11-06): the frozen row of
+  `validation/fs_electric -hf` reads -5.5 / -4.4 % at s = 1 / 2 against
+  +9.2 / +19.5 % with the default curvature -- slightly soft, and no longer
+  growing with the wavelength. The once-smoothed fill-level curvature was the
+  excess; the geometric exchange changes it by under half a percent.
 - **A REPAIR PASS THAT CLOSES A SHELL IN BOTH DIRECTIONS UNDOES A REMOVAL.**
   `FreeSurfaceSolver::promote()` turns Gas beside Fluid into Interface AND Fluid
   beside Gas into Interface. Reused after `drain()`, it pulled every drained cell
@@ -958,6 +965,28 @@ These produce plausible, converged, wrong answers rather than crashes.
   `drain()` now demotes the Fluid neighbours itself first. It was caught only
   because the unit test, written with the feature, asserted the ledger
   (`total + drained == total before`) rather than the shape.
+- **AN AXISYMMETRIC FREE SURFACE'S AXIS COLUMN BOUNDS THE LATTICE VISCOSITY.**
+  The mirror makes (mu/r) d_r u_z on column 0 an explicit relaxation towards
+  column 1 at about nu per step, on top of the scheme's own diffusion. Explicit,
+  a liquid thread two cells thick came apart at nu = 1/2 -- in `mew_axi` just
+  before its column touched the collector, which first read as a contact problem
+  in the field solve. The self part is now implicit (`AxiGuo::Az`) and holds to
+  nu = 1; past that the explicit first-derivative terms take over. A capillary
+  scaling makes dt independent of nu, so the bound costs range, not time -- but a
+  temperature-dependent viscosity can rise only about sixfold from nu = 1/6. nu
+  is not free in the answer either: contact moved 15.45 -> 15.80 s from nu = 1/2
+  to 1/6 (16.07 s extrapolated).
+- **A DIRECTION COMPUTED AS V/|V| FLIPS AT ROUND-OFF.** `Jet1D.hpp`'s dragged
+  jet is integrated in its vertical tension V, from V0 down to exactly 0.
+  Stepping V by accumulated increments left the last RK4 stage at -1e-16, and
+  with no drag (H = 0) cos(theta) = V/sqrt(H^2 + V^2) turned that into -1: the
+  jet pointed UP for one stage, a first-order error in where it lands -- 0.6952
+  against an exact 0.6944, in exactly the free landing the critical translation
+  speed comes from. The cure is to compute every stage's V from V0 and clamp it
+  at 0. What caught it was a LIMIT check (the dragged solver at zero drag must be
+  the straight solver's free landing); the catenary test with drag passed at
+  fourth order throughout, because with H > 0 the sign of V never decides a
+  direction.
 
 ---
 
@@ -1199,6 +1228,18 @@ Do not spend time on these without saying so first; several are deliberate.
   is symmetric and must stop when it is not; `mew_nozzle` stops at first
   contact, and `-nosym` shows the drift. The cone-jet needs an axisymmetric or
   3-D solver.
+- **THE ROUND MEW MODEL PREDICTS A REGIME, NOT A TIME, AND THE JET IS A
+  SEPARATE MODEL.** `demonstrator/mew_axi` (r-z, the whole drop conducting,
+  opt-in heat) draws an isothermal column to the collector at 15.8 s on 50 µm
+  cells and 9.8 s on 25 µm -- not converged: a perfect conductor's tip has no
+  cap. With heat (estimated: h 90 W/m²K, air 25 °C, freezing 30–40 °C) the drop
+  stalls about 3.5 mm up and oozes, grid-robust; the regime flips between 35 and
+  40 °C of air. `demonstrator/mew_jet` (`validation/Jet1D.hpp`) is the jet below
+  the grid, its flow taken from the fibres and its current swept: about 1 nA
+  lands it at 35 mm/s (0.43–1.84 under every unmeasured input; 0.89–1.00 in
+  mew_axi's field), and at half that current it trails the cone by about 4 mm.
+  Neither predicts the jet's flow or current: the cone that sets them is below
+  every grid.
 - **`GPU/` HAS THE PARITY WALL AND THE TAYLOR-GREEN MHD BOX** as of 2026-09-25
   (`src/tg_mhd.cu`, `set_parity_walls`, `seed_populations_with`). Its HOST build
   reproduces `demonstrator/tg_mhd` to every printed digit in FP64, free-slip and
@@ -1495,6 +1536,20 @@ the same few mistakes, so they are worth naming.
   — while the case being solved is not the one intended. Verify inputs against
   the source paper and against the sibling implementation, not only against
   internal consistency.
+- **A SURFACE AREA SUMMED FROM PER-CELL PLIC SEGMENTS IS SHORT ON A CURVED
+  SURFACE.** Where a surface runs nearly along a face, the nearly full cell
+  holds a lens of gas that PLIC turns into a corner triangle shorter than the
+  arc: 0.85-0.93 of a sphere's area, erratic with position. The sum of
+  the cells' |grad phi| r is 1.0-1.2 % high and steady. A vertical-cylinder
+  test cannot see either; a sphere can (`validation/axisym_heat` H4).
+- **A PULL AT A SLENDER JET'S APEX STRETCHES NOTHING, AND THE OPPOSITE WAS
+  PREDICTED.** Feeding the MEW jet the field `mew_axi` computes below the drop
+  (12-19 kV/mm at the drop, a mean of 1.2-1.9) was expected to LOWER the current
+  that lands the jet at 35 mm/s; it RAISED it, 0.87 -> 1.00 nA below the oozing
+  drop and 0.77 -> 0.89 nA below the young one. The tension at a point of the jet
+  is the pull on everything below it, so a pull at the apex stretches no part of
+  the jet -- and the r-z field is strongest exactly there. The prediction had
+  gone to the user; the result went out with the correction.
 
 ---
 
