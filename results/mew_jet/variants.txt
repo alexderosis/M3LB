@@ -1,0 +1,26 @@
+nominal                              lands at the collector's 35 mm/s with I = 0.8590 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity 10x its apex value at 1.239 mm, 81 % of the stretching in the first mm, landing at 25.1 C
+isothermal at 120 C (-nocool)        lands at the collector's 35 mm/s with I = 0.1404 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity never 10x its apex value, 52 % of the stretching in the first mm, landing at 120.0 C
+Nu 0.2                               lands at the collector's 35 mm/s with I = 0.5341 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity 10x its apex value at 2.476 mm, 77 % of the stretching in the first mm, landing at 28.6 C
+Nu 0.8                               lands at the collector's 35 mm/s with I = 1.2787 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity 10x its apex value at 0.620 mm, 79 % of the stretching in the first mm, landing at 25.0 C
+field x2 (2.364 kV/mm)               lands at the collector's 35 mm/s with I = 0.4295 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity 10x its apex value at 1.239 mm, 81 % of the stretching in the first mm, landing at 25.1 C
+apex radius 25 um                    lands at the collector's 35 mm/s with I = 0.5654 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity 10x its apex value at 1.239 mm, 79 % of the stretching in the first mm, landing at 25.1 C
+apex radius 100 um                   lands at the collector's 35 mm/s with I = 1.0491 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity 10x its apex value at 1.239 mm, 84 % of the stretching in the first mm, landing at 25.1 C
+jet 3.5 mm long                      lands at the collector's 35 mm/s with I = 1.3717 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity 10x its apex value at 1.238 mm, 87 % of the stretching in the first mm, landing at 26.0 C
+fan fibres, 11.5 um                  lands at the collector's 35 mm/s with I = 0.5871 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity 10x its apex value at 0.390 mm, 77 % of the stretching in the first mm, landing at 25.0 C
+jet starts at 60 C                   lands at the collector's 35 mm/s with I = 1.8417 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity never 10x its apex value, 65 % of the stretching in the first mm, landing at 25.1 C
+jet starts at 90 C                   lands at the collector's 35 mm/s with I = 1.2756 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity never 10x its apex value, 74 % of the stretching in the first mm, landing at 25.1 C
+Ea 50 kJ/mol                         lands at the collector's 35 mm/s with I = 1.7597 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity 10x its apex value at 0.596 mm, 92 % of the stretching in the first mm, landing at 25.1 C
+n 8000 (grid check)                  lands at the collector's 35 mm/s with I = 0.8590 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+                                     there: viscosity 10x its apex value at 1.238 mm, 81 % of the stretching in the first mm, landing at 25.1 C

@@ -1,0 +1,28 @@
+mew_jet: the MEW jet as a slender viscous thread (validation/Jet1D.hpp)
+  flow 0.0116 mm^3/s (a 20.5 um fibre at 35 mm/s; 56 % of 0.0208), from a 50 um apex at 1.47 mm/s, 5.00 mm to the collector
+  melt 120 C at the apex; 820 Pa s at 120 C, Ea 31.3 kJ/mol; gamma 0.030 N/m
+  field 1.182 kV/mm, uniform
+  air 25 C, Nu 0.40, k_air 0.026 W/m/K: the jet cools over 0.764 mm (e-fold), viscosity x 21.1 of 120 C at the air
+
+  the jet lands on its own at the collector's 35 mm/s with I* = 0.8590 nA
+
+  (a) at the collector's 35 mm/s: the jet behind it, against the current
+     I/I*   I [nA]  free landing [mm/s]  lag [mm]  angle at the start [deg]  drag H [uN]  V0 [uN]
+     0.05   0.0429                4.071   15.0132                    41.194      67.4589   77.074
+     0.10   0.0859                6.181   11.4122                    33.046      69.4674  106.782
+     0.25   0.2147               11.677    7.3372                    21.289      62.5980  160.646
+     0.50   0.4295               19.872    4.4089                    11.571      43.9824  214.822
+     0.75   0.6442               27.569    2.4285                     5.280      23.2987  252.123
+     0.90   0.7731               32.052    1.2167                     2.099       9.8922  269.849
+     0.97   0.8332               34.119    0.4875                     0.645       3.1185  277.127
+
+  (b) at I = 0.4295 nA, which lands on its own at 19.872 mm/s: the lag against the collector's speed
+     v_c/U   v_c [mm/s]  lag [mm]  angle at the start [deg]  drag H [uN]  fibre [um]
+      1.02      20.269    0.4197                     0.616       2.2805       26.94
+      1.10      21.859    1.3380                     2.684      10.0054       25.94
+      1.25      24.840    2.3862                     5.614      21.0993       24.33
+      1.50      29.808    3.5375                     9.045      34.2448       22.21
+      2.00      39.744    5.0484                    13.320      50.7392       19.24
+      3.00      59.616    6.9393                    17.808      68.0248       15.71
+      4.00      79.488    8.2178                    20.237      77.2971       13.60
+  wrote results/mew_jet/drag_nominal_lag_I.csv, results/mew_jet/drag_nominal_lag_vc.csv and results/mew_jet/drag_nominal_path_*.csv

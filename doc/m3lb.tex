@@ -10159,6 +10159,26 @@ Stated plainly, because each has been measured.
   a cell. So the model's
   prediction is a regime, not a time, and the measurement that decides it is
   the temperature of the air and of the melt at the tip.
+\item \textbf{The MEW jet model (\code{validation/Jet1D.hpp},
+  \code{demonstrator/mew\_jet}) is a steady, Newtonian string whose flow and
+  current are inputs.} The slender-jet equations themselves are solved to fourth
+  order against an exact solution for every term, the jet bent behind the moving
+  collector included (\code{validation/jet1d}, J9: a viscous catenary), but the
+  cone that sets the jet's flow and current is below every affordable grid, so
+  the flow is taken from the measured fibres and the current is swept. Its
+  free-landing speed is offered as the critical translation speed, and that is
+  an assumption, not a result: the model says when a collector would compress
+  the jet, not what the fibre does then. Behind the collector the jet has no
+  bending stiffness, so it lands tangentially with no heel; the field is the
+  mean gap field or \code{mew\_axi}'s on the axis, vertical and unchanged by the
+  jet's charge; there is no air drag and no viscoelasticity, and the jet's peak
+  stretch rate (22\,s$^{-1}$, nominal) is just past the 16\,s$^{-1}$ the
+  measured shear curve reaches. With those inputs a jet landing at 35\,mm/s
+  carries $0.43$--$1.84$\,nA under every unmeasured input tried ($0.86$\,nA
+  nominal), and $0.14$\,nA if it stayed at 120\,$^\circ$C; \code{mew\_axi}'s field
+  RAISES it to $0.89$--$1.00$\,nA, because a pull at the apex stretches no part of
+  the jet. At half that current and 35\,mm/s the jet lags $3.9$--$4.4$\,mm
+  behind the cone.
 \item \textbf{A mirror-symmetric free surface does not stay symmetric, and a
   thread drawn below a cell creates mass.} Neither is diagnosed. In
   \code{mew\_nozzle} an advancing front amplifies round-off until the column
