@@ -2,6 +2,7 @@
 #include "solver/FreeSurfaceSolver.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <string>
 #include <utility>
@@ -140,6 +141,208 @@ static double run_moving_body(bool strict, double U_in, std::size_t nsteps) {
               "the sweep's mass drift stays bounded, not divergent");
   }
   return worst;
+}
+
+// sink(): a set amount taken from the surface cells of a region, step after
+// step. Every call takes exactly what it is asked while the region holds more;
+// what it takes is exactly what the ledger loses (total + drained == total
+// before); the surface it lowers stays a closed shell; a request larger than the
+// region holds is capped at what it holds; and dm = 0 changes nothing.
+static void run_sink() {
+  using L  = D2Q9;
+  using FS = FreeSurfaceSolver<L>;
+  const Index nx = 32, ny = 40;
+  Domain d(nx, ny, 1, true, false, true);
+  FS s(d);
+  s.coll.omega = FS::omega_from_viscosity(Real(0.1));
+  const Index nyi = ny;
+  s.set_geometry([&](Index, Index y, Index) -> FsCell {
+    return (y == 0 || y == nyi - 1) ? FsSolid : FsGas;
+  });
+  const Domain dd = d; const Index hx = d.hx, hy = d.hy;
+  s.initialize(KOKKOS_LAMBDA(Index n) {
+    Index px, py, pz; dd.coords(n, px, py, pz);
+    const Real y = Real(py - hy);
+    const Real e = (y + Real(0.5) < Real(24)) ? Real(1)
+                 : ((y - Real(0.5) < Real(24)) ? Real(0.5) : Real(0));
+    return typename FS::Seed{e, Real(1)};
+  });
+  for (int t = 0; t < 50; ++t) s.step();
+  const double m0 = double(s.total_mass());
+  auto top = KOKKOS_LAMBDA(Index n) {
+    Index px, py, pz; dd.coords(n, px, py, pz);
+    return (py - hy) >= 18;
+  };
+  // nothing asked, nothing taken
+  const Real z = s.sink(Real(0), top);
+  check::ok(z == Real(0) && double(s.total_mass()) == m0 && s.sunk_mass() == Real(0),
+            "sink(0) takes nothing and changes nothing");
+  const Real dm = Real(0.05);
+  const int K = 400;
+  // relative tolerances for sums of 400 removals and a ledger of ~750: round-off in FP64, ~1e-6 in FP32
+  const double rel = sizeof(Real) == 8 ? 1e-9 : 2e-5;
+  double worst_call = 0.0;
+  for (int t = 0; t < K; ++t) {
+    const Real took = s.sink(dm, top);
+    worst_call = std::max(worst_call, std::fabs(double(took) - double(dm)));
+    s.step();
+  }
+  const double m1 = double(s.total_mass());
+  std::printf("  %d calls of %.3f: worst |taken - asked| %.1e; sunk %.6f; total + drained - before %+.2e\n",
+              K, double(dm), worst_call, double(s.sunk_mass()), m1 + double(s.drained_mass()) - m0);
+  check::ok(worst_call < 1e-12, "every call takes exactly what it is asked");
+  check::near(double(s.sunk_mass()), K * double(dm), rel * K * double(dm), "sunk_mass() is the sum of the requests");
+  check::near(double(s.drained_mass()), double(s.sunk_mass()), 1e-12, "and drained_mass() counts it");
+  check::near(m1 + double(s.drained_mass()), m0, rel * m0, "total + drained == total before");
+  check::ok(m1 < m0 - 0.9 * K * double(dm), "the liquid is lower by what was taken");
+
+  auto hf = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.flags());
+  int open = 0;
+  for (Index y = 1; y < ny - 1; ++y)
+    for (Index x = 0; x < nx; ++x) {
+      if (hf(d.id(x, y, 0)) != FsFluid) continue;
+      for (int dy = -1; dy <= 1; ++dy)
+        for (int dx = -1; dx <= 1; ++dx)
+          if (hf(d.id((x + dx + nx) % nx, y + dy, 0)) == FsGas) ++open;
+    }
+  check::ok(open == 0, "no Fluid cell faces Gas after the sink");
+
+  // the cap: ask three columns' top rows for far more than they hold. Each layer
+  // the sink empties is converted and the next taken, so it takes ALL the
+  // liquid in the region (seven layers, inside the sixteen a call allows).
+  auto few = KOKKOS_LAMBDA(Index n) {
+    Index px, py, pz; dd.coords(n, px, py, pz);
+    return (px - hx) < 3 && (py - hy) >= 18;
+  };
+  double held = 0.0;
+  {
+    auto hf1 = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.flags());
+    auto hm1 = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.mass());
+    auto hr1 = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.rho());
+    for (Index y = 18; y < ny - 1; ++y)
+      for (Index x = 0; x < 3; ++x) {
+        const Index n = d.id(x, y, 0);
+        if (hf1(n) == FsFluid) held += double(hr1(n));
+        else if (hf1(n) == FsInterface && hm1(n) > 0) held += double(hm1(n));
+      }
+  }
+  const double before = double(s.total_mass()) + double(s.drained_mass());
+  const Real took = s.sink(Real(1e6), few);
+  std::printf("  asked 1e6 of three columns' top rows, which held %.6f: took %.6f\n", held, double(took));
+  check::near(double(took), held, rel * held, "a request beyond the region takes all it holds, layer by layer");
+  check::near(double(s.total_mass()) + double(s.drained_mass()), before, rel * before,
+              "the capped call keeps the ledger too");
+  for (int t = 0; t < 200; ++t) s.step();
+  const double m2 = double(s.total_mass()) + double(s.drained_mass());
+  check::ok(std::isfinite(m2) && std::fabs(m2 / before - 1.0) < rel,
+            "the emptied cells convert and the rest keeps its mass");
+}
+
+// draw(): the same kind of request taken through the DENSITY of a box of Fluid
+// cells deep in a resting pool (no gravity). Each call is exact -- total +
+// drained is unchanged across it to round-off -- and takes exactly what it
+// asks. The liquid around flows to the box, so the surface recedes far from it
+// as well -- which sink(), lowering surface mass and not the pressure, cannot
+// do -- and the box keeps its liquid (no pressure hole).
+// THE LEDGER OVER THE STEPS THAT FOLLOW IS NOT ROUND-OFF, AND THAT IS THE FREE
+// SURFACE'S, NOT draw()'s: wherever a density disturbance reaches the surface
+// the solver's total moves -- a spot of density 0.95 SEEDED in the same box,
+// with nothing drawn, moves it by +9.1e-3 here and +5.6e-4 in a wall-free
+// periodic slab (measured 2026-11-07; the control is printed below), where the
+// same pool at rest holds it to round-off. Drawing 40 units costs 0.053 here
+// (0.13 %; 0.17 % in the periodic slab), so the ledger is gated at 0.5 % of what
+// was drawn: a regression guard, not a derivation.
+static void run_draw() {
+  using L  = D2Q9;
+  using FS = FreeSurfaceSolver<L>;
+  const Index nx = 32, ny = 40;
+  Domain d(nx, ny, 1, true, false, true);
+  const Index nyi = ny;
+  const Domain dd = d; const Index hx = d.hx, hy = d.hy;
+  auto build = [&](FS& s, Real rho_box) {
+    s.coll.omega = FS::omega_from_viscosity(Real(0.1));
+    s.set_gravity(Real(0), Real(0));
+    s.set_geometry([&](Index, Index y, Index) -> FsCell {
+      return (y == 0 || y == nyi - 1) ? FsSolid : FsGas;
+    });
+    s.initialize(KOKKOS_LAMBDA(Index n) {
+      Index px, py, pz; dd.coords(n, px, py, pz);
+      const Real y = Real(py - hy), x = Real(px - hx);
+      const Real e = (y + Real(0.5) < Real(24)) ? Real(1)
+                   : ((y - Real(0.5) < Real(24)) ? Real(0.5) : Real(0));
+      const bool inbox = x >= Real(14) && x < Real(18) && y >= Real(4) && y < Real(8);
+      return typename FS::Seed{e, inbox ? rho_box : Real(1)};
+    });
+  };
+  FS s(d);
+  build(s, Real(1));
+  for (int t = 0; t < 300; ++t) s.step();
+  auto level = [&](Index x) {               // the liquid's height in column x, from its fills
+    auto hf = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.flags());
+    auto he = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.fill());
+    double h = 0;
+    for (Index y = 1; y < ny - 1; ++y) {
+      const auto f = hf(d.id(x, y, 0));
+      h += (f == FsFluid) ? 1.0 : (f == FsInterface ? double(he(d.id(x, y, 0))) : 0.0);
+    }
+    return h;
+  };
+  const double near0 = 0.5 * (level(15) + level(16)), far0 = 0.5 * (level(0) + level(31));
+  const double m0 = double(s.total_mass());
+  auto box = KOKKOS_LAMBDA(Index n) {
+    Index px, py, pz; dd.coords(n, px, py, pz);
+    const Index x = px - hx, y = py - hy;
+    return x >= 14 && x < 18 && y >= 4 && y < 8;
+  };
+  const double rel = sizeof(Real) == 8 ? 1e-9 : 2e-5;
+  const Real dm = Real(0.02);
+  // one call, alone: exact
+  {
+    const double b = double(s.total_mass()) + double(s.drained_mass());
+    s.draw(dm, box);
+    check::near(double(s.total_mass()) + double(s.drained_mass()), b, rel * b, "a call itself is exact: total + drained unchanged");
+  }
+  const int K = 2000;
+  double worst_call = 0.0;
+  for (int t = 0; t < K; ++t) {
+    s.step();
+    const Real took = s.draw(dm, box);
+    worst_call = std::max(worst_call, std::fabs(double(took) - double(dm)));
+  }
+  for (int t = 0; t < 300; ++t) s.step();   // let the level settle
+  const double drawn = double(s.sunk_mass());
+  const double m1 = double(s.total_mass());
+  const double fall = drawn / double(nx);                       // the mean fall, in rows
+  const double near1 = 0.5 * (level(15) + level(16)), far1 = 0.5 * (level(0) + level(31));
+  auto hf = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.flags());
+  auto hr = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.rho());
+  int fluid = 0; double rmin = 9;
+  for (Index y = 4; y < 8; ++y)
+    for (Index x = 14; x < 18; ++x) {
+      if (hf(d.id(x, y, 0)) == FsFluid) ++fluid;
+      rmin = std::min(rmin, double(hr(d.id(x, y, 0))));
+    }
+  const double led = m1 + double(s.drained_mass()) - m0;
+  std::printf("  %d calls of %.3f: worst |taken - asked| %.1e; the level fell %.3f rows above the box and %.3f"
+              " far from it (mean %.3f); box %d/16 Fluid, rho >= %.4f; total + drained - before %+.3e (%.2f %% of"
+              " the drawn)\n", K + 1, double(dm), worst_call, near0 - near1, far0 - far1, fall, fluid, rmin, led,
+              100.0 * led / drawn);
+  check::ok(worst_call < 1e-12, "every call takes exactly what it is asked");
+  check::near(drawn, (K + 1) * double(dm), rel * (K + 1) * double(dm), "sunk_mass() is the sum of the requests");
+  check::ok(std::fabs(led) < 0.005 * drawn, "over the steps, the free surface keeps all but < 0.5 % of what was drawn");
+  check::ok(far0 - far1 > 0.5 * fall, "the surface recedes far from the box too: the liquid flowed to it");
+  check::ok(fluid == 16 && rmin > 0.95, "the box keeps its liquid: no pressure hole");
+  // the cap: a fifth of what the box holds, per call
+  const Real took = s.draw(Real(1e6), box);
+  check::ok(double(took) > 0.19 * 16.0 * rmin && double(took) < 0.21 * 16.0 * 1.02,
+            "a huge request takes a fifth of the box");
+  // the control: a low-density spot seeded in the same box, nothing drawn
+  FS c(d);
+  build(c, Real(0.95));
+  const double c0 = double(c.total_mass());
+  for (int t = 0; t < 2600; ++t) c.step();
+  std::printf("  control: a spot of rho 0.95 seeded in the box, nothing drawn: the total moves %+.3e"
+              " (the same pool at rest: round-off)\n", double(c.total_mass()) - c0);
 }
 
 // drain(): what it removes is exactly what the ledger loses, the interface it
@@ -804,6 +1007,10 @@ int main(int argc, char** argv) {
     run_height_fit();
     std::printf("\n9. geometric mass exchange: a band in free fall, along and across itself\n");
     run_geometric_exchange();
+    std::printf("\n10. sink(): a set amount from a region's surface cells, the ledger and the cap\n");
+    run_sink();
+    std::printf("\n11. draw(): a set amount through the density of a region, which the liquid flows to\n");
+    run_draw();
   }
   const int rc = check::report("free_surface");
   Kokkos::finalize();

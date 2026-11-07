@@ -8,12 +8,15 @@ series for `compare`:
     python3 tools/plot_mew_axi.py compare results/mew_axi/mew_axi_compare.png
     python3 tools/plot_mew_axi.py sens    results/mew_axi/mew_axi_sens.png
     python3 tools/plot_mew_axi.py shapes  results/mew_axi/mew_axi_shapes.png
+    python3 tools/plot_mew_axi.py jet     results/mew_axi/mew_axi_jet.png
 
 compare: the approach to the collector, the melt held at the tip and the melt's
 mean temperature, for the isothermal r-z model on two grids, the model with
 heat, and the planar and 3-D siblings. sens: the same three panels for the
 model with heat under each of its unmeasured parameters. shapes: the drop,
-mirrored about the axis, coloured by temperature.
+mirrored about the axis, coloured by temperature. jet: the same three panels
+with the jet sink (mew_axi -jet) at the fibres' flow without and with the fan,
+isothermal and with heat, against the runs without it.
 """
 import glob
 import os
@@ -135,6 +138,21 @@ def sens(out):
     three_panels(out, runs, "The r-z model with heat: what its unmeasured parameters are worth (50 um)")
 
 
+def jet(out):
+    """The jet sink (mew_axi -jet): the fibres' flow taken at the apex, without and with the fan."""
+    runs = [
+        ("isothermal, no jet", *a("R4_iso_nu6"), 0, "-"),
+        ("isothermal, fan's jet 0.0036 mm$^3$/s", *a("R4_iso_jet036"), 0, "--"),
+        ("isothermal, no-fan jet 0.0116 mm$^3$/s", *a("R4_iso_jet116"), 0, ":"),
+        ("heat, no jet", *a("R4_heat_best"), 1, "-"),
+        ("heat, fan's jet 0.0036 mm$^3$/s", *a("R4_heat_jet036"), 1, "--"),
+        ("heat, no-fan jet 0.0116 mm$^3$/s", *a("R4_heat_jet116"), 1, ":"),
+        ("heat at h 300 (a fan's cooling), no jet", *a("R4_heat_h300"), 2, "-"),
+        ("heat at h 300, fan's jet 0.0036 mm$^3$/s", *a("R4_heat_jet036_h300"), 2, "--"),
+    ]
+    three_panels(out, runs, "The r-z model with the jet sink: the fibres' flow taken at the apex (50 um)")
+
+
 def nearest(prefix, t):
     best, bt = None, 1e9
     for f in glob.glob(prefix + "_t*_fill.npy"):
@@ -201,7 +219,7 @@ def shapes(out):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3 or sys.argv[1] not in ("compare", "sens", "shapes"):
+    if len(sys.argv) != 3 or sys.argv[1] not in ("compare", "sens", "shapes", "jet"):
         print(__doc__)
         sys.exit(2)
-    {"compare": compare, "sens": sens, "shapes": shapes}[sys.argv[1]](sys.argv[2])
+    {"compare": compare, "sens": sens, "shapes": shapes, "jet": jet}[sys.argv[1]](sys.argv[2])

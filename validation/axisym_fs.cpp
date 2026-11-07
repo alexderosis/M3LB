@@ -100,7 +100,20 @@
 //  resolution of the populations) and E at R = 16 (rate 0.74 of Stokes). M's
 //  R = 32 row reads 1.2e-3, order 2.4: the floor arriving, inside its gate.
 //
-//  Usage: axisym_fs [-sec APBCDMKTVE] [-v]
+//   J. ON REQUEST (-sec J; not in the default list, no gate): FreeSurfaceSolver::
+//      draw() in r-z. A resting cylinder, R = 16 and 32, periodic in z, has
+//      0.005 (r-weighted) drawn per step for 3000 steps from a 2 x 4-cell box ON
+//      the axis or at r = R/2, both deep in the liquid; (total + drained -
+//      before) / drawn is -3.3e-4 / -3.3e-4 at R = 16 and -3.7e-4 / -3.5e-4 at
+//      R = 32: the axis costs nothing extra. With the geometric exchange alone,
+//      -3.3e-4 / -3.4e-4; with surface tension 0.005 alone, -3.3e-4 / +1.5e-3;
+//      with both, -1.2e-2 / -2.2e-2. A spot of density 0.95 seeded in the axis
+//      box with nothing drawn moves the total by -6.7e-7 / -2.7e-3 of its
+//      deficit. Written 2026-11-07 to find why demonstrator/mew_axi's jet made
+//      mass: not the axis -- the box was touching the free surface (see the JET
+//      in that banner).
+//
+//  Usage: axisym_fs [-sec APBCDMKTVE] [-sec J] [-v]
 //==============================================================================
 #include "core/Types.hpp"
 #include "solver/FreeSurfaceSolver.hpp"
@@ -577,6 +590,48 @@ Rate relax(Index R, double Oh, double aspect, bool geom) {
 
 }  // namespace
 
+//---- J (on request): draw() in r-z, from the axis or from a ring ------------------------
+// A resting liquid cylinder of radius R, periodic in z; dm (r-weighted) drawn per
+// step from a 2 x 4-cell box on the axis or at r = R/2, or nothing drawn with a
+// spot of density rho_seed in the axis box instead. Returns (total + drained -
+// before) / drawn, or / the seeded deficit for the control.
+double draw_cyl(Index R, int where, double dm, int steps, double rho_seed, bool geom = false, double sigma = 0) {
+  const Index nx = R + 8, ny = 2 * R;
+  Domain d(nx, ny, 1, false, true, true);
+  FS s(d);
+  base(s, geom);
+  if (sigma > 0) { s.set_surface_tension(Real(sigma)); s.set_height_function(true); }
+  s.set_geometry([&](Index, Index, Index) -> FsCell { return FsGas; });
+  const Domain dd = d;
+  const Index hx = d.hx, hy = d.hy, x0 = (where == 1) ? R / 2 : 0, y0 = ny / 2 - 2;
+  const Real Rr = Real(R), rs = Real(rho_seed);
+  s.initialize(KOKKOS_LAMBDA(Index n) {
+    Index px, py, pz; dd.coords(n, px, py, pz);
+    const Index x = px - hx, y = py - hy;
+    const Real r = Real(x) + Real(0.5);
+    Real e = Rr + Real(0.5) - r;
+    e = e < Real(0) ? Real(0) : (e > Real(1) ? Real(1) : e);
+    const bool inbox = x >= x0 && x < x0 + 2 && y >= y0 && y < y0 + 4;
+    return typename FS::Seed{e, inbox ? rs : Real(1)};
+  });
+  const double m0 = double(s.total_mass());
+  double deficit = 0;
+  for (Index y = y0; y < y0 + 4; ++y)
+    for (Index x = x0; x < x0 + 2; ++x) deficit += (1.0 - rho_seed) * (double(x) + 0.5);
+  auto box = KOKKOS_LAMBDA(Index n) {
+    Index px, py, pz; dd.coords(n, px, py, pz);
+    const Index x = px - hx, y = py - hy;
+    return x >= x0 && x < x0 + 2 && y >= y0 && y < y0 + 4;
+  };
+  for (int t = 0; t < steps; ++t) {
+    s.step();
+    if (where >= 0 && dm > 0) s.draw(Real(dm), box);
+  }
+  const double led = double(s.total_mass()) + double(s.drained_mass()) - m0;
+  const double ref = (dm > 0 && where >= 0) ? double(s.sunk_mass()) : deficit;
+  return led / ref;
+}
+
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   int rc = 0;
@@ -586,7 +641,7 @@ int main(int argc, char** argv) {
       if (!std::strcmp(argv[i], "-v")) g_verbose = true;
       else if (!std::strcmp(argv[i], "-sec") && i + 1 < argc) sec = argv[++i];
       else {
-        std::fprintf(stderr, "axisym_fs: unknown option %s\n  usage: axisym_fs [-sec APBCDMKTVE] [-v]\n", argv[i]);
+        std::fprintf(stderr, "axisym_fs: unknown option %s\n  usage: axisym_fs [-sec APBCDMKTVE] [-sec J] [-v]\n", argv[i]);
         Kokkos::finalize();
         return 2;
       }
@@ -596,6 +651,18 @@ int main(int argc, char** argv) {
     const auto t0 = std::chrono::steady_clock::now();
     char w[96];
 
+    if (sec.find('J') != std::string::npos) {
+      std::printf("\nJ. draw() in r-z (on request): (total + drained - before) / drawn\n");
+      for (Index R : {16, 32}) {
+        std::printf("  R = %2d: from the axis box %+.3e, from the ring at R/2 %+.3e;"
+                    " a seeded spot on the axis, nothing drawn: %+.3e of its deficit\n", int(R),
+                    draw_cyl(R, 0, 0.005, 3000, 1.0), draw_cyl(R, 1, 0.005, 3000, 1.0),
+                    draw_cyl(R, -1, 0.0, 3000, 0.95));
+        std::printf("          the axis box with -geom %+.3e; with surface tension 0.005 %+.3e; with both %+.3e\n",
+                    draw_cyl(R, 0, 0.005, 3000, 1.0, true, 0), draw_cyl(R, 0, 0.005, 3000, 1.0, false, 0.005),
+                    draw_cyl(R, 0, 0.005, 3000, 1.0, true, 0.005));
+      }
+    }
     if (sec.find('A') != std::string::npos) {
       std::printf("\nA. a liquid cylinder at rest, no surface tension (2000 steps)\n");
       const Res C = cylinder(16, 0.0, 2000, 1.0);

@@ -228,6 +228,8 @@
 #include "lattice/Lattices.hpp"
 #include "memory/TwoLattice.hpp"
 
+#include <type_traits>
+
 namespace lbm {
 
 //------------------------------------------------------------------------------
@@ -1563,6 +1565,151 @@ class FreeSurfaceSolver {
   Real drained_mass() const { return drained_; }
 
   //----------------------------------------------------------------------------
+  // TAKE A SET AMOUNT OF LIQUID OUT OF THE SURFACE CELLS IN A REGION -- a jet
+  // leaving the melt faster and thinner than any grid can follow
+  // (demonstrator/mew_axi -jet). Call it between steps with the mass to remove
+  // (lattice units, r-weighted in axisymmetric mode, as mass() is); it takes it
+  // from the Interface cells inside(n) selects, from each in proportion to the
+  // mass it holds, never more than they hold between them, and returns what it
+  // took -- less than asked only when the region held less. That is added to
+  // drained_mass(), so total_mass() + drained_mass() is still the ledger, and
+  // to sunk_mass(), so a case can report the jet apart from any drain.
+  //
+  // IT LOWERS MASS, AND WHEN IT EMPTIES THE SURFACE IT CONVERTS IT. Taking mass
+  // changes no flag: the fill follows, eps = mass / (rho w) as classify()
+  // computes it, and a cell the flow then drives below -fill_offset converts at
+  // the next classify() like any other. But a cell taken to EXACTLY zero is not
+  // below -fill_offset, and in a liquid at rest nothing refills it, so it stays
+  // an empty Interface cell for good and the liquid behind it is never exposed:
+  // the first version, in a resting column, took 16.0 of the 20.0 asked and then
+  // nothing (block 10). So when a request reaches the bottom of what the
+  // region's surface cells hold -- they are all emptied together, being taken
+  // from in proportion -- they are converted to Gas through drain(), whose
+  // demote-before-promote closes the shell behind them, and the rest of the
+  // request is taken from the new surface; at most 16 layers a call. Only
+  // Interface cells are taken from: a Fluid cell holding less than its density
+  // would be a hole the flags do not know about. The momentum the jet carries
+  // away is not removed with the mass (at MEW speeds it is negligible), and
+  // nothing here knows where a jet would actually leave: the region is the
+  // caller's.
+  //
+  // Opt-in: a case that never calls it is unchanged. Added 2026-11-07;
+  // tests/test_free_surface.cpp block 10 pins the ledger, the cap and the shell.
+  //----------------------------------------------------------------------------
+  template <class InsideFn>
+  Real sink(Real dm, InsideFn inside) {
+    if (!(dm > Real(0))) return Real(0);
+    const Domain d = dom_;
+    const bool axi = axisymmetric;
+    Real taken = 0, left = dm;
+    for (int layer = 0; layer < 16 && left > Real(0); ++layer) {
+      auto flags = flags_;
+      auto mass = mass_, eps = eps_, rho = rho_;
+      Real avail = 0;
+      Kokkos::parallel_reduce("fs_sink_avail", Range(0, dom_.n_padded),
+        KOKKOS_LAMBDA(Index n, Real& acc) {
+          if (flags(n) == FsInterface && mass(n) > Real(0) && inside(n)) acc += mass(n);
+        }, avail);
+      Kokkos::fence();
+      if (!(avail > Real(0))) break;
+      const Real take = left < avail ? left : avail;
+      const Real keep = Real(1) - take / avail;   // every selected cell keeps this share; 0 when all is taken
+      Kokkos::parallel_for("fs_sink", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+        if (flags(n) != FsInterface || !(mass(n) > Real(0)) || !inside(n)) return;
+        mass(n) *= keep;
+        const Real r = rho(n) * volume_weight(d, axi, n);
+        eps(n) = (r > Real(0)) ? mass(n) / r : Real(0);
+      });
+      Kokkos::fence();
+      taken += take;
+      left -= take;
+      if (keep > Real(0)) break;                  // the surface held more than was asked
+      // the region's surface cells are empty: turn them to Gas so the liquid behind them is the surface
+      drain(KOKKOS_LAMBDA(Index n) { return flags(n) == FsInterface && !(mass(n) > Real(0)) && inside(n); });
+    }
+    drained_ += taken;
+    sunk_ += taken;
+    return taken;
+  }
+  Real sunk_mass() const { return sunk_; }
+
+  //----------------------------------------------------------------------------
+  // DRAW LIQUID OUT THROUGH THE DENSITY OF A REGION'S FLUID CELLS -- a jet's root,
+  // which the liquid around has to flow to (demonstrator/mew_axi -jet). Call it
+  // between steps with the mass to remove (r-weighted in axisymmetric mode, as
+  // mass() is). Every population of every Fluid cell inside(n) selects -- in both
+  // arrays, as mark_obstacle's refill writes them -- is scaled by one factor, so
+  // its velocity is unchanged and its density, and with it the pressure
+  // cs^2 rho, falls: the liquid around flows in, and the surface recedes wherever
+  // that flow takes the liquid from. Returns what it took: dm, or a fifth of what
+  // the region holds if that is less, so that no single call opens a pressure
+  // hole. Counted in drained_mass() and sunk_mass(), as sink() is.
+  //
+  // WHY NOT sink(). sink() lowers surface mass and leaves the pressure alone, so
+  // nothing around it feels the loss. Given mew_axi's apex as its region it
+  // TUNNELLED UP THE AXIS: the cells within 0.1 mm of it were hollow to the
+  // nozzle by 10 s while the drop hung below them, and the jet it was meant to be
+  // took 78 % of its flow and then almost none. A jet is fed by the liquid
+  // converging on its root, which is a pressure effect, and draw() is that.
+  // sink() stays for what genuinely leaves through a surface.
+  //
+  // A CALL IS EXACT; THE STEPS AFTER IT ARE THE FREE SURFACE'S, AND THEY ARE NOT.
+  // total() + drained_mass() is unchanged across a call to round-off. But this
+  // free surface does not hold its total exactly once a density disturbance
+  // reaches it -- a spot of density 0.95 seeded in a pool, nothing drawn, moves
+  // the total by 9e-3 of the spot's deficit (block 11's control) -- so what
+  // draw() takes then costs a little more: 0.13 % of it from a box 16 cells below
+  // the surface. KEEP THE REGION OFF THE SURFACE: mew_axi's first jet drew from
+  // the cells next to its apex and the free surface CREATED mass at 8.2 % of
+  // the jet; two cells in, 2.5 %; four and six cells in, 1e-5 to 5e-5, the
+  // run's own level without a draw. AND THE SURFACE COMES TO THE REGION: the
+  // suction that feeds it also pulls a nearby surface towards it. mew_axi's box,
+  // four cells in, drew the surface on the axis up 2-3.6 cells over ~10 s, to
+  // within a cell of the box, and from then on the creation came back -- 7.2 %
+  // of the jet by contact. Placing the region deeper did not cure it there (see
+  // that banner): what to draw from, and where, is the case's to measure.
+  //
+  // Requires raw populations: a shifted store (f - w_i) would need the shift
+  // scaled back with the rest, and is refused at compile time. Opt-in: a case
+  // that never calls it is unchanged. Added 2026-11-07; tests/test_free_surface
+  // block 11 pins the ledger, the cap and the non-local response.
+  //----------------------------------------------------------------------------
+  template <class InsideFn>
+  Real draw(Real dm, InsideFn inside) {
+    static_assert(std::is_same_v<typename Collision::Storage, RawPopulations>,
+                  "FreeSurfaceSolver::draw scales populations and needs RawPopulations");
+    if (!(dm > Real(0))) return Real(0);
+    auto flags = flags_;
+    auto mass = mass_, rho = rho_;
+    const Domain d = dom_;
+    const bool axi = axisymmetric;
+    Real held = 0;
+    Kokkos::parallel_reduce("fs_draw_held", Range(0, dom_.n_padded),
+      KOKKOS_LAMBDA(Index n, Real& acc) {
+        if (flags(n) == FsFluid && inside(n)) acc += rho(n) * volume_weight(d, axi, n);
+      }, held);
+    Kokkos::fence();
+    if (!(held > Real(0))) return Real(0);
+    const Real cap = Real(0.2) * held;
+    const Real take = dm < cap ? dm : cap;
+    const Real keep = Real(1) - take / held;
+    const auto acc = pop_.template access<0>();
+    Kokkos::parallel_for("fs_draw", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+      if (flags(n) != FsFluid || !inside(n)) return;
+      for (int i = 0; i < Q; ++i) {
+        acc.src(n, i) = keep * acc.src(n, i);
+        acc.dst(n, i) = keep * acc.dst(n, i);
+      }
+      rho(n) *= keep;
+      mass(n) *= keep;
+    });
+    Kokkos::fence();
+    drained_ += take;
+    sunk_ += take;
+    return take;
+  }
+
+  //----------------------------------------------------------------------------
   // PROJECT THE STATE ONTO ITS MIRROR-SYMMETRIC PART about the plane between
   // columns x and xsum - x (xsum = nx - 1 for a box symmetric about its middle).
   // Call it between steps, and only while the problem IS symmetric: it is not a
@@ -2676,6 +2823,7 @@ class FreeSurfaceSolver {
   View1D<std::uint8_t> uncov_;
   Real ejected_ = 0;          // see ejected_mass()
   Real drained_ = 0;          // see drain()
+  Real sunk_ = 0;             // see sink(); also counted in drained_
   HostView1D<std::uint8_t> h_flags_;
   View1D<Real> mass_, eps_, excess_;
   // Curvature working set. Empty until set_surface_tension() is called.

@@ -10179,6 +10179,27 @@ Stated plainly, because each has been measured.
   RAISES it to $0.89$--$1.00$\,nA, because a pull at the apex stretches no part of
   the jet. At half that current and 35\,mm/s the jet lags $3.9$--$4.4$\,mm
   behind the cone.
+\item \textbf{The jet sink in \code{mew\_axi} (\code{-jet}) dimples the apex
+  it stands in for, and the free surface creates mass where the dimple reaches
+  the drawn melt.} The jet is below the grid, so the melt it carries --- the
+  fibres' flow, an input: $0.01155$\,mm$^3$/s without the fan, $0.00364$ with
+  it --- is drawn through the density of the melt four cells above the apex
+  (\code{FreeSurfaceSolver::draw}). The suction that brings the melt in also
+  pulls the surface on the axis up by 2--3.6 cells, where a real jet pulls the
+  apex out, and once that surface is within a cell of the drawn melt the free
+  surface creates mass: by contact $7.2\,\%$ of what the jet took
+  (isothermal, no fan), by 60\,s $3.1\,\%$ with heat. The same column with no
+  jet creates none. Drawing from a box eight cells deep is worse --- the field
+  pulls the undrained cap into a thread that pinches at the box --- and moves
+  the contact by $11\,\%$; a box one cell across dimples sooner; taking the
+  melt out of the surface cells instead tunnels up the axis. The mechanism of
+  the creation is not diagnosed. With that, the fibres' flow delays an
+  isothermal contact from $15.80$\,s to $17.89$\,s with the fan's jet and to
+  $32.14$\,s without the fan, and with heat the drop stalls in every case,
+  holding $0.750$, $0.629$ and $0.368$\,mm$^3$ within 1\,mm of the tip at
+  60\,s with no jet, the fan's and the no-fan one: the fan's thinner fibres
+  leave $1.7\times$ as much at the tip, and $2.7\times$ ($0.989$\,mm$^3$) if
+  the fan also cools the drop at a nominal 300 rather than 90\,W/m$^2$/K.
 \item \textbf{A mirror-symmetric free surface does not stay symmetric, and a
   thread drawn below a cell creates mass.} Neither is diagnosed. In
   \code{mew\_nozzle} an advancing front amplifies round-off until the column

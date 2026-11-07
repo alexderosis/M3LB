@@ -81,6 +81,53 @@
 //  rho_piston below), which removes the +0.34 % its compressed melt injected;
 //  -rawfeed keeps the siblings' piston.
 //
+//  THE JET (-jet Q, mm^3/s; added 2026-11-07). The jet itself is below the grid
+//  (WHAT IT CANNOT DO), so -jet takes out of the drop the melt it would carry
+//  instead: Q drawn through the density of the Fluid cells within -jetr (0.1 mm)
+//  of the axis, in a box 2 jetr tall starting -jetdepth (four cells) above the
+//  melt's lowest point there -- the root of a cone's apex -- by
+//  FreeSurfaceSolver::draw(), after every step while the field is on and until
+//  contact, and with -jetTmin C only while the melt at the apex is at least that
+//  warm (a frozen tip does not jet). Q is the fibres' flow, which nothing here
+//  predicts: a straight fibre d across laid at 35 mm/s carries pi d^2 v / 4,
+//  0.01155 mm^3/s for the 20.5 um fibres without the fan (56 % of the feed) and
+//  0.00364 for the fan's 11.5 um (17 %). What leaves is the series' jet_mm3
+//  (what it asked for, jet_asked_mm3; less only where the box holds too little,
+//  draw() taking at most a fifth of it a step), and is in drained_mm3 with the
+//  rim's, so the ledger closes but for what the free surface itself creates
+//  (below). The momentum it carries is not removed (negligible at MEW speeds).
+//  demonstrator/mew_jet is the jet itself.
+//  draw() lowers the pressure in the box, so the melt around flows to it. The
+//  first version took Q out of the SURFACE cells there (sink()), which leaves the
+//  pressure alone, and it tunnelled up the axis: the cells within 0.1 mm of it
+//  hollow to the nozzle by 10 s, the drop hanging below them, and 78 % of Q
+//  taken, then almost none.
+//  THE SUCTION THAT DRAWS THE MELT IN ALSO DIMPLES THE APEX, which a real jet
+//  pulls OUT. At the no-fan flow the surface on the axis rises above the ring of
+//  melt round it from about 8 s, by 2.1-2.6 cells over 16-24 s isothermal and
+//  2.4-3.6 over 16-28 s with heat, and the box's lower edge is then within
+//  about a cell of it, at times in it (read off the frames). AND WHERE THE
+//  SURFACE NEARS THE DRAWN CELLS THE FREE SURFACE CREATES MASS: nothing until
+//  the gap closes (the run's own 1e-6 mm^3), then 0.4 % of the jet by 20 s and
+//  7.2 % by contact (5.6 % of the melt) isothermal, 3.1 % by 60 s with heat.
+//  The fan's weaker jet dimples later (from about 20 s with heat) and creates
+//  1.2 % by 60 s; isothermal it creates 1.3 %, all in the 1.9 s before contact
+//  while its column runs down round the box. The same column with no jet runs
+//  to the collector creating none (2e-6 mm^3): it is the draw, not the thin
+//  melt. Neither neighbour of the default does better. A box one cell across
+//  (-jetr 0.05) dimples sooner and creates 0.37 % of the jet by 10 s. One eight
+//  cells deep (-jetdepth 0.4) leaves a cap below it that the field draws into a
+//  thread one or two cells thick, pinching at the box: it creates six times as
+//  much by 20-24 s, takes 95 % of what it asks, and touches at 28.47 s against
+//  32.14 s, so the box's depth is worth 11 % of that contact. Before any dimple
+//  (5 s) the box against the surface created 8.2 % of the jet, two cells in
+//  2.5 %, four or six cells in 1e-5 to 5e-5; neither the field (-V 0: 7.9 %), the
+//  piston's correction (-rawfeed: 8.4 %) nor the geometric exchange (-nogeom:
+//  8.6 %) moved that, and in a resting r-z cylinder (validation/axisym_fs -sec J)
+//  a box ON the axis but deep in the liquid costs 3e-4 of what is drawn, as one
+//  off it does. The mechanism is NOT diagnosed. The depth is in cells because the
+//  effect is the lattice's.
+//
 //  WHAT IT SAYS (2026-11-06; 50 um unless said; the series and logs are in
 //  results/mew_axi/, named there; tools/plot_mew_axi.py draws them):
 //   - ISOTHERMAL (the melt at 120 C throughout, as in both siblings), the field
@@ -127,15 +174,41 @@
 //     (3.525 mm at 60 s) and 0.751 / 0.750 against 0.750 mm^3 at the tip --
 //     in the stalled regime the freezing sets everything, the capillary
 //     pressure nothing. Isothermal, where it would matter, it was not run.
+//   - THE JET (-jet, 2026-11-07; the box four cells deep; nu0 = 1/24 with heat,
+//     against R4_heat_best): the fibres' flow, taken at the apex, delays the
+//     isothermal contact from 15.80 s to 17.89 s with the fan's jet (17 % of the
+//     feed) and to 32.14 s with the no-fan one (56 %; 28.47 s from a box eight
+//     cells deep): it is the melt left at the tip that reaches the collector.
+//     With heat the drop stalls whatever the jet, and the jet sets how much it
+//     holds: 0.750 / 0.629 / 0.368 mm^3 within 1 mm of the tip at 60 s with no
+//     jet, the fan's and the no-fan one, its lowest point 3.52 / 3.62 / 3.83 mm
+//     up. So the no-fan tip holds half of what it would with no jet and the
+//     fan's 84 %: at the same h, the fan's thinner fibres leave 1.7x as much at
+//     the tip. A fan also cools the drop; at h = 300 (forced convection's order,
+//     NOMINAL) with the fan's jet the tip holds 0.989 mm^3 at 60 s, 4.38 mm up
+//     (1.169 with no jet), 2.7x the no-fan tip at h = 90 -- so 1.7-2.7x, the
+//     fibres and the cooling pulling the same way. What the no-fan jet leaves is
+//     younger and so warmer, 82 against 68 C below the tip at 20 s, but within
+//     2 C of the jetless drop by 60 s. Jetting only while the apex is at 40 C or
+//     more takes 0.4 % less, is within a cell of it to 45 s and three cells
+//     higher at 60 s (3.98 mm) -- the freezing end is that sensitive. The mass
+//     the free surface creates (THE JET above) is 1-7 % of what the jet takes,
+//     against a threefold difference between the two jets. (These runs' logs
+//     print the jet's line in sink()'s words, "from the surface cells", which
+//     outlived the switch to draw() until after they ran; what ran is the draw,
+//     four cells in and 0.1 mm across unless the name says otherwise: _d8 eight
+//     cells in, _r05 one cell across.)
 //  So the model does not predict a contact time. It predicts that the tip's
 //  thermal state decides between a column drawn to the collector in 10-35 s
-//  and a drop that cools, crystallises at its end and grows at the tip.
+//  and a drop that cools, crystallises at its end and grows at the tip -- and,
+//  given the fibres' flow, how much of the feed the tip keeps.
 //
 //  Usage: mew_axi [-R 4] [-Ucol 0.04] [-nu 0.1667] [-mu 820] [-gamma 0.030] [-V 6.5]
 //                 [-feed 0.0208] [-W 4] [-up 1.25] [-plate | -plateR MM] [-equip] [-lc MM]
 //                 [-nofield] [-nogeom] [-rawfeed] [-heat [-h 90] [-Ea 31.3] [-Tair 25]
 //                 [-Tcol 22] [-Tnoz 120] [-Tfreeze 30] [-nucap 1] [-Dafr 100] [-nofreeze]]
-//                 [-fieldon T] [-M 20] [-sweeps 400] [-tend 20] [-tframe 0.5] [-watch T] [-out PREFIX]
+//                 [-fieldon T] [-jet Q [-jetr 0.1] [-jetdepth MM] [-jetTmin C]] [-M 20] [-sweeps 400]
+//                 [-tend 20] [-tframe 0.5] [-watch T] [-out PREFIX]
 //                 (mm, kV, mm^3/s, W/m^2/K, kJ/mol, C)
 //==============================================================================
 #include "FsElectricAxi.hpp"
@@ -211,6 +284,11 @@ struct Opts {
   bool   feedfix = true;     // the piston at U / rho_piston: a volume feed (see rho_piston)
   double watch  = -1;        // > 0: from this time on, a line and a frame at every field update
   double t_on   = 0;         // the field switched on at this time (s): the drop oozes first
+  double jet    = 0;         // -jet Q: a jet leaving the melt's lowest point at Q mm^3/s (FreeSurfaceSolver::draw)
+  double jet_r  = 0.1;       // -jetr MM: drawn from the melt within this of the axis there
+  double jet_Tmin = -1e9;    // -jetTmin C: and only while the melt at the apex is at least this warm (with -heat)
+  double jet_depth = -1;     // -jetdepth MM: the drawn box starts this far inside the melt above its lowest point
+                             // (default four cells: see THE JET in the banner)
   bool   heat   = false;     // temperature, Arrhenius viscosity and freezing (FsHeatAxi)
   bool   freeze = true;      // with heat: the drag below the band
   double nucap  = 1.0;       // with heat: the largest lattice viscosity (the axis bound)
@@ -256,6 +334,10 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(a, "-watch"))   o.watch = num();
       else if (!std::strcmp(a, "-heat"))    o.heat = true;
       else if (!std::strcmp(a, "-fieldon")) o.t_on = num();
+      else if (!std::strcmp(a, "-jet"))     o.jet = num();
+      else if (!std::strcmp(a, "-jetr"))    o.jet_r = num();
+      else if (!std::strcmp(a, "-jetTmin")) o.jet_Tmin = num();
+      else if (!std::strcmp(a, "-jetdepth")) o.jet_depth = num();
       else if (!std::strcmp(a, "-nofreeze")) o.freeze = false;
       else if (!std::strcmp(a, "-nucap"))   o.nucap = num();
       else if (!std::strcmp(a, "-Dafr"))    o.Dafr = num();
@@ -379,6 +461,15 @@ int main(int argc, char** argv) {
     el.apply(fs);
     std::printf("  initial field: %d SOR sweeps\n", s0);
     if (o.t_on > 0) std::printf("  the field is switched on at t = %.1f s; the melt oozes until then\n", o.t_on);
+    if (o.jet > 0) {
+      const long jd = o.jet_depth < 0 ? 4L : std::lround(o.jet_depth * 1e-3 / dx);
+      char warm[96] = "";
+      if (o.heat && o.jet_Tmin > -1e8)
+        std::snprintf(warm, sizeof warm, ", and only while the melt at the apex is at least %.1f C", o.jet_Tmin);
+      std::printf("  jet: %.5f mm^3/s (%.0f %% of the feed) drawn from the melt within %.3f mm of the axis, in a box\n"
+                  "       starting %ld cells above its lowest point there, while the field is on and until contact%s\n",
+                  o.jet, o.jet * 1e-9 / P.Q * 100.0, o.jet_r, jd, warm);
+    }
 
     //---- heat ------------------------------------------------------------------------
     FsHeatAxi heat(d);
@@ -448,7 +539,8 @@ int main(int argc, char** argv) {
     const double v3 = 2.0 * kPi * dx * dx * dx * 1e9;
     const double m0 = double(fs.total_mass());
     const double inj_step = double(uin) * 0.5 * double(R) * double(R);   // sum_{x<R} uin (x + 1/2)
-    struct Diag { double t, total, tip, gap, zlow, neck, drained, ledger, pe, emax, etip, phitip, rho_p,
+    double jet_asked = 0;                       // -jet: the mass the jet has asked draw() for
+    struct Diag { double t, total, tip, gap, zlow, neck, drained, jet, jet_asked, ledger, pe, emax, etip, phitip, rho_p,
                   Tend, Tgap, Tmin, frozen, width; };
     auto measure = [&](double t) {
       auto hf = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs.flags());
@@ -486,6 +578,8 @@ int main(int argc, char** argv) {
       const double drained = double(fs.drained_mass());
       const double injected = inj_step * (t / dt);
       D.drained = drained * v3;
+      D.jet = double(fs.sunk_mass()) * v3;
+      D.jet_asked = jet_asked * v3;
       D.ledger = (double(fs.total_mass()) + drained - m0 - injected) / std::max(1.0, injected);
       D.total *= v3; D.tip *= v3; D.gap *= v3;
       D.pe = el.max_stress() / (gam_l / R);
@@ -558,7 +652,7 @@ int main(int argc, char** argv) {
       fs_out = std::fopen((o.out + "_series.csv").c_str(), "w");
       if (fs_out) std::fprintf(fs_out, "t_s,melt_total_mm3,tip_zone_mm3,gap_mm3,z_low_mm,neck_mm,drained_mm3,"
                                "ledger,max_pe_over_gamma_R,max_E_kV_per_mm,E_below_tip_kV_per_mm,phi_end,rho_piston,"
-                               "T_end_C,T_gap_mean_C,T_min_C,frozen_mm3,width_mm\n");
+                               "T_end_C,T_gap_mean_C,T_min_C,frozen_mm3,width_mm,jet_mm3,jet_asked_mm3\n");
     }
     std::printf("\n  %8s %10s %10s %10s %7s %6s %9s %8s %7s %7s %6s %8s %s\n", "t [s]", "melt mm^3", "tip mm^3",
                 "gap mm^3", "z_low", "neck", "ledger", "pE/g/R", "E kV/mm", "E end", "phi_e", "rho_pst", "wall s/s");
@@ -575,7 +669,46 @@ int main(int argc, char** argv) {
     const Index ydr = Index(std::lround(0.25e-3 / dx));
     for (long t = 0; t < nsteps; t += o.M) {
       auto c0 = std::chrono::steady_clock::now();
-      for (int j = 0; j < o.M; ++j) fs.step();
+      // -jet: the melt a jet carries away, DRAWN through the density of the Fluid cells at the
+      // melt's lowest point near the axis -- the cone's apex -- so the melt around flows to it
+      // (FreeSurfaceSolver::draw; sink(), which lowers surface mass, tunnelled up the axis).
+      // Where it is, is found once per field update; it acts after every step, while the field
+      // that pulls it is on, until contact, and with -jetTmin only while the melt there is warm.
+      bool jet_now = false;
+      Index ya = 0, nr = 1;
+      if (o.jet > 0 && o.field && t * dt >= o.t_on && !contacted) {
+        auto hfj = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs.flags());
+        nr = std::max<Index>(1, Index(std::lround(o.jet_r * 1e-3 / dx)));
+        Index yap = ny;
+        for (Index y = 1; y < ytip && yap == ny; ++y)
+          for (Index x = 0; x < nr; ++x) {
+            const std::uint8_t f = hfj(d.id(x, y));
+            if (f == FsFluid || f == FsInterface) { yap = y; break; }
+          }
+        bool warm = true;
+        if (o.heat && o.jet_Tmin > -1e8 && yap < ny) {
+          double Ts = 0; int nT = 0;
+          for (Index y = yap; y < std::min<Index>(ytip, yap + 2 * nr); ++y)
+            for (Index x = 0; x < nr; ++x)
+              if (heat.liquid(x, y)) { Ts += heat.T(x, y); ++nT; }
+          warm = nT > 0 && Ts / nT >= o.jet_Tmin;
+        }
+        jet_now = yap < ny && warm;
+        ya = yap;
+      }
+      const Real dmj = Real(inj_step * (o.jet * 1e-9 / P.Q));
+      for (int j = 0; j < o.M; ++j) {
+        fs.step();
+        if (jet_now) {
+          const Index y0 = ya + (o.jet_depth < 0 ? Index(4) : Index(std::lround(o.jet_depth * 1e-3 / dx))), r0 = nr;
+          fs.draw(dmj, KOKKOS_LAMBDA(Index n) {
+            Index px, py, pz; dd.coords(n, px, py, pz);
+            const Index x = px - hx, y = py - hy;
+            return x < r0 && y >= y0 && y < y0 + 2 * r0;
+          });
+          jet_asked += double(dmj);
+        }
+      }
       Kokkos::fence();
       auto c1 = std::chrono::steady_clock::now();
       // Melt that spreads on the collector to the box's rim leaves there.
@@ -665,9 +798,10 @@ int main(int argc, char** argv) {
           break;
         }
         if (fs_out) std::fprintf(fs_out, "%.5f,%.6f,%.6f,%.6f,%.5f,%.5f,%.6f,%.3e,%.4f,%.4f,%.4f,%.5f,%.6f,"
-                                 "%.3f,%.3f,%.3f,%.6f,%.4f\n",
+                                 "%.3f,%.3f,%.3f,%.6f,%.4f,%.6f,%.6f\n",
                                  D.t, D.total, D.tip, D.gap, D.zlow, D.neck, D.drained, D.ledger, D.pe, D.emax,
-                                 D.etip, D.phitip, D.rho_p, D.Tend, D.Tgap, D.Tmin, D.frozen, D.width);
+                                 D.etip, D.phitip, D.rho_p, D.Tend, D.Tgap, D.Tmin, D.frozen, D.width, D.jet,
+                                 D.jet_asked);
         if (ts % sframe == 0) {
           const double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - wall0).count();
           const double rate = (wall - last_wall) / std::max(1e-9, D.t - last_t);
@@ -675,6 +809,7 @@ int main(int argc, char** argv) {
           std::printf("  %8.3f %10.5f %10.5f %10.5f %7.3f %6.3f %9.1e %8.3f %7.2f %7.2f %6.3f %8.5f %6.0f", D.t,
                       D.total, D.tip, D.gap, D.zlow, D.neck, D.ledger, D.pe, D.emax, D.etip, D.phitip, D.rho_p, rate);
           if (o.heat) std::printf("  T end %5.1f gap %5.1f min %5.1f frozen %.4f", D.Tend, D.Tgap, D.Tmin, D.frozen);
+          if (o.jet > 0) std::printf("  jet %.5f of %.5f", D.jet, D.jet_asked);
           std::printf("\n");
           std::fflush(stdout);
           if (fs_out) std::fflush(fs_out);
