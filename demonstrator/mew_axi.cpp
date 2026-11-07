@@ -92,12 +92,13 @@
 //     field at the drop, 9-45 kV/mm, is above air's onset. At 25 um the column
 //     leaves the drop as a cone narrowing into a thread; at 50 um as a rod. No
 //     isothermal contact time is a prediction.
-//   - WITH HEAT (-heat) the drop's lower end is below 45 C by 18 s and 40 C by
-//     23 s (a 1 s median of the lowest axis cell), and the drop STALLS about
+//   - WITH HEAT (-heat) the drop's lower end is below 45 C from 18.2 s and 40 C
+//     from 23.2 s (a 1 s median of the lowest axis cell), and the drop STALLS about
 //     3.5 mm above the collector, widening instead: 3.53 mm up at 60 s and
-//     3.38 mm at 150 s, 1.64 mm across and 1.33 mm^3 within 1 mm of the tip,
+//     3.38 mm at 150 s, 1.64 mm across and 1.34 mm^3 within 1 mm of the tip,
 //     the melt below the tip at 51 C (nu0 = 1/6; nu0 = 1/24, whose viscosity
-//     is not capped above 22 C, agrees to the cell to 60 s). THAT is grid-robust: at 28 s 3.69 mm on
+//     is not capped above 22 C, is within a cell of it from 10 to 60 s, two
+//     cells before 10 s, and in the same cell at 60 s). THAT is grid-robust: at 28 s 3.69 mm on
 //     25 um against 3.78 mm on 50 um, width 0.767 against 0.763 mm, tip melt
 //     6 % apart. What decides it is not measured. Without the freezing drag the
 //     cold melt touches at 34.29 s. With the air at 50 / 40 / 35 C: touches at
@@ -110,7 +111,8 @@
 //     falling 0.02 mm/s, then faster: it touches at 194.56 s (the planar
 //     model at 91.3 s); with
 //     heat it stalls at 3.3 mm, 1.54 mm^3 at the tip by 150 s, its end at
-//     32 C. With heat the field brings the drop down sooner but not further --
+//     30-39 C over the last 5 s (one cell, and noisy: inside the freezing band).
+//     With heat the field brings the drop down sooner but not further --
 //     3.53 against 3.78 mm at 60 s, and 3.43 mm both at 120 s: in the cooling
 //     regime the drop is oozing, not jetting.
 //   - THE PROTOCOL, 60 s of oozing with the field off and then on (-fieldon 60,
@@ -401,8 +403,13 @@ int main(int argc, char** argv) {
       std::printf("  heat: alpha %.3e m^2/s (%.3e lattice), h %.0f W/m^2/K (%.3e), Bi(R) %.3f, Ea %.1f kJ/mol,"
                   " air %.0f C, collector %.0f C\n", alpha_phys, heat.alpha, P.hconv, heat.hloss,
                   P.hconv * P.R / P.kmelt, P.Ea * 1e-3, P.Tair, P.Tcol);
+      // The band printed is the band applied: a literal "30-40 C" here once labelled
+      // the -Tfreeze 20 run with the default band while its physics used 20-30 C.
+      char band[64];
+      if (o.freeze) std::snprintf(band, sizeof band, "below %.0f-%.0f C (drag)", P.Ts, P.Tl);
+      else          std::snprintf(band, sizeof band, "off");
       std::printf("        viscosity capped at nu %.3f (x %.1f, reached at %.1f C); freezing %s, Da %.0f (A %.3f)\n",
-                  o.nucap, o.nucap / o.nu, Tcap, o.freeze ? "below 30-40 C (drag)" : "off", o.Dafr, A_fr);
+                  o.nucap, o.nucap / o.nu, Tcap, band, o.Dafr, A_fr);
       std::printf("        times: drop cooling rho c_p (0.5 mm / 3) / h = %.2f s, conduction over 0.5 mm %.2f s\n",
                   P.rho * P.cp * (0.5e-3 / 3.0) / P.hconv, 0.25e-6 / alpha_phys);
     }
