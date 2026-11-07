@@ -55,6 +55,17 @@
 //  the frozen row reads 21.6 % short at s = 1 and 27.3 % at s = 2 (9.2 / 19.5 %
 //  without), and B2's consistency 8.9 % (2.95 %). It makes this floor worse.
 //
+//  -hf AND -geom (2026-11-06): HEIGHT FUNCTIONS REMOVE THE GROWTH. With the
+//  height-function curvature the frozen row (-only s 1 1 0.24) reads -5.53 %
+//  at s = 1 and -4.41 % at s = 2 -- slightly SOFT, and no longer worse at the
+//  longer wavelength -- against +9.23 / +19.52 % with the default curvature.
+//  Adding the geometric exchange (-hf -geom) gives -5.85 / -4.45 %: the
+//  exchange does nothing here, the curvature everything. So the excess
+//  stiffness recorded above, which grew with the wavelength in cells, was the
+//  once-smoothed fill-level curvature, as the free-drop test
+//  (surface_tension -rate) had suggested; the -4 to -6 % that remains is not
+//  diagnosed. The default path is unchanged and the gates are on it.
+//
 //  C. THREE DIMENSIONS (2026-11-05), D3Q27 free surface + D3Q7 TRT potential,
 //  the path FsElectric took for demonstrator/mew_cone3d. Sections A and B print
 //  exactly what they printed before it, all 29 lines.
@@ -123,6 +134,8 @@ using FS = FreeSurfaceSolver<L>;
 namespace {
 
 bool g_nrec = false;   // -nrec: FreeSurfaceSolver::normal_reconstruction
+bool g_hf = false;     // -hf: height-function curvature (FreeSurfaceSolver::set_height_function)
+bool g_geom = false;   // -geom: the geometric exchange with donor and follows-line
 
 int failures = 0, checks = 0;
 void verdict_le(const char* what, double got, double ceil_) {
@@ -182,6 +195,12 @@ Result run(int s, double Ftarget, double delta, bool frozen, bool verbose,
   fs.set_gravity(Real(0), Real(-g));
   fs.set_surface_tension(Real(sigma));
   fs.set_normal_reconstruction(g_nrec);
+  if (g_hf) fs.set_height_function(true);
+  if (g_geom) {
+    fs.set_exchange_geometric(true);
+    fs.exchange_donor = true;
+    fs.surface_follows_line = true;
+  }
   fs.set_geometry([&](Index, Index y, Index) -> FsCell {
     return (y == 0 || y == Ly - 1) ? FsSolid : FsGas;
   });
@@ -504,6 +523,8 @@ int main(int argc, char** argv) {
     for (int a = 1; a < argc; ++a) {
       if (!std::strcmp(argv[a], "-v")) { verbose = true; continue; }
       if (!std::strcmp(argv[a], "-nrec")) { g_nrec = true; continue; }
+      if (!std::strcmp(argv[a], "-hf")) { g_hf = true; continue; }
+      if (!std::strcmp(argv[a], "-geom")) { g_geom = true; continue; }
       if (!std::strcmp(argv[a], "-only") && a + 4 < argc) {   // s frozen gfrac delta
         only_s = std::atoi(argv[++a]); only_frozen = std::atoi(argv[++a]);
         only_g = std::atof(argv[++a]); only_delta = std::atof(argv[++a]);

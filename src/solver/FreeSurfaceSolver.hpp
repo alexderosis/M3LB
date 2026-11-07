@@ -333,6 +333,22 @@ class FreeSurfaceSolver {
   // with a non-uniform gas pressure.
   View1D<Real> rho_G_of;         // optional per-node rho_G; empty means uniform
 
+  // OPTIONAL PER-NODE RELAXATION RATE, i.e. a viscosity that varies in space
+  // (a melt whose viscosity follows its temperature). Empty (the default)
+  // means coll.omega everywhere and nothing here behaves differently. The
+  // idiom is ScalarBGK's omega_of: once set, the field is authoritative for
+  // every LIQUID node and coll.omega is not consulted there. The collision is
+  // a per-node copy with only its shear rate replaced, so the bulk rate
+  // follows it where coll.omega_bulk < 0 ("follow omega") and stays fixed
+  // where it was set. In axisymmetric mode the r-z viscous sources read the
+  // same local viscosity: the missing axisymmetric stress is local in mu, so a
+  // varying mu needs no extra term (validation/axisym_fs, section M).
+  //
+  // WHAT IT DOES NOT CHECK: the stability of what it is given. Every bound
+  // this solver has on omega is the caller's -- tau > 1/2, and in axisymmetric
+  // mode the axis bound under `axisymmetric` below.
+  View1D<Real> omega_of;         // optional per-node shear omega; empty means uniform
+
   // SURFACE TENSION. Zero (the default) means none and costs nothing -- no
   // storage is allocated and no kernel runs. set_surface_tension() turns it on.
   //
@@ -642,14 +658,145 @@ class FreeSurfaceSolver {
   //     must assert THAT instead.
   bool no_refill = false;
 
+  // AXISYMMETRIC (r-z), opt-in through set_axisymmetric() (2026-11-06). Off,
+  // nothing below runs and every planar case is what it was.
+  //
+  // THE LAYOUT. x is the RADIUS and y the axis of symmetry: interior column 0
+  // has its centre at r = 1/2 and its left face ON the axis, so the axis is a
+  // face, not a row of nodes, and no node ever sits at r = 0. 2-D (D2Q9) only.
+  //
+  // THE POPULATIONS ARE THE PLANAR ONES, rho and u unweighted, so the pressure
+  // is the physical pressure, and the free-surface condition, the curvature's
+  // gas density and every wall are what they are in planar. What r costs goes
+  // in as sources, from setting the 2-D scheme's macroscopic equations against
+  // the axisymmetric ones:
+  //  * MASS: d_t rho + div_2D(rho u) = -rho u_r / r. Written as a source from
+  //    u it would conserve the r-weighted volume only to second order, and that
+  //    is the one property this file cannot lose. So the source is the EXCHANGE
+  //    ITSELF, re-weighted: the cell's r-weighted mass r_c rho must change by
+  //    each link's 2-D flux times the link's own radius r_link (the mean of its
+  //    two cells'), which is
+  //        rho_new = rho_2D - (1 / (2 r_c)) sum_i c_ix (f_in,i - f_out,i),
+  //    added in equilibrium shape, w_i dm, in stream_collide() (on the rest
+  //    population alone it is a spurious stress; see there). mass_exchange()
+  //    weights every link by r_link the same way, so a Fluid cell's mass is
+  //    r_c rho, an interface cell's m is r-weighted, the exchange stays
+  //    antisymmetric link by link, and total_mass() is the r-weighted volume,
+  //    conserved to round-off. In the bulk the source is -rho u_r / r.
+  //  * MOMENTUM, with incompressibility used where it removes a stiff term:
+  //        F_z = (mu/r)(d_r u_z + d_z u_r) - rho u_z u_r / r,
+  //        F_r = -(2 mu/r) d_z u_z - 4 mu u_r / r^2 - rho u_r^2 / r,
+  //    the -4 mu u_r / r^2 IMPLICIT through AxiGuo's radial drag: at r = 1/2 it
+  //    damps u_r at 16 nu per step. Derivatives central, from the previous
+  //    step's velocity, with a ghost per missing neighbour: the mirror across
+  //    the axis (u_r odd, u_z even), the no-slip reflection at a wall, zero
+  //    gradient at gas.
+  //  * THE AXIS BOUND, and the one other implicit term. On the axis column the
+  //    mirror turns (mu/r) d_r u_z into mu (u_z,1 - u_z,0): an explicit
+  //    relaxation towards the next column at about nu per step, ON TOP of the
+  //    scheme's own diffusion. Explicit, a liquid thread two to three cells
+  //    thick under a stretching force came apart at nu = 1/2 and held at 1/4
+  //    (mew_axi's column did the same just before contact, 2026-11-06); with
+  //    the self part -mu u_z,0 / (2 r) implicit (AxiGuo::Az) it holds at
+  //    nu = 1 and comes apart at 2. What remains at 2 are the explicit
+  //    first-derivative terms, whose coefficient mu / r is a speed in cells
+  //    per step near the axis -- a CFL-type bound no implicit self term can
+  //    lift. So the LATTICE viscosity is bounded, nu <~ 1, which a per-node
+  //    omega_of must respect; dt does not depend on it in a capillary
+  //    scaling, so the bound costs nothing but range.
+  //    (validation/axisym_fs, section T, is that thread.)
+  //  * THE AXIS is a specular mirror (halfway, one step), and for these fields
+  //    it is exact: rho and u_z are even across it, u_r odd, and so is every
+  //    moment the reflection keeps or reverses. Its 2-D flux carries no
+  //    r-weighted mass (r_link = 0), which the mass source removes.
+  //
+  // WHY NOT r TIMES THE FLOW, which was the first version. Carrying g = r f,
+  // continuity needs no source and the bookkeeping is automatic, but the
+  // pressure is wrong by construction: the scheme's stress G cs^2 = r p has
+  // divergence r grad p + p r_hat, and the radial force p that puts it right is
+  // O(cs^2), O(1/r) of the populations near the axis. Through Guo, its momentum
+  // offset is reflected with the wrong sign by the free-surface reconstruction,
+  // and a cylinder of liquid with surface tension went unstable (core pressure
+  // +-600 sigma/R by 8000 steps at R = 16, validation/axisym_fs, 2026-11-06);
+  // as a streaming increment the static state is exact and mass is not. Its
+  // axis also wanted bounce-back rather than the mirror. The planar
+  // populations avoid all of it.
+  //
+  // SURFACE TENSION gets the azimuthal curvature n_r / r on top of the
+  // meridional one: from the height-function slope and the surface's own
+  // radius where the heights hold, from pass 3's normal at the cell centre
+  // where they do not. The curvature passes read the halo column as the mirror
+  // of column 0, and the height-function columns mirror across the axis.
+  //
+  // THE CALLER sees rho() and u unweighted, r-weighted masses in mass() and
+  // total_mass() (per radian), and fills that are true volume fractions.
+  // Forces per unit volume, through force_of_x/y and set_gravity; an implicit
+  // drag through drag_of; a viscosity per node through omega_of (whose local
+  // mu the sources below read). The collision's forcing must be AxiGuo, whose
+  // views the solver owns.
+  //
+  // NOT SUPPORTED with it: 3-D, a periodic x, the normal reconstruction, a
+  // contact angle, mirror_symmetrize_x (each aborts), and an obstacle that
+  // MOVES through liquid (a static velocity wall is fine; see move_obstacle).
+  bool axisymmetric = false;
+  View1D<Real> force_of_x, force_of_y; // optional force per unit volume, axisymmetric only
+  // OPTIONAL IMPLICIT DRAG, axisymmetric only: F = -A(n) u per unit volume,
+  // added to AxiGuo's Ar and Az, so it closes like they do and is stable at
+  // any A -- what freezing needs (a cold melt held where it is; the frame is
+  // the lab's, which is right while every wall is at rest). Empty means none.
+  // Brinkman's pipe checks it (validation/axisym_fs, section K).
+  View1D<Real> drag_of;
+  static constexpr bool axi_force = requires(Collision c) { c.forcing.Ex; c.forcing.Ey; c.forcing.Ar; c.forcing.Az; };
+  void set_axisymmetric(bool on) {
+    if (!on) { axisymmetric = false; return; }
+    if (L::D != 2) Kokkos::abort("FreeSurfaceSolver::set_axisymmetric: 2-D (r-z) only");
+    if (dom_.periodic[0]) Kokkos::abort("FreeSurfaceSolver::set_axisymmetric: x is the radius and cannot be periodic");
+    if constexpr (!axi_force) {
+      Kokkos::abort("FreeSurfaceSolver::set_axisymmetric: the collision's forcing must be AxiGuo");
+    } else {
+      coll.forcing.Ex = View1D<Real>("fs_axi_Fx", dom_.n_padded);
+      coll.forcing.Ey = View1D<Real>("fs_axi_Fy", dom_.n_padded);
+      coll.forcing.Ar = View1D<Real>("fs_axi_Ar", dom_.n_padded);
+      coll.forcing.Az = View1D<Real>("fs_axi_Az", dom_.n_padded);
+      coll.forcing.fx = Real(0);  coll.forcing.fy = Real(0);  coll.forcing.fz = Real(0);
+    }
+    axisymmetric = true;
+  }
+  // The radius of cell n (axisymmetric layout); the halo column reads 1/2.
+  KOKKOS_INLINE_FUNCTION static Real radius_of(const Domain& d, Index n) {
+    Index px, py, pz; d.coords(n, px, py, pz);
+    const Real r = Real(px - d.hx) + Real(0.5);
+    return r < Real(0.5) ? Real(0.5) : r;
+  }
+  // The weight a cell's volume carries: its radius in axisymmetric mode, 1 in planar.
+  KOKKOS_INLINE_FUNCTION static Real volume_weight(const Domain& d, bool axi, Index n) {
+    return axi ? radius_of(d, n) : Real(1);
+  }
+  // The direction with the radial velocity of i reversed.
+  KOKKOS_INLINE_FUNCTION static int mirror_x(int i) {
+    for (int k = 0; k < Q; ++k)
+      if (cvel<L>(k, 0) == -cvel<L>(i, 0) && cvel<L>(k, 1) == cvel<L>(i, 1) &&
+          cvel<L>(k, 2) == cvel<L>(i, 2)) return k;
+    return i;
+  }
+  // The direction with velocity (cx, cy, 0).
+  KOKKOS_INLINE_FUNCTION static int dir_of(int cx, int cy) {
+    for (int k = 0; k < Q; ++k)
+      if (cvel<L>(k, 0) == cx && cvel<L>(k, 1) == cy && cvel<L>(k, 2) == 0) return k;
+    return 0;
+  }
+
   static Real omega_from_viscosity(Real nu) {
     return Collision::omega_from_viscosity(nu);
   }
   static Real viscosity_from_omega(Real w) {
     return Collision::viscosity_from_omega(w);
   }
-  // Gravity, as the constant Guo force it is.
+  // Gravity, as the constant Guo force it is. In axisymmetric mode it is kept
+  // here and enters per node, r-weighted, through axisym_source().
   void set_gravity(Real ax, Real ay, Real az = Real(0)) {
+    grav_[0] = ax;  grav_[1] = ay;  grav_[2] = az;
+    if (axisymmetric) return;
     coll.forcing.fx = ax;  coll.forcing.fy = ay;  coll.forcing.fz = az;
   }
 
@@ -690,6 +837,7 @@ class FreeSurfaceSolver {
     auto flags = flags_, newf = newf_;
     auto mass = mass_, eps = eps_, rho = rho_;
     auto ux = ux_, uy = uy_, uz = uz_;
+    const bool axi = axisymmetric;
     Kokkos::parallel_for("fs_init", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
       const std::uint8_t was = flags(n);
       Real e = Real(0), r = Real(1);
@@ -700,11 +848,13 @@ class FreeSurfaceSolver {
         e = e < Real(0) ? Real(0) : (e > Real(1) ? Real(1) : e);
         flags(n) = (e >= Real(1)) ? FsFluid : (e <= Real(0) ? FsGas : FsInterface);
       }
+      // Axisymmetric: the populations are planar and the MASS is r-weighted.
+      const Real vw = volume_weight(d, axi, n);
       newf(n) = flags(n);
       rho(n) = r;
       ux(n) = Real(0); uy(n) = Real(0); uz(n) = Real(0);
       eps(n)  = e;
-      mass(n) = e * r;
+      mass(n) = e * r * vw;
       // Every cell is given populations, walls and gas included. A wall holds
       // in-transit populations exactly as it does elsewhere in this code, and a
       // gas cell that later becomes interface is initialised properly then --
@@ -904,6 +1054,20 @@ class FreeSurfaceSolver {
     auto wetm = wet_;
     const auto wcf = wet_cos_of;
     const Real wc = wet_cos;
+    const bool axi = axisymmetric;
+    const Index hxa = dom_.hx;
+    // Axisymmetric: the halo columns left of the axis hold the mirror image of
+    // the columns right of it, so every stencil reaching across reads symmetric
+    // data. sign = -1 for the radial component of a vector.
+    auto mirror_axis = [&](View1D<Real> v, Real sign) {
+      if (!axi) return;
+      Kokkos::parallel_for("fs_axi_mirror", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+        Index px, py, pz; d.coords(n, px, py, pz);
+        if (px >= hxa) return;
+        v(n) = sign * v(d.idp(Index(2) * hxa - Index(1) - px, py, pz));
+      });
+      Kokkos::fence();
+    };
 
     // pass 1: the colour function
     Kokkos::parallel_for("fs_colour", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
@@ -912,6 +1076,7 @@ class FreeSurfaceSolver {
             : (f == FsInterface) ? eps(n) : Real(0);
     });
     Kokkos::fence();
+    mirror_axis(cf, Real(1));
 
     // pass 1b: the ghost colour in the wall cells the liquid touches. Writes
     // only solid cells and reads only open ones, so it cannot race.
@@ -949,6 +1114,7 @@ class FreeSurfaceSolver {
       cfs(n) = a;
     });
     Kokkos::fence();
+    mirror_axis(cfs, Real(1));
 
     // pass 2b: the same ghost for the smoothed colour. Pass 2 averaged the wall
     // cell with the buried ones behind it, which still read as gas.
@@ -983,6 +1149,8 @@ class FreeSurfaceSolver {
       knx(n) = g[0] * inv;  kny(n) = g[1] * inv;  knz(n) = g[2] * inv;
     });
     Kokkos::fence();
+    mirror_axis(knx, Real(-1));
+    mirror_axis(kny, Real(1));
 
     // pass 3b: the wall's own normal is the contact-angle normal,
     // -cos(theta) n_w + sin(theta) t with t along the wall toward the liquid.
@@ -1020,6 +1188,12 @@ class FreeSurfaceSolver {
                   + Real(cvel<GL>(i, 2)) * knz(j));
       }
       kap(n) = -icsg * div;
+      // Axisymmetric: the azimuthal curvature, the outward normal's radial
+      // component over the cell's radius (pass 3's normal points INTO the liquid).
+      if (axi) {
+        Index px, py, pz; d.coords(n, px, py, pz);
+        kap(n) += -knx(n) / (Real(px - hxa) + Real(0.5));
+      }
     });
     Kokkos::fence();
 
@@ -1031,7 +1205,7 @@ class FreeSurfaceSolver {
         KOKKOS_LAMBDA(Index n, Index& u, Index& f) {
           if (flags(n) != FsInterface) return;
           Real k = Real(0);
-          if (height_curvature(d, flags, cf, knx(n), kny(n), knz(n), n, k, hw)) {
+          if (height_curvature(d, flags, cf, knx(n), kny(n), knz(n), n, k, hw, axi)) {
             kap(n) = k;
             ++u;
           } else {
@@ -1096,16 +1270,20 @@ class FreeSurfaceSolver {
   // seven because five was one short in 3-D: on exact fills of a ball the
   // corner columns of a cell near (1,1,1) cross four interface cells two
   // rows out, so the first Fluid cell is six away (124 of 1416 cells failed).
+  // axi: x is the radius, and a column that crosses the axis reads its mirror
+  // image across it (the halo column is the mirror of column 0, and so on).
   template <class FlagV, class ColV>
   KOKKOS_INLINE_FUNCTION static bool hf_column(const Domain& d, const FlagV& flags,
                                                const ColV& cf, const Index p[3], int a, int s,
-                                               int t1, int t2, int k, int l, Real& z) {
+                                               int t1, int t2, int k, int l, Real& z,
+                                               bool axi = false) {
     constexpr int J = 7;                             // reach, each way
     auto at = [&](int t) {                           // the cell t steps toward the gas
       Index q[3] = {p[0], p[1], p[2]};
       q[a] -= Index(s * t);
       q[t1] += Index(k);
       if (L::D == 3) q[t2] += Index(l);
+      if (axi && q[0] < d.hx) q[0] = Index(2) * d.hx - Index(1) - q[0];
       return d.idp(hf_axis(q[0], d.hx, d.nx, d.sx, d.periodic[0]),
                    hf_axis(q[1], d.hy, d.ny, d.sy, d.periodic[1]),
                    hf_axis(q[2], d.hz, d.nz, d.sz, d.periodic[2]));
@@ -1138,11 +1316,17 @@ class FreeSurfaceSolver {
   // kappa = -h''/(1 + h'^2)^(3/2) is positive for a drop on either side of it:
   // over the top of a disc h = c - x^2/(2R), and under it the liquid is counted
   // from the other end and h has the same form.
+  // axi (2-D only): x is the radius, columns mirror across the axis, and the
+  // AZIMUTHAL curvature n_r / r_s is added, with n_r the outward normal's radial
+  // component from the height slope and r_s the surface's own radius: column
+  // 0's centre when the heights run along the axis (a = 1), the height itself
+  // when they run along the radius (a = 0). A sphere of radius R gets 1/R from
+  // either, at every interface cell; checked by hand at both.
   template <class FlagV, class ColV>
   KOKKOS_INLINE_FUNCTION static bool height_curvature(const Domain& d, const FlagV& flags,
                                                       const ColV& cf, Real nx_, Real ny_,
                                                       Real nz_, Index n, Real& kappa,
-                                                      int hw = 1) {
+                                                      int hw = 1, bool axi = false) {
     const Real nv[3] = {nx_, ny_, nz_};
     int a = 0;
     for (int k = 1; k < L::D; ++k)
@@ -1156,7 +1340,21 @@ class FreeSurfaceSolver {
     d.coords(n, p[0], p[1], p[2]);
     // The height of column (k, l), or false where it is not well formed.
     auto column = [&](int k, int l, Real& z) -> bool {
-      return hf_column(d, flags, cf, p, a, s, t1, t2, k, l, z);
+      return hf_column(d, flags, cf, p, a, s, t1, t2, k, l, z, axi);
+    };
+    // The azimuthal part, from the slope hx and column 0's height z0.
+    auto azimuthal = [&](Real hx, Real z0) -> Real {
+      const Real q = Kokkos::sqrt(Real(1) + hx * hx);
+      Real nr, rs;
+      if (a == 1) {                       // surface y = Y(x): Y' = -s hx
+        nr = -hx / q;
+        rs = Real(p[0] - d.hx) + Real(0.5);
+      } else {                            // surface x = X(y), gas toward -s
+        nr = -Real(s) / q;
+        rs = Real(p[0] - d.hx) + Real(0.5) - Real(s) * z0;
+      }
+      if (rs < Real(0.25)) rs = Real(0.25);
+      return nr / rs;
     };
     // height_fit (2-D only; the setter refuses it in 3-D): the 2 hw + 1 heights
     // smoothed hw - 1 times with [1 2 1]/4, then the central differences of the
@@ -1168,6 +1366,7 @@ class FreeSurfaceSolver {
                    Real(0), Real(0), Real(0), Real(0)};          // hw <= 4
       for (int k = -hw; k <= hw; ++k)
         if (!column(k, 0, g[k + hw])) return false;
+      const Real z0 = g[hw];
       for (int pass = 1; pass < hw; ++pass)      // in place: g[i] reads i, i+1, i+2
         for (int i = 0; i <= 2 * (hw - pass); ++i)
           g[i] = Real(0.25) * (g[i] + Real(2) * g[i + 1] + g[i + 2]);
@@ -1175,6 +1374,7 @@ class FreeSurfaceSolver {
       const Real hxx = g[2] - Real(2) * g[1] + g[0];
       const Real q = Real(1) + hx * hx;
       kappa = -hxx / (q * Kokkos::sqrt(q));
+      if (axi) kappa += azimuthal(hx, z0);
       return true;
     }
     Real h[3][3] = {{Real(0), Real(0), Real(0)}, {Real(0), Real(0), Real(0)},
@@ -1187,6 +1387,7 @@ class FreeSurfaceSolver {
     if (L::D == 2) {
       const Real q = Real(1) + hx * hx;
       kappa = -hxx / (q * Kokkos::sqrt(q));
+      if (axi) kappa += azimuthal(hx, h[1][1]);
       return true;
     }
     const Real hy = Real(0.5) * (h[1][2] - h[1][0]);
@@ -1214,7 +1415,14 @@ class FreeSurfaceSolver {
 
   void step() {
     if (wetting || wet_cos_of.data()) check_wetting();
+    if (axisymmetric && (normal_reconstruction || wetting))
+      Kokkos::abort("FreeSurfaceSolver: axisymmetric mode supports neither the normal "
+                    "reconstruction nor a contact angle");
+    if (!axisymmetric && (drag_of.data() || force_of_x.data() || force_of_y.data()))
+      Kokkos::abort("FreeSurfaceSolver: drag_of and force_of_x/y act in axisymmetric mode only; "
+                    "a planar run would ignore them");
     if (sigma != Real(0) || normal_reconstruction) compute_curvature();
+    if (axisymmetric) axisym_source();
     stream_collide();
     mass_exchange();
     classify();
@@ -1272,6 +1480,12 @@ class FreeSurfaceSolver {
   //----------------------------------------------------------------------------
   template <class InsideFn, class WallFn>
   void move_obstacle(InsideFn inside, WallFn wall_vel, Real cx, Real cy) {
+    // Axisymmetric: a STATIC velocity wall only -- a feed piston, a collector
+    // that does not move -- marked once over cells that are already solid.
+    // Its bounce-back injects rho U per cell, which the r-weighting turns into
+    // r rho U (the mass source sees no radial part in it). A body that sweeps
+    // through liquid would hand r-weighted masses to transfer_covered_mass(),
+    // which counts planar ones, and is not supported.
     bcx_ = cx;  bcy_ = cy;
     mark_obstacle(inside, wall_vel);
     transfer_covered_mass();
@@ -1314,6 +1528,8 @@ class FreeSurfaceSolver {
   Real drain(InsideFn inside) {
     auto flags = flags_, newf = newf_;
     auto mass = mass_, rho = rho_, excess = excess_;
+    const Domain dw = dom_;
+    const bool axi = axisymmetric;
     Real removed = 0;
     Kokkos::parallel_reduce("fs_drain", Range(0, dom_.n_padded),
       KOKKOS_LAMBDA(Index n, Real& acc) {
@@ -1321,7 +1537,7 @@ class FreeSurfaceSolver {
         const std::uint8_t f = flags(n);
         newf(n) = f;
         if ((f == FsFluid || f == FsInterface) && inside(n)) {
-          acc += (f == FsFluid) ? rho(n) : mass(n);
+          acc += (f == FsFluid) ? rho(n) * volume_weight(dw, axi, n) : mass(n);
           newf(n) = FsGas;
         }
       }, removed);
@@ -1377,6 +1593,7 @@ class FreeSurfaceSolver {
   // symmetric. Added 2026-11-03; tests/test_free_surface.cpp block 5 pins it.
   //----------------------------------------------------------------------------
   void mirror_symmetrize_x(Index xsum) {
+    if (axisymmetric) Kokkos::abort("FreeSurfaceSolver: mirror_symmetrize_x makes no sense in axisymmetric mode");
     const auto acc = pop_.template access<0>();
     const Domain d = dom_;
     auto flags = flags_, newf = newf_, fin = final_;
@@ -1457,11 +1674,13 @@ class FreeSurfaceSolver {
   // count their full density; interface cells count their explicit mass.
   Real total_mass() const {
     auto flags = flags_; auto mass = mass_; auto rho = rho_;
+    const Domain d = dom_;
+    const bool axi = axisymmetric;
     Real s = 0;
     Kokkos::parallel_reduce("fs_mass", Range(0, dom_.n_padded),
       KOKKOS_LAMBDA(Index n, Real& acc) {
         const std::uint8_t f = flags(n);
-        if (f == FsFluid)          acc += rho(n);
+        if (f == FsFluid)          acc += rho(n) * volume_weight(d, axi, n);
         else if (f == FsInterface) acc += mass(n);
       }, s);
     return s;
@@ -1637,6 +1856,78 @@ class FreeSurfaceSolver {
     Kokkos::fence();
   }
 
+  // Axisymmetric only, before stream_collide(): the momentum sources (see the
+  // member axisymmetric) into AxiGuo's views -- the explicit part in Ex/Ey,
+  // the stiff -4 mu u_r / r^2 as the implicit radial drag Ar -- plus gravity
+  // and the caller's force per unit volume. From the previous step's velocity
+  // and density; stream_collide() writes neither before reading the views.
+  void axisym_source() {
+    if constexpr (axi_force) {
+      const Domain d = dom_;
+      auto flags = flags_;
+      auto rho = rho_, ux = ux_, uy = uy_;
+      auto wux = wux_, wuy = wuy_;
+      auto obst = obst_;
+      auto Ex = coll.forcing.Ex, Ey = coll.forcing.Ey, Ar = coll.forcing.Ar, Az = coll.forcing.Az;
+      const auto fox = force_of_x, foy = force_of_y;
+      const auto dgo = drag_of;
+      const Real gx = grav_[0], gy = grav_[1];
+      const Real nu = Collision::viscosity_from_omega(coll.omega);
+      const auto omf = omega_of;
+      const Index hx = dom_.hx;
+      const int kE = dir_of(1, 0), kW = dir_of(-1, 0), kN = dir_of(0, 1), kS = dir_of(0, -1);
+      Kokkos::parallel_for("fs_axi_source", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
+        const std::uint8_t fl = flags(n);
+        if (fl != FsFluid && fl != FsInterface) {
+          Ex(n) = Real(0);  Ey(n) = Real(0);  Ar(n) = Real(0);  Az(n) = Real(0);
+          return;
+        }
+        Index px, py, pz; d.coords(n, px, py, pz);
+        const Real r = Real(px - hx) + Real(0.5);
+        const Real rc = rho(n);
+        // the local viscosity; (1/omega - 1/2) cs^2 written out, as the
+        // collision's own static helper is host-only
+        const Real mu = (omf.data() ? (Real(1) / omf(n) - Real(0.5)) * cs2<L, Real>() : nu) * rc;
+        const Real u = ux(n), v = uy(n);
+        Neighbours<L> nb;
+        d.template fill_neighbours<L, NF, NS>(n, nb);
+        // A neighbour's velocity, or the ghost that stands in for it: the
+        // mirror across the axis (u_r odd, u_z even), the no-slip reflection
+        // about a wall at the half link (a moving body's velocity there), the
+        // cell's own value for gas (zero gradient).
+        auto nbu = [&](int k, Real& gu, Real& gv) {
+          const Index j = nb.j[k];
+          const std::uint8_t f = flags(j);
+          if (f == FsFluid || f == FsInterface) { gu = ux(j); gv = uy(j); return; }
+          if (k == kW && px == hx) { gu = -u; gv = v; return; }
+          if (f == FsGas) { gu = u; gv = v; return; }
+          const bool body = obst(j) != 0;
+          gu = Real(2) * (body ? wux(j) : Real(0)) - u;
+          gv = Real(2) * (body ? wuy(j) : Real(0)) - v;
+        };
+        Real uE, vE, uW, vW, uN, vN, uS, vS;
+        nbu(kE, uE, vE);  nbu(kW, uW, vW);  nbu(kN, uN, vN);  nbu(kS, uS, vS);
+        const Real dzu = Real(0.5) * (uN - uS);       // d_z u_r
+        const Real dzv = Real(0.5) * (vN - vS);       // d_z u_z
+        const Real ir = Real(1) / r;
+        // d_r u_z, and on the axis column only its explicit half: the mirror
+        // makes the centred difference (v_E - v)/2 there, and its self part
+        // -mu v / (2 r) is an implicit axial drag (AxiGuo::Az), for the reason
+        // under the member axisymmetric.
+        const bool axis = px == hx;
+        const Real drv = Real(0.5) * (vE - (axis ? Real(0) : vW));
+        Ex(n) = -Real(2) * mu * ir * dzv - rc * u * u * ir
+              + gx + (fox.data() ? fox(n) : Real(0));
+        Ey(n) = mu * ir * (drv + dzu) - rc * v * u * ir
+              + gy + (foy.data() ? foy(n) : Real(0));
+        const Real A = dgo.data() ? dgo(n) : Real(0);
+        Ar(n) = Real(4) * mu * ir * ir + A;
+        Az(n) = (axis ? Real(0.5) * mu * ir : Real(0)) + A;
+      });
+      Kokkos::fence();
+    }
+  }
+
   // Pass 1. Pull, reconstruct the gas-facing populations, collide, store.
   void stream_collide() {
     const auto acc = pop_.template access<0>();
@@ -1656,6 +1947,8 @@ class FreeSurfaceSolver {
     constexpr Real ics = inv_cs2<L, Real>();
     const bool nrec = normal_reconstruction && knx_.data();
     const auto knx = knx_, kny = kny_, knz = knz_;
+    const bool axi = axisymmetric;
+    const auto omf = omega_of;          // empty unless the caller set it
 
     Real sfx = 0, sfy = 0, stz = 0;
     Kokkos::parallel_reduce("fs_stream_collide", Range(0, dom_.n_padded),
@@ -1669,6 +1962,13 @@ class FreeSurfaceSolver {
         // recoil field and a Laplace jump are both normal stresses and they
         // superpose. p -> p + sigma kappa, i.e. rho -> rho + sigma kappa / cs^2.
         if (sig != Real(0) && kap.data()) rgn += sig * kap(n) * icsL;
+        // Axisymmetric: this cell's radius, and whether it sits on the axis.
+        Real rr = Real(1);
+        Index pxa = 0;
+        if (axi) {
+          Index pya, pza; d.coords(n, pxa, pya, pza);
+          rr = Real(pxa - hx) + Real(0.5);
+        }
 
         Neighbours<L> nb;
         d.template fill_neighbours<L, NF, NS>(n, nb);
@@ -1685,7 +1985,17 @@ class FreeSurfaceSolver {
 
         Real f[Q];
         for (int i = 0; i < Q; ++i) {
-          const Index from = (i == 0) ? n : nb.j[opp(i)];
+          Index from = (i == 0) ? n : nb.j[opp(i)];
+          int isrc = i;           // the population read at `from`
+          // THE AXIS (axisymmetric only): a population arriving at column 0
+          // moving outward came from the halo, i.e. it is the mirror image of
+          // one that left column 0 inward from the node its axial velocity
+          // started it at. Whatever that node is decides the branch below.
+          if (axi && pxa == hx && cvel<L>(i, 0) > 0) {
+            const int cy = cvel<L>(i, 1);
+            from = (cy == 0) ? n : nb.j[dir_of(0, -cy)];
+            isrc = mirror_x(i);
+          }
           const std::uint8_t ff = flags(from);
           // Gas or Interface sources only: a Fluid neighbour is inside the liquid
           // whatever a smoothed normal says, and overwriting what it sent broke
@@ -1760,8 +2070,25 @@ class FreeSurfaceSolver {
               atz += (Real(qx - hx) - bcx) * dy - (Real(qy - hy) - bcy) * dx;
             }
           } else {
-            f[i] = acc.src(from, i);
+            f[i] = acc.src(from, isrc);
           }
+        }
+
+        // Axisymmetric: THE MASS SOURCE. Every link's 2-D flux re-weighted by
+        // the link's own radius r_link = r_c - c_ix / 2 (zero through the
+        // axis), so that r_c rho changes by exactly what mass_exchange() books;
+        // see the member axisymmetric. Added IN EQUILIBRIUM SHAPE, w_i dm, and
+        // not onto the rest population: there it is a non-equilibrium whose
+        // second moment the collision turns into a spurious isotropic stress
+        // -mu dm, and a prolate drop relaxed at 2.08 x the Stokes rate (R = 32,
+        // validation/axisym_fs E, 2026-11-06) where the pipe flow, which has
+        // no radial velocity and so no source, could not see it.
+        if (axi) {
+          Real sm = Real(0);
+          for (int i = 1; i < Q; ++i)
+            sm += Real(cvel<L>(i, 0)) * (f[i] - acc.src(n, opp(i)));
+          const Real dm = -sm / (Real(2) * rr);
+          for (int i = 0; i < Q; ++i) f[i] += weight<L, Real>(i) * dm;
         }
 
         // The collision operator owns the macroscopics, the force and the
@@ -1769,12 +2096,18 @@ class FreeSurfaceSolver {
         // below it is the same operator the single-phase solver runs.
         const Macro mac = cl.macroscopic(f, n);
         const Real r = Collision::density(mac);
-        cl.collide(f, mac, n);
+        if (omf.data()) {
+          Collision c = cl;               // only the shear rate is local
+          c.omega = omf(n);
+          c.collide(f, mac, n);
+        } else {
+          cl.collide(f, mac, n);
+        }
         for (int i = 0; i < Q; ++i) acc.dst(n, i) = f[i];
 
         rho(n) = r;
         ux(n) = mac.ux; uy(n) = mac.uy; uz(n) = mac.uz;
-        if (fl == FsFluid) mass(n) = r;    // a full cell's mass IS its density
+        if (fl == FsFluid) mass(n) = r * rr;   // a full cell's mass IS its density (r-weighted)
       }, sfx, sfy, stz);
     Kokkos::fence();
     fx_ = sfx;  fy_ = sfy;  tz_ = stz;
@@ -1810,6 +2143,7 @@ class FreeSurfaceSolver {
     const Domain d = dom_;
     auto flags = flags_; auto mass = mass_, eps = eps_;
     const bool upw = exchange_upwind;
+    const bool axi = axisymmetric;
 
     Kokkos::parallel_for("fs_mass_exchange", Range(0, dom_.n_padded),
       KOKKOS_LAMBDA(Index n) {
@@ -1817,13 +2151,17 @@ class FreeSurfaceSolver {
         Neighbours<L> nb;
         d.template fill_neighbours<L, NF, NS>(n, nb);
         const Real e0 = eps(n);
+        // Axisymmetric: every link weighted by its own radius, the mean of its
+        // two cells' (planar: 1).
+        const Real rn = volume_weight(d, axi, n);
         Real dm = Real(0);
         for (int i = 1; i < Q; ++i) {
           const Index j = nb.j[i];
           const std::uint8_t fj = flags(j);
           // What j sends me in the opposite direction, minus what I send j.
-          const Real in  = acc.dst(j, opp(i));
-          const Real out = acc.dst(n, i);
+          const Real rl = axi ? rn + Real(0.5) * Real(cvel<L>(i, 0)) : Real(1);
+          const Real in  = rl * acc.dst(j, opp(i));
+          const Real out = rl * acc.dst(n, i);
           if (fj == FsFluid) {
             dm += in - out;
           } else if (fj == FsInterface) {
@@ -1858,6 +2196,8 @@ class FreeSurfaceSolver {
       auto flags = flags_; auto mass = mass_, eps = eps_, wf = wf_;
       auto rho = rho_, ux = ux_, uy = uy_, uz = uz_;
       const bool donor = exchange_donor;
+      const bool axi = axisymmetric;
+      const Index hxa = dom_.hx;
 
       Kokkos::parallel_for("fs_wet_faces", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
         if (flags(n) != FsInterface) return;
@@ -1865,7 +2205,13 @@ class FreeSurfaceSolver {
         d.template fill_neighbours<L, NF, NS>(n, nb);
         auto clamp01 = [](Real v) { return v < Real(0) ? Real(0) : (v > Real(1) ? Real(1) : v); };
         const Real e0 = clamp01(eps(n));
+        // Axisymmetric: column 0 sees the axis as a mirror, so its -x
+        // neighbours are its own column's.
+        Index pxn = 0;
+        if (axi) { Index pyn, pzn; d.coords(n, pxn, pyn, pzn); }
+        const bool onaxis = axi && pxn == hxa;
         auto colour = [&](int dx, int dy) {
+          if (onaxis && dx < 0) dx = 0;
           const std::uint8_t f = flags(nb.j[tab.i[(dx + 1) * 3 + (dy + 1)]]);
           return f == FsFluid ? Real(1) : (f == FsInterface ? clamp01(eps(nb.j[tab.i[(dx + 1) * 3 + (dy + 1)]]))
                                                             : (f == FsGas ? Real(0) : e0));
@@ -1884,7 +2230,7 @@ class FreeSurfaceSolver {
           d.coords(n, p[0], p[1], p[2]);
           Real z[3];
           bool ok = true;
-          for (int k = -1; k <= 1 && ok; ++k) ok = hf_column(d, flags, eps, p, a, sg, 1 - a, 2, k, 0, z[k + 1]);
+          for (int k = -1; k <= 1 && ok; ++k) ok = hf_column(d, flags, eps, p, a, sg, 1 - a, 2, k, 0, z[k + 1], axi);
           if (ok) {
             const Real zp = Real(0.5) * (z[2] - z[0]);
             const Real q = Real(1) / Kokkos::sqrt(Real(1) + zp * zp);
@@ -1938,15 +2284,18 @@ class FreeSurfaceSolver {
         auto solid = [](std::uint8_t f) { return f == FsSolid || f == FsExcluded; };
         auto liquid = [](std::uint8_t f) { return f == FsFluid || f == FsInterface; };
         // The net flux from cell ia to cell ib along direction i (c_i = ib - ia).
+        // Axisymmetric: weighted by the link's own radius, the mean of its two
+        // cells' (planar: 1), as mass_exchange() and the mass source do.
         auto delta = [&](Index ia, Index ib, int i) -> Real {
           const std::uint8_t fa = flags(ia), fb = flags(ib);
           if (solid(fa) || solid(fb)) return Real(0);
           const bool la = liquid(fa), lb = liquid(fb);
-          if (la && lb) return acc.dst(ia, i) - acc.dst(ib, opp(i));
+          const Real rl = axi ? radius_of(d, ia) + Real(0.5) * Real(cvel<L>(i, 0)) : Real(1);
+          if (la && lb) return rl * (acc.dst(ia, i) - acc.dst(ib, opp(i)));
           if (!la && !lb) return Real(0);
           const Index m = la ? ia : ib;
-          return Collision::seed_value(i, rho(m), ux(m), uy(m), uz(m))
-               - Collision::seed_value(opp(i), rho(m), ux(m), uy(m), uz(m));
+          return rl * (Collision::seed_value(i, rho(m), ux(m), uy(m), uz(m))
+                       - Collision::seed_value(opp(i), rho(m), ux(m), uy(m), uz(m)));
         };
         const int ex[4] = {1, -1, 0, 0}, ey[4] = {0, 0, 1, -1};
         const int back[4] = {1, 0, 3, 2};          // the same face, seen from the other cell
@@ -2030,6 +2379,7 @@ class FreeSurfaceSolver {
     const Domain d = dom_;
     auto flags = flags_, newf = newf_;
     auto mass = mass_, eps = eps_, rho = rho_, excess = excess_;
+    const bool axi = axisymmetric;
     const Real off = fill_offset;
     const bool do_detach = drop_detached;
     const bool nrf = no_refill;
@@ -2043,7 +2393,8 @@ class FreeSurfaceSolver {
       newf(n) = fl;
       if (fl == FsFluid)     { eps(n) = Real(1); return; }
       if (fl != FsInterface) { if (fl == FsGas) eps(n) = Real(0); return; }
-      const Real r = rho(n);
+      // r: the mass a full cell holds -- its density, r-weighted in axisymmetric mode.
+      const Real r = rho(n) * volume_weight(d, axi, n);
       const Real e = (r > Real(0)) ? mass(n) / r : Real(0);
       eps(n) = e;
 
@@ -2251,6 +2602,7 @@ class FreeSurfaceSolver {
     auto mass = mass_, eps = eps_, rho = rho_, excess = excess_;
     auto ux = ux_, uy = uy_, uz = uz_;
     auto reinit = reinit_;
+    const bool axi = axisymmetric;
 
     Kokkos::parallel_for("fs_settle", Range(0, dom_.n_padded), KOKKOS_LAMBDA(Index n) {
       const std::uint8_t was = flags(n);
@@ -2295,13 +2647,13 @@ class FreeSurfaceSolver {
           mass(n) = Real(0);
           reinit(n) = 1;      // its state came from nowhere; see reinitialised()
         } else if (was == FsFluid) {
-          mass(n) = rho(n);           // still full; it just has a surface now
+          mass(n) = rho(n) * volume_weight(d, axi, n);   // still full; it just has a surface now
         }
         mass(n) += got;
-        const Real r = rho(n);
+        const Real r = rho(n) * volume_weight(d, axi, n);
         eps(n) = (r > Real(0)) ? mass(n) / r : Real(0);
       } else if (now == FsFluid) {
-        mass(n) = rho(n);  eps(n) = Real(1);
+        mass(n) = rho(n) * volume_weight(d, axi, n);  eps(n) = Real(1);
       } else {  // FsGas
         mass(n) = Real(0); eps(n) = Real(0);
       }
@@ -2344,6 +2696,8 @@ class FreeSurfaceSolver {
   Real bcx_ = 0, bcy_ = 0;            // body centre, for the torque
   Real fx_ = 0, fy_ = 0, tz_ = 0;     // momentum-exchange force and torque
   View1D<Real> rho_, ux_, uy_, uz_;
+  // Gravity, kept apart so that the axisymmetric mode can add it per node.
+  Real grav_[3] = {Real(0), Real(0), Real(0)};
   std::size_t t_ = 0;
 };
 

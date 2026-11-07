@@ -382,6 +382,82 @@ struct DarcyGuo {
   }
 };
 
+//------------------------------------------------------------------------------
+// THE AXISYMMETRIC FORCE: FieldGuo's per-node force plus an IMPLICIT drag on
+// the RADIAL (x) velocity alone,
+//
+//   F(n) = F_ext(n) - Ar(n) u_x(n) e_x.
+//
+// FreeSurfaceSolver's axisymmetric mode (r-z, x the radius) writes all three
+// views every step. The drag is the stiff part of the axisymmetric viscous
+// terms, -4 mu u_r / r^2 once incompressibility is used: at the first cell,
+// r = 1/2, it damps u_r at 16 nu per step, past any explicit scheme, and it is
+// LINEAR and LOCAL, so it closes in one line exactly as DarcyGuo's does,
+//
+//   u_x = (m_x + F_ext,x / 2) / (rho + Ar / 2),
+//
+// on the x component only. Empty views mean zero; with Ar empty this IS
+// FieldGuo. Nothing outside the axisymmetric mode uses it.
+//
+// Az IS THE SAME CLOSURE ON THE AXIAL (y) VELOCITY, and it exists for one
+// cell. On the axis column (r = 1/2) the mirror makes the azimuthal viscous
+// term (mu/r) d_r u_z an explicit relaxation mu (u_z,1 - u_z,0) towards the
+// next column, at about nu per step ON TOP of the scheme's own diffusion; past
+// nu ~ 1/2 the two overshoot together, and a liquid thread two cells thick
+// came apart in a stretching flow (FreeSurfaceSolver's member axisymmetric,
+// 2026-11-06). Its self part -mu u_z,0 goes here and closes like Ar.
+// FreeSurfaceSolver adds its optional isotropic drag (drag_of: a freezing
+// melt) to BOTH, so a held melt closes the same way in r and in z.
+//------------------------------------------------------------------------------
+struct AxiGuo {
+  static constexpr const char* name = "AxiGuo";
+  static constexpr bool active = true;
+  static constexpr bool velocity_dependent = true;
+
+  View1D<Real> Ex, Ey, Ez;                          // external per-node force
+  View1D<Real> Ar;                                  // radial drag coefficient, >= 0
+  View1D<Real> Az;                                  // axial drag coefficient, >= 0 (optional)
+  Real fx = Real(0), fy = Real(0), fz = Real(0);    // uniform part
+
+  KOKKOS_INLINE_FUNCTION
+  void at(Index n, Real F[3]) const {               // EXTERNAL part only
+    F[0] = fx + (Ex.data() ? Ex(n) : Real(0));
+    F[1] = fy + (Ey.data() ? Ey(n) : Real(0));
+    F[2] = fz + (Ez.data() ? Ez(n) : Real(0));
+  }
+  KOKKOS_INLINE_FUNCTION
+  Real drag(Index n) const { return Ar.data() ? Ar(n) : Real(0); }
+  KOKKOS_INLINE_FUNCTION
+  Real drag_z(Index n) const { return Az.data() ? Az(n) : Real(0); }
+
+  KOKKOS_INLINE_FUNCTION
+  void at_u(Index n, const Real u[3], Real F[3]) const {
+    at(n, F);
+    F[0] -= drag(n) * u[0];
+    F[1] -= drag_z(n) * u[1];
+  }
+  KOKKOS_INLINE_FUNCTION
+  void shift_velocity(Index n, Real rho, Real& ux, Real& uy, Real& uz) const {
+    Real F[3]; at(n, F);
+    const Real h = Real(0.5) / rho;
+    ux = (ux + h * F[0]) * (rho / (rho + Real(0.5) * drag(n)));
+    uy = (uy + h * F[1]) * (rho / (rho + Real(0.5) * drag_z(n)));
+    uz += h * F[2];
+  }
+  template <class L>
+  KOKKOS_INLINE_FUNCTION
+  Real source_raw(Index n, int i, Real ux, Real uy, Real uz) const {
+    const Real u[3] = {ux, uy, uz};
+    Real F[3]; at_u(n, u, F);
+    return guo_source_raw<L>(i, F, ux, uy, uz);
+  }
+  template <class L>
+  KOKKOS_INLINE_FUNCTION
+  Real source(Index n, int i, Real omega, Real ux, Real uy, Real uz) const {
+    return (Real(1) - Real(0.5) * omega) * source_raw<L>(n, i, ux, uy, uz);
+  }
+};
+
 // True for a policy whose force depends on the velocity it is evaluated at.
 template <class P>
 inline constexpr bool velocity_dependent_force_v =
@@ -492,6 +568,17 @@ KOKKOS_INLINE_FUNCTION void force_of(const P& p, Index n, const Real*, Real F[3]
 }
 KOKKOS_INLINE_FUNCTION
 void force_of(const DarcyGuo& p, Index n, const Real* u, Real F[3]) {
+  p.at_u(n, u, F);
+}
+// AxiGuo's radial drag needs u in the same way, and without this overload the
+// default above hands the collision the external part alone while
+// shift_velocity() still applies the drag: the moment-space force then lacks
+// -Ar u_x, the drag acts through the half shift only, and an exact
+// axisymmetric Stokes mode relaxed at 0.68 of its rate (validation/axisym_fs
+// V, 2026-11-06). Any velocity-dependent policy needs both lines.
+void accel_of(const AxiGuo&, Index, Real, Real*) = delete;
+KOKKOS_INLINE_FUNCTION
+void force_of(const AxiGuo& p, Index n, const Real* u, Real F[3]) {
   p.at_u(n, u, F);
 }
 

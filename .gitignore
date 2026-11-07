@@ -53,6 +53,9 @@ results/mew_nozzle/*.npy
 # potential on 80 x 80 x 136 are 571 MB for the 40 s run. Its series is
 # tracked, and its log, force-added past *.log.
 results/mew_cone3d/*.npy
+# demonstrator/mew_axi's frames (fill, potential and, with -heat, T, .npy),
+# the same rule; its series and logs (force-added past *.log) are kept.
+results/mew_axi/*.npy
 
 # Rendered animations. Regenerable from doc/fig/*.py given a dump, and a dump
 # is itself ignored -- so these are two steps from anything tracked. doc/m3lb.pdf

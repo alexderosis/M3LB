@@ -10076,6 +10076,89 @@ Stated plainly, because each has been measured.
   which halves with each refinement: an apparent order of $0.41$ at contact over
   three grids, so no contact time from this ladder is converged, and what
   converges that slowly is not diagnosed.
+\item \textbf{The axisymmetric free surface has a bound on the lattice
+  viscosity, set at the axis.} On the axis column the mirror turns the
+  azimuthal viscous term $(\mu/r)\,\partial_r u_z$ into an explicit relaxation
+  towards the next column at about $\nu$ per step, on top of the scheme's own
+  diffusion. Explicit, a liquid thread two to three cells thick under a
+  stretching force came apart at $\nu=1/2$ and held at $1/4$, and
+  \code{mew\_axi}'s liquid column, two cells thick, came apart $0.02$\,s
+  before it touched the collector. With the term's self part implicit
+  (\code{AxiGuo::Az}) the thread holds at $\nu=1$, with mass jumping by
+  $1.3\times10^{-3}$ in two conversion events, and comes apart at $2$: what
+  remains are explicit first-derivative terms whose coefficient $\mu/r$ is a
+  speed in cells per step near the axis. So $\nu\lesssim1$, and
+  $\nu\le1/2$ is clean (\code{validation/axisym\_fs}, section T). In a
+  capillary scaling the time step does not depend on $\nu$, so the bound costs
+  range rather than time, but a melt whose viscosity follows its temperature
+  can rise at most about sixfold from $\nu=1/6$. And $\nu$ is not free in
+  the answer: \code{mew\_axi}'s column touches the collector at $15.448$,
+  $15.691$ and $15.803$\,s at $\nu=1/2$, $1/4$ and $1/6$, a quadratic through
+  which gives $16.07$\,s as $\nu\to0$ --- a $1.7\,\%$ error at the default,
+  from the walls and the free surface at $\tau\neq1/2$.
+\item \textbf{A varying viscosity costs accuracy at the same order.} The
+  per-node rate \code{FreeSurfaceSolver::omega\_of} reproduces a pipe whose
+  viscosity triples towards the wall at second order, but with ten times the
+  constant-viscosity pipe's error ($2.5\times10^{-2}$ at eight cells across the
+  radius). Half of that is the scheme's own variable-$\omega$ stress --- the
+  same profile in a planar channel gives $1.25\times10^{-2}$ --- and the
+  axisymmetric terms add about as much again; it is not the wall's $\tau$
+  (\code{validation/axisym\_fs}, section M).
+\item \textbf{The r--z heat model (\code{validation/FsHeatAxi.hpp}) is a
+  model of the melt's heat loss, not a conservative enthalpy solver.} The
+  temperature is intensive and advected upwind in non-conservative form; its
+  surface loss uses one heat-transfer coefficient $h$ for the whole melt,
+  whereas a real drop's depends on its size and on the air; the surface area is
+  $\sum|\nabla\phi|\,r$, exact for a vertical surface and $1.0$--$1.2\,\%$
+  high on a sphere. Per-cell PLIC segments, the first choice, summed to
+  $0.85$--$0.93$ of a sphere's area, because a nearly full cell beside a surface
+  running along its face holds a lens of gas that PLIC turns into a corner
+  triangle; an earlier version still, which lost cells touching gas only at a
+  corner, cooled at three quarters of the true rate. Crystallisation is a drag
+  below a temperature band, with no latent heat. The viscosity is capped by the
+  axis bound above: about sixfold, reached near $58\,^\circ$C, where the
+  Arrhenius law would give eight- to seventeenfold between 50 and $30\,^\circ$C,
+  so a cooled melt is \emph{less} stiff in the model than in the material.
+\item \textbf{The free surface's excess stiffness under a gentle pull was
+  the curvature.} With height functions (\code{validation/fs\_electric -hf})
+  the frozen row reads $-5.5$ and $-4.4\,\%$ at $s=1$ and $2$, against
+  $+9.2$ and $+19.5\,\%$ with the default curvature: no longer worse at the
+  longer wavelength, and slightly soft rather than stiff. The geometric
+  exchange changes it by less than half a percent. The $-4$ to $-6\,\%$ that
+  remains is not diagnosed.
+\item \textbf{In the round (r--z) model of the MEW tip, \code{mew\_axi},
+  whether the melt reaches the collector is decided by how far it cools, and
+  an isothermal electrified tip is not grid-converged.} Isothermal at
+  120\,$^\circ$C, as in the planar and 3-D siblings, the field draws the drop into
+  a column that touches the collector at $15.80$\,s on 50\,$\mu$m cells and
+  $9.80$\,s on 25\,$\mu$m: the finer grid resolves a sharper tip (the pull there
+  42 against 6\,$\gamma/R$ at 9\,s), and nothing in the model caps a perfect
+  conductor's tip --- there is no charge relaxation, and no corona although the
+  field at the drop, 9--45\,kV/mm, is above air's onset. With the melt's heat
+  (\code{-heat}: 90\,W/m$^2$/K to air at 25\,$^\circ$C, Arrhenius viscosity,
+  crystallisation as a drag between 30 and 40\,$^\circ$C) the drop's lower end is
+  below 40\,$^\circ$C by 23\,s, and the drop stops about 3.5\,mm above the
+  collector and widens instead: no contact by 150\,s (3.38\,mm up), $1.33$\,mm$^3$
+  within 1\,mm of the tip. That is grid-robust (3.69 against 3.78\,mm at 28\,s on 25 and
+  50\,$\mu$m). But every parameter that decides it is unmeasured: without the
+  drag the cold melt touches at $34.3$\,s; with the air at 40 or 50\,$^\circ$C,
+  at $30.5$ and $28.1$\,s, while at 35\,$^\circ$C it still stalls (at 2.7\,mm)
+  --- the drop stalls exactly when the air can cool its end into the band. The
+  r--z model reproduces the 3-D one where they overlap (the conductor's edge at
+  0.5\,mm reached at $31.1$ against $32.4$\,s in a cylinder inscribed in the
+  3-D box), and its feed is exact in volume once the piston's compressed melt
+  is allowed for (\code{mew\_cone3d}'s unattributed $+0.35\,\%$).
+  With the field off the oozing drop sags and touches, isothermal (at
+  $194.6$\,s, where the planar model touched at $91.3$\,s), or
+  stalls with its heat (3.3\,mm up and $1.54$\,mm$^3$ at the tip by 150\,s); and
+  a drop that oozed for 60\,s with the field off does not jet when it is
+  switched on (one cell lower by 120\,s, under $\sim$10\,kV/mm). The electrodes
+  around the nozzle move an isothermal contact by 15--20\,\% (a long needle
+  $15.10$\,s, a printhead disc $18.19$\,s, the default box $15.80$\,s), and the
+  nominal surface tension at $\pm20\,\%$ moves the stalled drop by less than
+  a cell. So the model's
+  prediction is a regime, not a time, and the measurement that decides it is
+  the temperature of the air and of the melt at the tip.
 \item \textbf{A mirror-symmetric free surface does not stay symmetric, and a
   thread drawn below a cell creates mass.} Neither is diagnosed. In
   \code{mew\_nozzle} an advancing front amplifies round-off until the column

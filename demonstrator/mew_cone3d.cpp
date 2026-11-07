@@ -75,8 +75,13 @@
 //  accounts for 3.45 %. The ledger counts uin x nbore at unit density and
 //  reads 2.2e-3 to 4.2e-3 from the first sample on, and the mass rate it
 //  implies matches the volume rate to 1e-5: the other 0.35 % is mass beyond
-//  the nominal injection, not a lower density; where it enters is not
-//  attributed. Scaling uin by pi R^2 / nbore would remove the 3.45 %; not
+//  the nominal injection, not a lower density. IT IS THE PISTON'S (found in
+//  demonstrator/mew_axi, 2026-11-06): its moving-wall bounce-back injects
+//  rho U per cell at the density of the melt beside it, and that melt is
+//  compressed by the pressure that drives it down the bore -- rho = 1.0032 at
+//  this tau (nu = 1/2) in mew_axi, whose uncorrected piston fed +0.34 % too
+//  much and whose piston at U / rho_piston does not. Scaling uin by
+//  pi R^2 / nbore would remove the 3.45 %, and U / rho_piston the rest; not
 //  applied, so that the run above is reproduced.
 //  THE DATA ARE IN results/mew_cone3d/: the series
 //  R4_feed_0p0208_6p5kV_lc5_mu820_series.csv and the log beside it (stdout of
