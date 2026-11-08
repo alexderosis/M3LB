@@ -183,23 +183,23 @@
 //     cells deep): it is the melt left at the tip that reaches the collector.
 //     With heat the drop stalls whatever the jet, and the jet sets how much it
 //     holds: 0.750 / 0.629 / 0.368 mm^3 within 1 mm of the tip at 60 s with no
-//     jet, the fan's and the no-fan one, its lowest point 3.52 / 3.62 / 3.83 mm
-//     up. So the no-fan tip holds half of what it would with no jet and the
-//     fan's 84 %: at the same h, the fan's thinner fibres leave 1.7x as much at
-//     the tip. A fan also cools the drop; at h = 300 (forced convection's order,
-//     NOMINAL) with the fan's jet the tip holds 0.989 mm^3 at 60 s, 4.38 mm up
-//     (1.169 with no jet), 2.7x the no-fan tip at h = 90 -- so 1.7-2.7x, the
-//     fibres and the cooling pulling the same way. What the no-fan jet leaves is
-//     younger and so warmer, 82 against 68 C below the tip at 20 s, but within
-//     2 C of the jetless drop by 60 s. Jetting only while the apex is at 40 C or
-//     more takes 0.4 % less, is within a cell of it to 45 s and three cells
-//     higher at 60 s (3.98 mm) -- the freezing end is that sensitive. The mass
-//     the free surface creates (THE JET above) is 1-7 % of what the jet takes,
-//     against a threefold difference between the two jets. (These runs' logs
-//     print the jet's line in sink()'s words, "from the surface cells", which
-//     outlived the switch to draw() until after they ran; what ran is the draw,
-//     four cells in and 0.1 mm across unless the name says otherwise: _d8 eight
-//     cells in, _r05 one cell across.)
+//     jet, the fan's and the no-fan one, its lowest point 3.525 / 3.625 /
+//     3.825 mm up. So the no-fan tip holds half of what it would with no jet and
+//     the fan's 84 %: at the same h, the fan's thinner fibres leave 1.7x as much
+//     at the tip. A fan also cools the drop; at h = 300 (forced convection's
+//     order, NOMINAL) with the fan's jet the tip holds 0.989 mm^3 at 60 s,
+//     4.375 mm up (1.169 with no jet), 2.7x the no-fan tip at h = 90 -- so
+//     1.7-2.7x, the fibres and the cooling pulling the same way. What the no-fan
+//     jet leaves is younger and so warmer, 82 against 68 C below the tip at
+//     20 s, but within 2 C of the jetless drop by 60 s. Jetting only while the
+//     apex is at 40 C or more takes 0.4 % less, is within a cell of it to 45 s
+//     and three cells higher at 60 s (3.975 mm) -- the freezing end is that
+//     sensitive. The mass the free surface creates (THE JET above) is 1-7 % of
+//     what the jet takes, against a threefold difference between the two jets.
+//     (These runs' logs print the jet's line in sink()'s words, "from the
+//     surface cells", which outlived the switch to draw() until after they ran;
+//     what ran is the draw, four cells in and 0.1 mm across unless the name says
+//     otherwise: _d8 eight cells in, _r05 one cell across.)
 //  So the model does not predict a contact time. It predicts that the tip's
 //  thermal state decides between a column drawn to the collector in 10-35 s
 //  and a drop that cools, crystallises at its end and grows at the tip -- and,
