@@ -340,12 +340,17 @@ class FluidSolver {
   // moves with the flow beside it: a Taylor-Green box's six faces carry about N^2
   // distinct velocities, past 65535 from N ~ 256. This stores one velocity per
   // node instead, fn(x, y, z) in LATTICE units on interior coordinates, and from
-  // then on the three kernels that read a wall velocity (the wall density, the
-  // regularised reconstruction and the reported macroscopic state) take it from
-  // here, times set_wall_velocity_field_scale's factor, rather than from the
-  // table. The table's density slot is untouched, and nodes that are not RegWall
-  // ignore the field. OPT-IN: a solver that never calls this runs exactly the
-  // code it ran before, bit for bit (demonstrator/tg_mhd's references).
+  // then on the FOUR sites that read a wall velocity (the wall density, the
+  // regularised reconstruction, the reported macroscopic state, and the
+  // finite-difference corner closure's velocity at a wall neighbour) take it
+  // from here, times set_wall_velocity_field_scale's factor, rather than from
+  // the table. The fourth was missed at first -- see vel_at in run_step -- and
+  // tests/test_boundary.cpp (d) now runs one box through both sources and
+  // requires every population and every reported rho and u to agree in every
+  // bit, which exercises all four. The table's density slot is untouched, and
+  // nodes that are not RegWall ignore the field. OPT-IN: a solver that never
+  // calls this runs exactly the code it ran before, bit for bit
+  // (demonstrator/tg_mhd's references).
   //
   // Written for demonstrator/tg_mhd's smooth start, which brings a no-slip box's
   // walls to rest over a ramp instead of at t = 0; GPU/'s Solver has the twin.
@@ -958,10 +963,25 @@ class FluidSolver {
           // Velocity at a neighbour: imposed if it is itself a wall node --
           // its streamed populations still hold unfixed unknowns and would give
           // a wrong answer -- otherwise taken from its populations.
+          //
+          // FROM THE SAME SOURCE AS THE NODE'S OWN, i.e. the per-node field when
+          // set_wall_velocity_field is on. This read the table alone until
+          // 2026-11-10, the one wall-velocity site the field had not reached:
+          // a corner then differenced the field's velocity at itself (uw,
+          // above) against the table's at its wall neighbours. Latent, since
+          // demonstrator/tg_mhd -- the field's only caller -- turns these
+          // corners off; tests/test_boundary.cpp (d) measured 2.4e-3 on a
+          // D2Q9 box and 3.3e-3 on a D3Q27 one where the two sources must
+          // agree in every bit, and holds it at zero now. (To see those two
+          // numbers again, put `wall_u(t2, a)` back on the three lines below
+          // and run that test: it prints them.) GPU/'s wall_vel_at never had
+          // this: its sites share one helper.
           auto vel_at = [&](Index m, Real out[3]) {
             if (flags(m) == RegWall) {
               const int t2 = int(bc_tag(m));
-              out[0] = wall_u(t2, 0); out[1] = wall_u(t2, 1); out[2] = wall_u(t2, 2);
+              out[0] = un_on ? un_s * wall_un(m, 0) : wall_u(t2, 0);
+              out[1] = un_on ? un_s * wall_un(m, 1) : wall_u(t2, 1);
+              out[2] = un_on ? un_s * wall_un(m, 2) : wall_u(t2, 2);
               return;
             }
             Neighbours<L> nbm;

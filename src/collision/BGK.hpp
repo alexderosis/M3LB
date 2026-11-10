@@ -14,6 +14,10 @@
 //  deliberately NOT normalised to rho in the shifted case: forming rho and then
 //  subtracting 1 again would throw away exactly the precision the shift was
 //  introduced to protect.
+//
+//  `Macro` itself is declared in core/Types.hpp, not here: the solvers name it
+//  too, and while it lived in this file FluidSolver.hpp did not compile unless
+//  a collision header had been included first.
 //==============================================================================
 #include "core/Types.hpp"
 #include "equilibrium/Equilibrium.hpp"
@@ -22,11 +26,6 @@
 #include "memory/Storage.hpp"
 
 namespace lbm {
-
-struct Macro {
-  Real dens;              // rho (raw) or rho - 1 (shifted)
-  Real ux, uy, uz;
-};
 
 template <class L, class Eq = SecondOrderEquilibrium<L>, class Forcing = NoForcing,
           class Store = RawPopulations>

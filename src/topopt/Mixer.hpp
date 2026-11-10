@@ -172,7 +172,7 @@
 //    * FP64 only. The convergence tolerances the anchors need are below FP32's
 //      reach, and the adjoint will be checked against finite differences.
 //==============================================================================
-#include "collision/MomentCollision.hpp"   // pulls collision/BGK.hpp, which defines Macro
+#include "collision/MomentCollision.hpp"
 #include "collision/ScalarRegularised.hpp"
 #include "collision/ScalarTRT.hpp"
 #include "core/Types.hpp"

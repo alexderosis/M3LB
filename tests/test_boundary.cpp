@@ -17,14 +17,26 @@
 //  Together they pin Eqs. (44)-(45) without reference to any particular
 //  velocity numbering, which matters because the paper's Eq. (28) is written
 //  for a figure whose ordering is not the Esoteric Pull one.
+//
+//  A fourth check, (d), is about the SOLVER rather than the condition, and does
+//  run a flow: the per-node wall velocity of set_wall_velocity_field has to
+//  reach every place FluidSolver reads a wall velocity. See wall_velocity_sites.
 //==============================================================================
 #include "Check.hpp"
 #include "boundary/Regularized.hpp"
+#include "collision/MomentCollision.hpp"
 #include "core/Types.hpp"
 #include "equilibrium/Equilibrium.hpp"
+#include "grid/Domain.hpp"
+#include "memory/EsotericPull.hpp"
+#include "memory/Storage.hpp"
+#include "solver/FluidSolver.hpp"
 
+#include <array>
 #include <cmath>
+#include <cstdio>
 #include <string>
+#include <vector>
 
 using namespace lbm;
 
@@ -223,6 +235,156 @@ static void corner_enforces_velocity(const int wall[3], Real rho, const Real u[3
   check::ok(npair > 0, tag + ": really has doubly-unknown pairs");
 }
 
+//==============================================================================
+//  (d) THE PER-NODE WALL VELOCITY REACHES EVERY SITE THAT READS A WALL VELOCITY.
+//
+//  FluidSolver has two sources for a wall node's velocity: the deduplicated
+//  state table, and the per-node field of set_wall_velocity_field. FOUR places
+//  read one -- the wall density, the regularised reconstruction, the reported
+//  macroscopic state, and the finite-difference corner closure, which takes the
+//  velocity of the corner's WALL NEIGHBOURS to build its gradient. The fourth
+//  was written before the field existed and went on reading the table. Found
+//  2026-11-10 by reading it beside GPU/, whose sites share one helper
+//  (wall_velocity) and so could not disagree. No shipped number moved:
+//  demonstrator/tg_mhd is the field's only caller and turns the FD corners
+//  off. But with them on, a corner differenced the FIELD's velocity at itself
+//  against the TABLE's at its neighbours.
+//
+//  THE CHECK NEEDS NO REFERENCE SOLUTION. A closed box is run twice with the
+//  same velocity at every wall node, different at each: once through the table,
+//  once with an all-zero table and the velocities in the field. At scale 1 the
+//  field path multiplies by exactly 1, so the two runs must agree in EVERY BIT
+//  of every population and of every rho and u the solver reports -- not to a
+//  tolerance. (The scale itself is one factor applied at all four sites.)
+//
+//  Two controls keep that from being vacuous, and one localises a failure:
+//    * the FD corner route is live: switching it off moves the answer;
+//    * the field matters: dropping it moves the answer;
+//    * with the FD corners OFF the two runs agree as well, so a failure with
+//      them on belongs to the corner closure and to nothing else.
+//
+//  WHAT IT DOES NOT CHECK: that either run is right. Both could be wrong
+//  together; validation/cavity.cpp and regularized.cpp are what say the table
+//  path is not.
+//==============================================================================
+enum class WallSource { Table, Field, Neither };
+
+template <class L>
+static std::uint8_t box_code(Index x, Index y, Index z, Index N) {
+  const int fx = (x == 0 || x == N - 1);
+  const int fy = (y == 0 || y == N - 1);
+  const int fz = (L::D == 3) && (z == 0 || z == N - 1);
+  if (fx + fy + fz == 0) return NrmNone;
+  if (fx + fy + fz >= 2) return NrmCorner;      // edges too, as everywhere here
+  if (fx) return x == 0 ? NrmXm : NrmXp;
+  if (fy) return y == 0 ? NrmYm : NrmYp;
+  return z == 0 ? NrmZm : NrmZp;
+}
+
+// Smooth, small, and different at every wall node -- the case the table cannot
+// hold on a large grid and the field exists for.
+template <class L>
+static std::array<Real, 3> box_wall_velocity(Index x, Index y, Index z, Index N) {
+  const double k = 2.0 * 3.14159265358979323846 / double(N - 1);
+  const double cz = (L::D == 3) ? std::cos(k * double(z) + 0.3) : 1.0;
+  return {Real( 0.020 * std::sin(k * double(x) + 0.1) * std::cos(k * double(y)) * cz),
+          Real(-0.015 * std::cos(k * double(x)) * std::sin(k * double(y) + 0.2) * cz),
+          Real((L::D == 3) ? 0.010 * std::sin(k * double(z)) * std::cos(k * double(x)) : 0.0)};
+}
+
+struct WallBoxResult { std::vector<double> pops, macro; };
+
+template <class L>
+static WallBoxResult run_wall_box(Index N, int steps, WallSource src, bool fd_corners) {
+  using Coll = MomentCollision<L, NoForcing, ShiftedPopulations, true>;
+  const Index nz = (L::D == 3) ? N : 1;
+  Domain d(N, N, nz, false, false, L::D == 2);
+  Coll coll;  coll.omega = Real(1.6);
+  FluidSolver<L, EsotericPull<L>, Coll> s(d, coll);
+  using WS = typename FluidSolver<L, EsotericPull<L>, Coll>::WallSpec;
+  s.set_regularized_walls([&](Index x, Index y, Index z) -> WS {
+    WS w;
+    w.normal = box_code<L>(x, y, z, N);
+    if (w.normal != NrmNone && src == WallSource::Table) {
+      const auto u = box_wall_velocity<L>(x, y, z, N);
+      w.ux = u[0]; w.uy = u[1]; w.uz = u[2];
+    }
+    return w;
+  });
+  if (src == WallSource::Field)
+    s.set_wall_velocity_field([&](Index x, Index y, Index z) {
+      return box_wall_velocity<L>(x, y, z, N);
+    });
+  s.set_fd_corners(fd_corners);
+  s.initialize(Real(1));
+  for (int t = 0; t < steps; ++t) s.step();
+
+  // Everything the run can show: the populations, and the state the solver
+  // REPORTS, which at a wall node is a fourth reader of the wall velocity.
+  WallBoxResult r;
+  const auto g = Kokkos::create_mirror_view_and_copy(HostSpace{}, s.gather_populations());
+  for (std::size_t n = 0; n < g.extent(0); ++n)
+    for (std::size_t i = 0; i < g.extent(1); ++i) r.pops.push_back(double(g(n, i)));
+  s.compute_macroscopic();
+  for (const auto& field : {s.rho(), s.ux(), s.uy(), s.uz()}) {
+    const auto h = Kokkos::create_mirror_view_and_copy(HostSpace{}, field);
+    for (std::size_t n = 0; n < h.extent(0); ++n) r.macro.push_back(double(h(n)));
+  }
+  return r;
+}
+
+// A NaN ANYWHERE IS A DIFFERENCE, AND IT HAS TO STAY ONE. The first version of
+// this kept the running maximum with `if (!(e <= w)) w = e`, which lets a NaN
+// in -- and then lets the very next entry overwrite it, since `!(e <= NaN)` is
+// true for every e. One diverged node followed by an exact match read as
+// agreement. (Found in review, 2026-11-10, before it had passed anything
+// wrong.) So a NaN returns at once: two runs that both blew up must not pass
+// an "identical in every bit" check by being identically broken.
+static double worst_difference(const std::vector<double>& a, const std::vector<double>& b) {
+  if (a.size() != b.size()) return 1e300;
+  double w = 0;
+  for (std::size_t k = 0; k < a.size(); ++k) {
+    const double e = std::abs(a[k] - b[k]);
+    if (std::isnan(e)) return 1e300;
+    if (e > w) w = e;
+  }
+  return w;
+}
+
+template <class L>
+static void wall_velocity_sites(Index N, int steps) {
+  const std::string tag = std::string(L::name) + " box N=" + std::to_string(N) +
+                          ", per-node wall velocity";
+  const auto table_fd = run_wall_box<L>(N, steps, WallSource::Table,   true);
+  const auto field_fd = run_wall_box<L>(N, steps, WallSource::Field,   true);
+  const auto none_fd  = run_wall_box<L>(N, steps, WallSource::Neither, true);
+  const auto table_lc = run_wall_box<L>(N, steps, WallSource::Table,   false);
+  const auto field_lc = run_wall_box<L>(N, steps, WallSource::Field,   false);
+
+  auto show = [](double w) { char b[32]; std::snprintf(b, sizeof b, "%.3e", w); return std::string(b); };
+  const double d_lc = worst_difference(table_lc.pops, field_lc.pops);
+  const double d_fd = worst_difference(table_fd.pops, field_fd.pops);
+  const double m_lc = worst_difference(table_lc.macro, field_lc.macro);
+  const double m_fd = worst_difference(table_fd.macro, field_fd.macro);
+  check::ok(d_lc == 0.0, tag + ": populations, field == table in every bit, local corners (worst " +
+                         show(d_lc) + ")");
+  check::ok(d_fd == 0.0, tag + ": populations, field == table in every bit, FD corners (worst " +
+                         show(d_fd) + ")");
+  check::ok(m_lc == 0.0 && m_fd == 0.0,
+            tag + ": reported rho and u, field == table in every bit (worst " +
+            show(m_lc > m_fd ? m_lc : m_fd) + ")");
+  // A control asks for a FINITE difference: 1e300 is worst_difference's word for
+  // "a NaN, or two different sizes", and a control passed by a run that blew up
+  // would control nothing.
+  auto moved = [](double w) { return w > 0.0 && w < 1.0; };
+  check::ok(moved(worst_difference(table_fd.pops, table_lc.pops)),
+            tag + ": control, the FD corner route is live");
+  check::ok(moved(worst_difference(field_fd.pops, none_fd.pops)),
+            tag + ": control, the field moves the answer");
+  check::ok(moved(worst_difference(field_fd.macro, none_fd.macro)),
+            tag + ": control, the field moves the REPORTED state");
+}
+
 int main(int argc, char** argv) {
   Kokkos::initialize(argc, argv);
   {
@@ -247,6 +409,9 @@ int main(int argc, char** argv) {
 
     idempotent_on_equilibrium<D2Q9>(Real(1.02), u1);
     idempotent_on_equilibrium<D3Q27>(Real(0.98), u2);
+
+    wall_velocity_sites<D2Q9>(17, 60);
+    wall_velocity_sites<D3Q27>(9, 40);     // edges and vertices
   }
   Kokkos::finalize();
   return check::report("boundary");

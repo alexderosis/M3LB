@@ -52,4 +52,25 @@ template <class T> using HostView2D = MirrorOf<View2D<T>>;
 
 using Range = Kokkos::RangePolicy<ExecSpace>;
 
+//------------------------------------------------------------------------------
+// The macroscopic state a collision policy reduces the populations to, and the
+// one type the collision operators and the solvers BOTH name.
+//
+// HERE, NOT IN collision/BGK.hpp, where it lived until 2026-11-10. FluidSolver
+// declares `const Macro m = coll.macroscopic(f, n)` in three kernels, and Macro
+// is not a dependent name, so that header failed to parse unless some collision
+// header had already been included -- "alphabetical include order fails to
+// compile". Measured that day by compiling every header in src/ on its own
+// (tests/headers_alone.sh): 48 of 49 passed and the forty-ninth failed on
+// exactly this, three times, nothing else; all 49 pass since.
+// tests/header_fluidsolver_alone.cpp keeps this one compiling at every build.
+//
+// `dens` is rho for raw storage and rho - 1 for shifted storage, and is NOT
+// normalised to rho in the shifted case -- see collision/BGK.hpp's banner.
+//------------------------------------------------------------------------------
+struct Macro {
+  Real dens;              // rho (raw) or rho - 1 (shifted)
+  Real ux, uy, uz;
+};
+
 }  // namespace lbm

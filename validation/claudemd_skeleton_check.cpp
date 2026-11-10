@@ -1,6 +1,6 @@
 // Compile check for the skeleton quoted in CLAUDE.md. Not a physics test:
 // it exists so that the snippet a newcomer copies is known to build.
-#include "collision/BGK.hpp"       // defines Macro, which FluidSolver.hpp uses
+#include "collision/BGK.hpp"       // the operator; any include order compiles now
 #include "solver/FluidSolver.hpp"
 #include "memory/EsotericPull.hpp"
 #include <cstdio>

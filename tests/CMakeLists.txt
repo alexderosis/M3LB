@@ -6,6 +6,14 @@ foreach(t lattice streaming equilibrium collision moments boundary multiphase ph
 endforeach()
 
 #------------------------------------------------------------------------------
+#  FluidSolver.hpp HAS TO COMPILE ON ITS OWN. An OBJECT library, not a test: the
+#  check is that the build succeeds, so it costs one small translation unit and
+#  nothing at ctest time. See the banner of header_fluidsolver_alone.cpp.
+#------------------------------------------------------------------------------
+add_library(header_fluidsolver_alone OBJECT header_fluidsolver_alone.cpp)
+target_link_libraries(header_fluidsolver_alone PRIVATE lbm)
+
+#------------------------------------------------------------------------------
 #  THE CROSS-CHECK: the parent's colour-gradient operator against GPU/'s.
 #
 #  Two objects, because both code bases put their lattice and their operator in

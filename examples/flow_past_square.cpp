@@ -28,10 +28,10 @@
 //  it. That distinction is the repository's, and it is worth keeping.
 //==============================================================================
 
-// INCLUDE ORDER MATTERS HERE. FluidSolver.hpp uses Macro, which BGK.hpp defines
-// and FluidSolver.hpp does not include, so putting these in alphabetical order
-// fails to compile. Validation cases never meet this because Campaign.hpp orders
-// the includes for them.
+// The include order here is free. It was not until 2026-11-10: FluidSolver.hpp
+// used Macro, which BGK.hpp defined and FluidSolver.hpp did not include, so
+// alphabetical order failed to compile. Macro now lives in core/Types.hpp and
+// tests/header_fluidsolver_alone.cpp keeps the solver header compiling alone.
 #include "collision/BGK.hpp"
 #include "solver/FluidSolver.hpp"
 #include "memory/EsotericPull.hpp"

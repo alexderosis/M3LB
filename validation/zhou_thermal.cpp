@@ -1543,10 +1543,18 @@ int main(int argc, char** argv) {
         std::printf("       heat budget |dNu|/Nu %.2e   <theta> %.6f, drifting "
                     "%+.2e over the averaging window\n",
                     c.imb, c.tbar, c.tbar_drift);
+        // ONE CONVERSION PER ARGUMENT, counted: 14 on the first line, 9 on the
+        // second, 23 arguments. Until 2026-11-10 the second line carried a
+        // tenth, a surplus %.3e before %zu, so `steps` (a size_t) was printed
+        // as a double -- its bit pattern, about 1.6e-318 -- `conv` went through
+        // %zu, and a final %d read an argument that was never passed. The
+        // compiler said so at every build (-Wformat) and the four rows then in
+        // lid.dat carried it; they were repaired from the bit pattern, as that
+        // file's header records.
         char row[640];
         std::snprintf(row, sizeof row,
             "%d %g %.1f %s %s %.6f %g %.6f %.6f %.6f %.6f %.6f %.6f %.6f "
-            "%.8f %.3e %.3e %.3e %.0e %g %.3e %.3e %zu %d",
+            "%.8f %.3e %.3e %.3e %.0e %g %.3e %zu %d",
             int(N), r.Ri, std::sqrt(1e6 / r.Ri), lid_off ? "off" : "on",
             flank.c_str(), c.U, uc, c.tau_f, c.tau_t, c.ma, c.nu_hot, c.nu_cold,
             c.nu_rms, c.nu_span, c.tbar, c.tbar_drift, c.imb, pert, nwave,

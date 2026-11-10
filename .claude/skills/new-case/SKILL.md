@@ -30,9 +30,9 @@ is the first thing to settle; ask before writing code.
 4. **Copy the shape of a small existing case**: `validation/tgv2d.cpp` (fluid only,
    convergence ladder), `validation/natural_convection.cpp` (coupled, 126 lines),
    `validation/claudemd_skeleton_check.cpp` (the bare skeleton). Include
-   `Campaign.hpp` first; headers are not self-contained and alphabetical order fails
-   to compile. `open_out` writes into `results/<dir>/`, which is tracked reference
-   data: use it only for output meant to be kept.
+   `Campaign.hpp` in a validation case: it brings the fluid operators, the solver
+   and Esoteric Pull in one line. `open_out` writes into `results/<dir>/`, which
+   is tracked reference data: use it only for output meant to be kept.
 5. **Size it with `/units`.** Resolution, u0 <= 0.05, nu from Re, omega from
    `Coll::omega_from_viscosity`, read tau back and print Ma.
 6. **Make the check able to fail.** Add a control that the check must catch (a

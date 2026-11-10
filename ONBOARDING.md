@@ -80,7 +80,6 @@ mistakes. The first two sentences of each are the rule:
 
 ## Gotchas that have each cost hours
 
-- Include `validation/Campaign.hpp` first in a case: the headers are not self-contained.
 - `cs2` is 1/4 on D3Q7, so `tau = 3 nu + 1/2` is wrong for a D3Q7 scalar.
 - "Two-dimensional" means a 3-D lattice with `nz = 1`, not D2Q9.
 - `ctest` also runs on FP32 builds (`-DLBM_PRECISION=float`), and FP32 cannot resolve the

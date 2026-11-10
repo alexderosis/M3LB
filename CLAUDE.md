@@ -947,8 +947,8 @@ The skeleton — `validation/claudemd_skeleton_check.cpp` is this snippet as a
 buildable file, so it stays true:
 
 ```cpp
-#include "collision/BGK.hpp"       // BEFORE FluidSolver.hpp: it defines Macro,
-#include "solver/FluidSolver.hpp"  // which FluidSolver.hpp uses but does not include
+#include "collision/BGK.hpp"
+#include "solver/FluidSolver.hpp"
 #include "memory/EsotericPull.hpp"
 
 Kokkos::initialize(argc, argv);
@@ -962,11 +962,10 @@ Kokkos::initialize(argc, argv);
 Kokkos::finalize();
 ```
 
-Headers are **not** self-contained: `FluidSolver.hpp` refers to `Macro`, which
-`collision/BGK.hpp` defines, so alphabetical include order fails to compile. The
-existing cases dodge this by including `validation/Campaign.hpp`, which pulls
-things in the right order — use that in a validation case and you will not meet
-the problem.
+Every header in `src/` compiles on its own (49 of 49, `tests/headers_alone.sh`),
+so include order is free. It was not before 2026-11-10, when `Macro` lived in
+`collision/BGK.hpp`. `validation/Campaign.hpp` is still the convenient include
+for a validation case.
 
 A validation case should compare against something with a known answer —
 analytic, a published table, or a convergence rate — and print a PASS/FAIL. Cases
