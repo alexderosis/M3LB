@@ -90,6 +90,9 @@ rsync -avP csf3:scratch/M3LB/runs/rr_paper/rr_paper_results.tar.gz ~/Downloads/
 | 11 | 3000 | 256 | RR (cm) | 1 | ω_b = 1, coarse grid at Re = 3000 | est. ~4 min |
 | 12 | 10000 | 512 | RR (cm) | 1 | ω_b = 1: does it hold at Re = 10000? | est. ~1 h |
 | 13 | 1000 | 256 | RR (cm) | 1 | ω_b = 1: accuracy cost against the spectral reference | est. ~4 min |
+| 14 | 1000 | 256 | BGK | – | last cells of the paper's table of divergence times | est. ~1 min |
+| 15 | 10000 | 256 | BGK | – | same | est. ~1 min |
+| 16 | 10000 | 256 | RR (cm) | 1 | same (no frames) | est. ≤ 4 min |
 
 Measured on gpuA: 1.08, 1.27 and 1.36 GLUPS FP64 at M = 128, 256 and 512, probes and
 frames included (the last line of each `log.txt`); at most four jobs run at once under
@@ -170,3 +173,28 @@ Rebuild first (`rr_paper_build.sh`): the job refuses a binary older than orszag_
 * `rr_paper_divu.sub`, `rr_paper_spectral3000.sub` (follow-up 2)
 * `tools/spectral3d_ref.cpp` — the pseudo-spectral solver (probe-time sampling, spectra)
 * `tools/spectra_vti.cpp`, `tools/fft3.hpp` — spectra and |j| volumes from the .vti frames
+
+
+## Follow-up 3 (2026-11-11): the last cells of the table of divergence times
+
+The paper's Table 2 (BGK, RR, RR with omega_b = 1 on M = 64-512 at Re = 1000, 3000, 10000)
+lacks three cases on M = 256, which do not fit the workstation that ran M <= 128: BGK at
+Re = 1000 and at Re = 10000, and `-wbulk 1` at Re = 10000. They are elements 14-16, a few
+minutes of one A100 in all, with the binary of the campaign (rebuild it with
+`rr_paper_build.sh` if scratch has been purged):
+
+```bash
+ssh csf3
+cd ~/scratch/M3LB && git checkout mhd && git pull
+sbatch --array=14-16 --time=0:30:00 GPU/csf3/rr_paper/rr_paper.sub
+```
+
+Only the three `log.txt` are needed (a diverged run prints `DIVERGED at t = ...`, a run
+that reaches t = 3 ends with its GLUPS line); no post-processing. Copy each back into a
+folder named after its tag, next to the results of the earlier elements:
+
+```bash
+for tag in re1000_m256_bgk re10000_m256_bgk re10000_m256_cm_wb1; do
+  mkdir -p $tag && rsync -avP csf3:scratch/M3LB/runs/rr_paper/$tag/log.txt $tag/
+done
+```
