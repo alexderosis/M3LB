@@ -198,3 +198,26 @@ for tag in re1000_m256_bgk re10000_m256_bgk re10000_m256_cm_wb1; do
   mkdir -p $tag && rsync -avP csf3:scratch/M3LB/runs/rr_paper/$tag/log.txt $tag/
 done
 ```
+
+## Follow-up 4 (2026-11-13): Re = 10000 at half the lattice velocity
+
+Outcome of follow-ups 2 and 3, now in the paper: the N_s = 512 reference at Re = 3000 is resolved
+by the tail criterion and `-wbulk 1` follows it (energies within 0.05 % and the peak current
+within 1 % on M = 512); on M = 256 and 512 the single rate departs through max|div u| first, as
+on M = 128; and at half the lattice velocity on M = 256 the single rate still diverges
+(t = 1.02) while `-wbulk 1` runs to t = 2. At Re = 10000 and the standard velocity every scheme
+fails before the peak (`-wbulk 1`: t = 1.10 on M = 256, 0.90 on M = 512).
+
+The open question is whether `-wbulk 1` at half the lattice velocity carries Re = 10000 through
+the peak. Elements 6-9 of `rr_paper_divu.sub` (same binary, `-divu`, no frames):
+
+```bash
+ssh csf3
+cd ~/scratch/M3LB && git checkout mhd && git pull
+sbatch --array=6,7 --time=4:00:00 GPU/csf3/rr_paper/rr_paper_divu.sub   # M = 512: -wbulk 1 and the single rate
+sbatch --array=8,9 --time=0:30:00 GPU/csf3/rr_paper/rr_paper_divu.sub   # M = 256
+```
+
+Element 6 is the run that answers the question (about 2.5 h on one A100 if it reaches t = 3);
+7-9 make it interpretable (the single rate under the same conditions, and the coarser grid).
+Only the `log.txt` of `runs/rr_paper/divu_re10000_m{512,256}_cm_wb{1,omega}_ma0.017` is needed.

@@ -29,6 +29,8 @@
 #
 #      sbatch --array=0-3 GPU/csf3/rr_paper/rr_paper_divu.sub      (elements 0-3)
 #      sbatch --array=4-5 GPU/csf3/rr_paper/rr_paper_divu.sub      (elements 4-5, the half-velocity test)
+#      sbatch --array=6,7 --time=4:00:00 GPU/csf3/rr_paper/rr_paper_divu.sub   (Re = 10000 at half velocity, M = 512)
+#      sbatch --array=8,9 --time=0:30:00 GPU/csf3/rr_paper/rr_paper_divu.sub   (the same on M = 256)
 #
 #   idx  Re    M    omega_bulk  tmax  probes  Ma     expected
 #   0    3000  512  omega       0.8   160     0.034  diverges near t = 0.65
@@ -37,6 +39,22 @@
 #   3    3000  256  1           1.0   200     0.034  runs; the baseline of 2
 #   4    3000  256  omega       2.0   400     0.017  linear analysis: still fails
 #   5    3000  256  1           2.0   400     0.017  linear analysis: runs
+#   6   10000  512  1           3.0   150     0.017  the question (see below)
+#   7   10000  512  omega       3.0   150     0.017  its single-rate companion
+#   8   10000  256  1           3.0   300     0.017  the same on the coarser grid
+#   9   10000  256  omega       3.0   300     0.017
+#
+#  Elements 6-9 (added 2026-11-13): Re = 10000 at half the lattice velocity. At
+#  the standard velocity every scheme fails there before the current peak; with
+#  -wbulk 1 at t = 1.10 (M = 256) and 0.90 (M = 512), the single rate at 0.65 and
+#  0.35. At Re = 3000 the lattice velocity decides on the coarser grids (the
+#  single rate survives at Ma = 0.017 on M = 128, not on M = 256). Element 6 asks
+#  whether -wbulk 1 at Ma = 0.017 carries Re = 10000 through the peak on M = 512;
+#  7 is the single rate under the same conditions, 8 and 9 repeat both on
+#  M = 256. To t = 3 a run takes twice the steps of the standard velocity:
+#  about 2.5 h on M = 512 (probes every 0.02 there, they are costly), 15 min on
+#  M = 256; a run that diverges stops earlier. They write
+#  divu_re10000_m{512,256}_cm_wb{1,omega}_ma0.017.
 #
 #  Output: runs/rr_paper/divu_<tag>/log.txt with eight columns; the last one is
 #  max|div u| / k max|u|. Compare 0 with 1 and 2 with 3 probe by probe (same M,
@@ -71,7 +89,11 @@ CFG=(  "3000  512  omega  0.8   160     0.034"
        "3000  256  omega  1.0   200     0.034"
        "3000  256  1      1.0   200     0.034"
        "3000  256  omega  2.0   400     0.017"
-       "3000  256  1      2.0   400     0.017" )
+       "3000  256  1      2.0   400     0.017"
+       "10000 512  1      3.0   150     0.017"
+       "10000 512  omega  3.0   150     0.017"
+       "10000 256  1      3.0   300     0.017"
+       "10000 256  omega  3.0   300     0.017" )
 read -r RE M WB TMAX NP MA <<< "${CFG[$SLURM_ARRAY_TASK_ID]}"
 TAG="divu_re${RE}_m${M}_cm_wb${WB}"
 if [ "$MA" != "0.034" ]; then TAG="${TAG}_ma${MA}"; fi
