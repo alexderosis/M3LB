@@ -90,9 +90,9 @@ rsync -avP csf3:scratch/M3LB/runs/rr_paper/rr_paper_results.tar.gz ~/Downloads/
 | 11 | 3000 | 256 | RR (cm) | 1 | ω_b = 1, coarse grid at Re = 3000 | est. ~4 min |
 | 12 | 10000 | 512 | RR (cm) | 1 | ω_b = 1: does it hold at Re = 10000? | est. ~1 h |
 | 13 | 1000 | 256 | RR (cm) | 1 | ω_b = 1: accuracy cost against the spectral reference | est. ~4 min |
-| 14 | 1000 | 256 | BGK | – | last cells of the paper's table of divergence times | est. ~1 min |
-| 15 | 10000 | 256 | BGK | – | same | est. ~1 min |
-| 16 | 10000 | 256 | RR (cm) | 1 | same (no frames) | est. ≤ 4 min |
+| 14 | 1000 | 256 | BGK | – | last cells of the paper's table of divergence times | diverged t = 0.55 |
+| 15 | 10000 | 256 | BGK | – | same | diverged t = 0.30 |
+| 16 | 10000 | 256 | RR (cm) | 1 | same (no frames) | diverged t = 1.10 |
 
 Measured on gpuA: 1.08, 1.27 and 1.36 GLUPS FP64 at M = 128, 256 and 512, probes and
 frames included (the last line of each `log.txt`); at most four jobs run at once under
@@ -221,3 +221,23 @@ sbatch --array=8,9 --time=0:30:00 GPU/csf3/rr_paper/rr_paper_divu.sub   # M = 25
 Element 6 is the run that answers the question (about 2.5 h on one A100 if it reaches t = 3);
 7-9 make it interpretable (the single rate under the same conditions, and the coarser grid).
 Only the `log.txt` of `runs/rr_paper/divu_re10000_m{512,256}_cm_wb{1,omega}_ma0.017` is needed.
+
+## Outcome of follow-ups 3 and 4 (2026-11-14)
+
+* Elements 14-16 of `rr_paper.sub` (M = 256): BGK diverges at t = 0.55 at Re = 1000 and at 0.30
+  at Re = 10000; `-wbulk 1` diverges at t = 1.10 at Re = 10000. The paper's table of divergence
+  times has no case left that was not run.
+* Elements 6-9 of `rr_paper_divu.sub`, Re = 10000 at half the lattice velocity (Ma = 0.017):
+  every run diverges, later than at the standard velocity but still before the current peak.
+
+  | M | operator | Ma = 0.034 | Ma = 0.017 |
+  |---|---|---|---|
+  | 256 | single rate | 0.65 | 0.76 |
+  | 512 | single rate | 0.35 | 0.40 |
+  | 256 | `-wbulk 1` | 1.10 | 1.38 |
+  | 512 | `-wbulk 1` | 0.90 | 1.14 |
+
+  So a lower lattice velocity does not carry Re = 10000 through the peak. The linear analysis of
+  uniform states calls the compressive mode of `-wbulk 1` stable in all four of its cases
+  (threshold 0.037-0.039 in lattice units, against a peak field of 0.025 at Ma = 0.034 and 0.013
+  at Ma = 0.017): these failures are outside what that analysis accounts for.

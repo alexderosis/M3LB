@@ -39,10 +39,10 @@
 #   3    3000  256  1           1.0   200     0.034  runs; the baseline of 2
 #   4    3000  256  omega       2.0   400     0.017  linear analysis: still fails
 #   5    3000  256  1           2.0   400     0.017  linear analysis: runs
-#   6   10000  512  1           3.0   150     0.017  the question (see below)
-#   7   10000  512  omega       3.0   150     0.017  its single-rate companion
-#   8   10000  256  1           3.0   300     0.017  the same on the coarser grid
-#   9   10000  256  omega       3.0   300     0.017
+#   6   10000  512  1           3.0   150     0.017  the question (see below); diverged t = 1.14
+#   7   10000  512  omega       3.0   150     0.017  its single-rate companion; diverged t = 0.40
+#   8   10000  256  1           3.0   300     0.017  the same on the coarser grid; diverged t = 1.38
+#   9   10000  256  omega       3.0   300     0.017  diverged t = 0.76
 #
 #  Elements 6-9 (added 2026-11-13): Re = 10000 at half the lattice velocity. At
 #  the standard velocity every scheme fails there before the current peak; with
@@ -54,7 +54,8 @@
 #  M = 256. To t = 3 a run takes twice the steps of the standard velocity:
 #  about 2.5 h on M = 512 (probes every 0.02 there, they are costly), 15 min on
 #  M = 256; a run that diverges stops earlier. They write
-#  divu_re10000_m{512,256}_cm_wb{1,omega}_ma0.017.
+#  divu_re10000_m{512,256}_cm_wb{1,omega}_ma0.017. Outcome (2026-11-14): all four
+#  diverge, later than at the standard velocity but before the peak.
 #
 #  Output: runs/rr_paper/divu_<tag>/log.txt with eight columns; the last one is
 #  max|div u| / k max|u|. Compare 0 with 1 and 2 with 3 probe by probe (same M,
