@@ -1,0 +1,75 @@
+1. THE VISCOSITY TABLE (viscosity_pcl.csv: 4 temperatures x 11 shear rates, 1 to 100 1/s)
+   plateau = the mean over the 6 points up to 10 1/s
+   T [C]   plateau [Pa s]   spread on it    at 15.8 1/s   largest stress [kPa] at [1/s]   stress at 100 1/s [kPa]
+      90       2220.1       -2.9 /  +1.8 %    -20.5 %         27.96 at  15.9                1.25
+     100       1690.4       -2.2 /  +1.0 %    -11.8 %         23.64 at  15.9                2.32
+     110       1087.3       -2.5 /  +3.0 %     -5.9 %         16.22 at  15.8                1.26
+     120        814.8       -4.0 /  +3.4 %     -2.4 %         14.83 at  25.1                1.95
+   Up to 10 1/s the melt is Newtonian to within 4.0 % at every temperature.
+   Past its largest value the STRESS falls as the rate rises, 8- to 22-fold by 100 1/s. A melt in steady
+   uniform shear cannot do that, so those readings are not a viscosity (the sample leaving the gap, or
+   slipping, is what a rotational rheometer shows this way). Nothing above the largest stress is used here.
+
+2. ITS TEMPERATURE DEPENDENCE (ln plateau against 1/T, least squares over the 4 temperatures)
+   Ea = 40.9 kJ/mol, standard error 2.9; with 4 points the 95 % interval is 29 to 53 kJ/mol
+   residuals: -2.8 % at 90 C, +6.4 % at 100 C, -3.5 % at 110 C, +0.3 % at 120 C
+   between neighbours: 30.7 (90-100 C), 52.5 (100-110 C), 36.1 (110-120 C) kJ/mol
+   the models' 31.3 kJ/mol (Kelly et al. 2012, 80-120 C) is 3.3 standard errors below it, and inside the
+   95 % interval: four temperatures do not exclude it.
+   the fit at 120 C: 813 Pa s (measured plateau 815; the models use 820)
+   at the cycle's ends: 1127 Pa s at 110 C (measured plateau 1087) and 633 at 128 C, 8 C beyond the data:
+   a factor 1.78 across the cycle (1.55 with 31.3 kJ/mol)
+   cooled to 60 C (an extrapolation, 30 C below the data) the melt is 10 times its 120 C viscosity; 31.3 kJ/mol gave 6
+   cooled to 40 C (an extrapolation, 50 C below the data) the melt is 24 times its 120 C viscosity; 31.3 kJ/mol gave 12
+
+3. THE HEATER'S CYCLE (110 -> 128 C in 13 s at 30 W, back in 53 s with it off)
+   period 66 s, heater on 19.7 % of it: mean power 5.91 W
+   the block warms at 1.385 K/s and cools at 0.340 K/s
+   as one lump with a steady loss: heat capacity 17.4 J/K, loss 5.91 W
+   if the cooling leg is an exponential towards 25 C its time constant is 276 s, and its rate runs from
+   0.373 to 0.308 K/s: within 10 % of the straight leg the model uses
+   time-mean temperature, two straight legs: 119.0 C (the models' nozzle is at 120)
+
+4. THE HOT END, FROM THE DRAWINGS (the 0.4 mm nozzle)
+   tip: orifice 0.40 mm, tip flat 1.00 mm, land 0.60 mm, a 60-degree cone 1.39 mm tall from the 2.0 mm bore
+        (the models' 0.4 mm bore and 1.0 mm tip face are the drawing's A and B)
+   outside: the tip is the end of a cone 2.0 mm tall, about 41 degrees from the axis (its base is not
+        dimensioned), under a 7 mm hexagon 3.0 mm tall; the block's underside, 23 x 16 mm, is
+        5.0 mm above the tip if the hexagon seats on it (a disc of the same area: radius 10.8 mm;
+        the nozzle sits 8 mm from three of its edges)
+   melt at the block's temperature: nozzle bore 33.0 + cone 1.80 + land 0.075 + the heat break's lower 5 mm
+        15.7 = 50.6 mm^3 (the 2.1 mm neck above holds 6.6 more, on a gradient: not counted)
+   the feed takes 41 min to pass through it (37 cycles of the heater)
+   the melt in the 2 mm bore follows its wall with a lag of 1.9 s (R^2 / 5.78 alpha), keeping 98.5 % of
+   a 66 s swing; the brass tip follows the block 1.9 s behind (4 L^2 / pi^2 alpha over 12.5 mm), and
+   the block evens out in 1.7 s (L^2 / alpha over 12 mm). So the melt leaves at the block's temperature.
+   heat capacity of what is drawn: the block 8.1, the nozzle 1.0, the heat break's lower end 0.5, the melt 0.1 = 9.7 J/K
+   against the cycle's 17.4 J/K: 56 % of it. The heater cartridge, the sensor, the clamp screws and a
+   sock, if fitted, are not on the drawings; a bang-bang lump also reads high if the sensor lags the heater.
+   up the heat break's neck (3.69 mm^2 of steel, 2.1 mm long) to a heat sink at 30 C: 2.5 W of the 5.9 W lost
+   up the heat break's neck (3.69 mm^2 of steel, 2.1 mm long) to a heat sink at 50 C: 2.0 W of the 5.9 W lost
+
+5. THE MELT EXPANDS AND CONTRACTS WITH THE CYCLE, AND THE ONLY WAY OUT IS THE ORIFICE
+   (the filament above is solid and driven at a fixed rate; the metal's bore grows too, by 3 alpha)
+   beta 5.0e-04 /K (low; net of the metal 4.45e-04): 0.0225 mm^3/K, 0.41 mm^3 a cycle = 30 % of the 1.37 mm^3 fed;
+        out of the orifice 0.0520 mm^3/s while heating (2.5 x the feed) and 0.0132 while cooling (0.63 x)
+   beta 6.4e-04 /K (used; net of the metal 5.85e-04): 0.0296 mm^3/K, 0.53 mm^3 a cycle = 39 % of the 1.37 mm^3 fed;
+        out of the orifice 0.0618 mm^3/s while heating (3.0 x the feed) and 0.0108 while cooling (0.52 x)
+   beta 7.0e-04 /K (high; net of the metal 6.45e-04): 0.0326 mm^3/K, 0.59 mm^3 a cycle = 43 % of the 1.37 mm^3 fed;
+        out of the orifice 0.0660 mm^3/s while heating (3.2 x the feed) and 0.0097 while cooling (0.47 x)
+   with the value used: while the block cools the orifice delivers 0.0108 mm^3/s against the 0.0116 the no-fan
+   fibres carry and the 0.0036 of the fan's; while it heats, 0.0618. Per cycle the tip is left with
+   0.61 mm^3 (no fan) or 1.13 (fan) more than the fibres take, 107 % and 67 % of it arriving in the 13 s of heating.
+   nominal feed, 120 C: wall shear rate in the orifice  3.31 1/s, wall stress  2.69 kPa, pressure over cone and land 0.19 bar
+   heating leg, 110 C:  wall shear rate in the orifice  9.83 1/s, wall stress 11.07 kPa, pressure over cone and land 0.79 bar
+   cooling leg, 128 C:  wall shear rate in the orifice  1.71 1/s, wall stress  1.08 kPa, pressure over cone and land 0.08 bar
+   so the orifice stays on the Newtonian plateau (largest stress measured: 15 kPa), and the pressure that
+   drives the heating leg compresses the melt by 0.0040 mm^3 (bulk modulus 1 GPa, order only): 0.8 % of
+   what the cycle moves. The melt's compressibility does not smooth the pulse.
+   NOT CHECKED: that the filament holds (a drive that slips, or melt creeping back past the filament in
+   the heat break, would take part of the pulse), and the expansion coefficient itself.
+
+6. WHAT GOES INTO THE MODELS
+   mew_axi -Ea 40.9 -cycle 110 128 13 53 -breathe 0.0296   (mu stays 820 Pa s at 120 C)
+   the runs of 2026-11-17 in results/mew_axi (R4_heat_Ea41_cyc*) were given -breathe 0.0293, 1.0 % below that:
+   out of the orifice 0.0614 mm^3/s while heating and 0.0108 while cooling.

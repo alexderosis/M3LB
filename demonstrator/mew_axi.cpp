@@ -81,6 +81,35 @@
 //  rho_piston below), which removes the +0.34 % its compressed melt injected;
 //  -rawfeed keeps the siblings' piston.
 //
+//  THE HEATER'S CYCLE (-cycle Tlo Thi ton toff [-phase S] [-breathe B], with
+//  -heat; added 2026-11-17). The nozzle is not at a steady 120 C. Its heater
+//  switches on and off, and the block was measured going 110 -> 128 C in 13 s
+//  with the 30 W heater on and back in 53 s with it off (Murat Kilic,
+//  2026-11-17). -cycle puts that on the nozzle's wall and on the melt the
+//  piston feeds, as two straight legs: only their ends and durations are
+//  measured, and a cooling leg that is an exponential towards 25 C differs
+//  from the straight one by at most 10 % in its rate. -phase says how far into
+//  the cycle t = 0 falls (0: the heater has just switched on). mu stays the
+//  viscosity at -Tnoz, 820 Pa s at 120 C, so the melt leaves stiffer at 110 C
+//  and thinner at 128 C. That the melt leaves at the BLOCK's temperature is
+//  argued, not modelled: it spends 41 min in the hot zone, follows its wall
+//  1.9 s behind, and the brass tip follows the block 1.9 s behind
+//  (results/mew_hotend/hotend_numbers.txt, which holds every number here).
+//  -breathe B (mm^3/K) IS THE OTHER HALF OF THE CYCLE, AND THE LARGER ONE. The
+//  hot zone holds 50.6 mm^3 of melt (E3D's drawings, the 0.4 mm nozzle)
+//  between a solid filament driven at a fixed rate and the orifice. Warmed, it
+//  expands and the orifice is the only way out; cooled, it contracts and keeps
+//  that much of the feed. So the bore delivers Q + B dT/dt: with B = 0.0293
+//  (a melt expansion of 6.4e-4 /K, NOMINAL and NOT VERIFIED FOR PCL, net of the
+//  metal's) 0.0614 mm^3/s while the block heats and 0.0108 while it cools,
+//  against a feed of 0.0208 -- 0.53 mm^3 pushed out and taken back in each
+//  cycle, of the 1.37 fed. NOT MODELLED: the hot zone itself (B is a number),
+//  any give in the filament or its drive, which would take part of the pulse,
+//  and the melt's compressibility (0.8 % of it). The ledger integrates the
+//  piston's own motion, and the series gains the nozzle's temperature, the
+//  outflow and the volume fed. Refused: -cycle without -heat, -breathe with
+//  -rawfeed, and a B so large that the bore would draw melt back.
+//
 //  THE JET (-jet Q, mm^3/s; added 2026-11-07). The jet itself is below the grid
 //  (WHAT IT CANNOT DO), so -jet takes out of the drop the melt it would carry
 //  instead: Q drawn through the density of the Fluid cells within -jetr (0.1 mm)
@@ -200,6 +229,44 @@
 //     surface cells", which outlived the switch to draw() until after they ran;
 //     what ran is the draw, four cells in and 0.1 mm across unless the name says
 //     otherwise: _d8 eight cells in, _r05 one cell across.)
+//   - THE HEATER'S CYCLE (-cycle 110 128 13 53, 2026-11-17; with the measured
+//     40.9 kJ/mol, nu0 = 1/24, to 150 s: R4_heat_Ea41*, tabulated in
+//     results/mew_axi/cycle_numbers.txt, drawn by tools/plot_mew_axi.py cycle).
+//     The measured activation energy alone moves the stalled drop by one cell
+//     and 4 % at 60 s (3.475 mm up and 0.782 mm^3 at the tip, against 3.525 and
+//     0.750 with 31.3). The cycle on the TEMPERATURE alone does nothing
+//     measurable: within a cell and 3 % of the steady run at every tabulated
+//     time to 150 s. With the melt's EXPANSION (-breathe 0.0293) the melt
+//     arrives in bursts, 0.79 mm^3 in each 13 s of heating and 0.57 in each
+//     53 s of cooling, and the drop is ahead or behind accordingly: started as
+//     the heater switches on it holds 1.94 times the steady run's tip melt at
+//     10 s and hangs 0.75 mm lower; started as it switches off, 0.52 times and
+//     0.25 mm higher. It ends in the same place: all four stall, their lowest
+//     point 3.125-3.175 mm up at 150 s and their ends at 33-38 C at the
+//     tabulated times from 40 s on. WITHOUT A JET THE CYCLE SETS WHEN THE MELT
+//     ARRIVES, NOT WHERE THE DROP STOPS.
+//     WITH THE NO-FAN JET (-jet 0.011552; R4_heat_Ea41*_jet116, same table) THE
+//     MELT BELOW THE TIP GROWS ONLY WHILE THE HEATER IS ON: by 0.65 mm^3 in each
+//     13 s of heating (the supply less the jet is 0.644), and by -0.004 to
+//     +0.053 over each 53 s of cooling, where the supply less the jet is -0.037
+//     and the free surface creates +0.033 to +0.091 (below) -- flat in the
+//     model, and falling by 0.04 without that artefact. A steady feed grows it
+//     evenly, to 1.468 mm^3 at 150 s; the two cycled runs, which end at
+//     different points of their cycles, hold 1.973 and 1.353. All three stall,
+//     3.375-3.425 mm up at 150 s. Started as the heater switches off, no drop
+//     forms for 53 s: the jet's flow is an INPUT, and it is then more than the
+//     orifice delivers, where a real jet's would fall with its supply.
+//     THE FIBRES' OWN FLOW, 0.0116 mm^3/s, IS WHAT THE ORIFICE DELIVERS WHILE
+//     THE HEATER IS OFF, 0.0108 (0.0097-0.0132 over the expansion coefficient's
+//     range): a 19.9 um fibre at 35 mm/s against the 20.5 um measured. That is
+//     what a jet carrying the cooling leg's flow steadily, with the surplus
+//     oozing in the 13 s of heating, would give. It is one agreement between
+//     two numbers, one of them nominal -- a thing to test, not a result.
+//     The free surface creates 4.7 / 6.2 / 6.5 % of what the jet takes by 150 s
+//     (THE JET above): 0.08-0.11 mm^3, against steps of 0.65. The melt's lowest
+//     point RISES 0.2-0.35 mm over each cooling leg with its volume unchanged;
+//     that is not diagnosed (the sink takes its melt just above the apex) and
+//     is not read as the drop retracting.
 //  So the model does not predict a contact time. It predicts that the tip's
 //  thermal state decides between a column drawn to the collector in 10-35 s
 //  and a drop that cools, crystallises at its end and grows at the tip -- and,
@@ -208,10 +275,11 @@
 //  Usage: mew_axi [-R 4] [-Ucol 0.04] [-nu 0.1667] [-mu 820] [-gamma 0.030] [-V 6.5]
 //                 [-feed 0.0208] [-W 4] [-up 1.25] [-plate | -plateR MM] [-equip] [-lc MM]
 //                 [-nofield] [-nogeom] [-rawfeed] [-heat [-h 90] [-Ea 31.3] [-Tair 25]
-//                 [-Tcol 22] [-Tnoz 120] [-Tfreeze 30] [-nucap 1] [-Dafr 100] [-nofreeze]]
+//                 [-Tcol 22] [-Tnoz 120] [-Tfreeze 30] [-nucap 1] [-Dafr 100] [-nofreeze]
+//                 [-cycle TLO THI TON TOFF [-phase S] [-breathe B]]]
 //                 [-fieldon T] [-jet Q [-jetr 0.1] [-jetdepth MM] [-jetTmin C]] [-M 20] [-sweeps 400]
 //                 [-tend 20] [-tframe 0.5] [-watch T] [-out PREFIX]
-//                 (mm, kV, mm^3/s, W/m^2/K, kJ/mol, C)
+//                 (mm, kV, mm^3/s, W/m^2/K, kJ/mol, C, s; -breathe in mm^3/K)
 //==============================================================================
 #include "FsElectricAxi.hpp"
 #include "FsHeatAxi.hpp"
@@ -296,6 +364,12 @@ struct Opts {
   double nucap  = 1.0;       // with heat: the largest lattice viscosity (the axis bound)
   double Dafr   = 100.0;     // with heat: the freezing drag as a Darcy number on the bore, A R^2 / mu
   int    sweeps = 400;       // SOR sweeps per field update, at most
+  // -cycle Tlo Thi ton toff: the heater's on-off cycle on the nozzle (see THE HEATER'S CYCLE)
+  bool   cyc    = false;
+  double Tlo    = 110.0, Thi = 128.0;   // C: the block's temperature when the heater switches on, and off
+  double ton    = 13.0, toff = 53.0;    // s: heating Tlo -> Thi, then cooling back
+  double phase  = 0.0;       // -phase S: where in the cycle t = 0 falls (0: the heater has just switched on)
+  double breathe = 0.0;      // -breathe B: mm^3 the melt in the hot zone grows by per kelvin, out through the bore
   std::string out;
 };
 
@@ -349,9 +423,45 @@ int main(int argc, char** argv) {
       else if (!std::strcmp(a, "-Tcol"))    P.Tcol = num();
       else if (!std::strcmp(a, "-Tnoz"))    P.Tnoz = num();
       else if (!std::strcmp(a, "-Tfreeze")) { P.Ts = num(); P.Tl = P.Ts + 10.0; }
+      else if (!std::strcmp(a, "-cycle"))   { o.cyc = true; o.Tlo = num(); o.Thi = num(); o.ton = num(); o.toff = num(); }
+      else if (!std::strcmp(a, "-phase"))   o.phase = num();
+      else if (!std::strcmp(a, "-breathe")) o.breathe = num();
       else if (!std::strcmp(a, "-out") && i + 1 < argc) o.out = argv[++i];
       else {
         std::printf("mew_axi: unknown option '%s'. NOTHING WAS RUN.\n", a);
+        Kokkos::finalize();
+        return 2;
+      }
+    }
+
+    // THE HEATER'S CYCLE: the wall's temperature at time t and its rate, two straight
+    // legs (only their ends and their durations are measured), and the outflow that
+    // goes with it: the feed plus what the melt in the hot zone expands by.
+    const double period = o.ton + o.toff;
+    auto cyc_T = [&](double t, double& rate) {
+      double tc = std::fmod(t + o.phase, period);
+      if (tc < 0) tc += period;
+      if (tc < o.ton) { rate = (o.Thi - o.Tlo) / o.ton; return o.Tlo + rate * tc; }
+      rate = -(o.Thi - o.Tlo) / o.toff;
+      return o.Thi + rate * (tc - o.ton);
+    };
+    auto feed_fac = [&](double t) {
+      if (!o.cyc || o.breathe == 0) return 1.0;
+      double rate; (void)cyc_T(t, rate);
+      return 1.0 + o.breathe * 1e-9 * rate / P.Q;
+    };
+    if (o.cyc || o.breathe != 0 || o.phase != 0) {
+      const char* why = nullptr;
+      if (!o.cyc)                              why = "-phase and -breathe belong to -cycle";
+      else if (!o.heat)                        why = "-cycle is the nozzle's temperature: it needs -heat";
+      else if (!(o.ton > 0 && o.toff > 0))     why = "-cycle needs both durations positive";
+      else if (!(o.Thi >= o.Tlo))              why = "-cycle Tlo Thi ton toff needs Thi >= Tlo";
+      else if (o.breathe != 0 && !o.feedfix)   why = "-breathe moves the piston, which -rawfeed never refreshes";
+      else if (o.breathe < 0)                  why = "-breathe is a volume per kelvin and cannot be negative";
+      else if (1.0 - o.breathe * 1e-9 * (o.Thi - o.Tlo) / o.toff / P.Q <= 0)
+        why = "-breathe is so large that the bore would draw melt back while the block cools";
+      if (why) {
+        std::printf("mew_axi: %s. NOTHING WAS RUN.\n", why);
         Kokkos::finalize();
         return 2;
       }
@@ -478,18 +588,24 @@ int main(int argc, char** argv) {
     HeatFields HF;
     const double alpha_phys = P.kmelt / (P.rho * P.cp);
     const double EaR = P.Ea / 8.314462618;
-    if (o.heat) {
-      heat.alpha = alpha_phys * dt / (dx * dx);
-      heat.hloss = P.hconv * dt / (P.rho * P.cp * dx);
-      heat.T_air = P.Tair;
+    // The walls: the collector, and the nozzle with its piston at Tw (P.Tnoz, or the cycle's).
+    auto set_heat_walls = [&](double Tw) {
       heat.set_roles(
           [&](Index x, Index y) -> HeatRole {
             if (y == 0 || is_lip(x, y) || is_piston(x, y)) return HeatWall;
             return HeatFree;
           },
-          [&](Index, Index y) { return y == 0 ? P.Tcol : P.Tnoz; });
+          [&](Index, Index y) { return y == 0 ? P.Tcol : Tw; });
+    };
+    if (o.heat) {
+      heat.alpha = alpha_phys * dt / (dx * dx);
+      heat.hloss = P.hconv * dt / (P.rho * P.cp * dx);
+      heat.T_air = P.Tair;
+      double r0 = 0;
+      const double Tw0 = o.cyc ? cyc_T(0.0, r0) : P.Tnoz;   // the nozzle, its wall and the melt in it at t = 0
+      set_heat_walls(Tw0);
       fields_from(fs, d, HF);
-      heat.initialize(HF, [&](Index, Index) { return P.Tnoz; });
+      heat.initialize(HF, [&](Index, Index) { return Tw0; });
       heat.write_omega(fs, o.nu, EaR, P.Tnoz, o.nucap);
       if (o.freeze) heat.write_drag(fs, A_fr, P.Ts, P.Tl);
       const double Tcap = 1.0 / (std::log(o.nucap / o.nu) / EaR + 1.0 / (P.Tnoz + 273.15)) - 273.15;
@@ -505,6 +621,22 @@ int main(int argc, char** argv) {
                   o.nucap, o.nucap / o.nu, Tcap, band, o.Dafr, A_fr);
       std::printf("        times: drop cooling rho c_p (0.5 mm / 3) / h = %.2f s, conduction over 0.5 mm %.2f s\n",
                   P.rho * P.cp * (0.5e-3 / 3.0) / P.hconv, 0.25e-6 / alpha_phys);
+      if (o.cyc) {
+        const double up = (o.Thi - o.Tlo) / o.ton, dn = (o.Thi - o.Tlo) / o.toff;
+        std::printf("  cycle: the nozzle and the melt it feeds go %.0f -> %.0f C in %.0f s and back in %.0f s (period %.0f s),"
+                    " starting %.1f s into it at %.1f C;\n"
+                    "         mu %.0f Pa s stays the viscosity at %.0f C: x %.2f at %.0f C, x %.2f at %.0f C\n",
+                    o.Tlo, o.Thi, o.ton, o.toff, period, std::fmod(o.phase, period), Tw0, P.mu, P.Tnoz,
+                    FsHeatAxi::viscosity_ratio(o.Tlo, EaR, P.Tnoz), o.Tlo,
+                    FsHeatAxi::viscosity_ratio(o.Thi, EaR, P.Tnoz), o.Thi);
+        if (o.breathe != 0)
+          std::printf("         the hot zone's melt expands by %.4f mm^3/K: %.3f mm^3 a cycle against %.3f fed;"
+                      " out of the bore %.4f mm^3/s while heating, %.4f while cooling (feed %.4f)\n",
+                      o.breathe, o.breathe * (o.Thi - o.Tlo), P.Q * 1e9 * period,
+                      P.Q * 1e9 + o.breathe * up, P.Q * 1e9 - o.breathe * dn, P.Q * 1e9);
+        else
+          std::printf("         the feed is steady (no -breathe)\n");
+      }
     }
 
     // THE FEED IS A VOLUME RATE, AND THE LATTICE IS COMPRESSIBLE. The piston's
@@ -536,14 +668,18 @@ int main(int argc, char** argv) {
           Real(0), Real(0));
     };
 
+    if (o.cyc && o.breathe != 0) set_piston(Real(Un_l * feed_fac(0.0)));   // the first steps too
+
     //---- diagnostics ---------------------------------------------------------------
     // r-weighted cell volume 2 pi r dx^3 in mm^3, r = x + 1/2 cells
     const double v3 = 2.0 * kPi * dx * dx * dx * 1e9;
     const double m0 = double(fs.total_mass());
     const double inj_step = double(uin) * 0.5 * double(R) * double(R);   // sum_{x<R} uin (x + 1/2)
     double jet_asked = 0;                       // -jet: the mass the jet has asked draw() for
+    double inj_acc = 0;                         // -cycle: the mass injected so far, the feed no longer being steady
+    double fac_now = feed_fac(0.0);             // the feed's factor on the piston during the current steps
     struct Diag { double t, total, tip, gap, zlow, neck, drained, jet, jet_asked, ledger, pe, emax, etip, phitip, rho_p,
-                  Tend, Tgap, Tmin, frozen, width; };
+                  Tend, Tgap, Tmin, frozen, width, Tw, feed, fed; };
     auto measure = [&](double t) {
       auto hf = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs.flags());
       auto he = Kokkos::create_mirror_view_and_copy(HostSpace{}, fs.fill());
@@ -578,7 +714,11 @@ int main(int argc, char** argv) {
         }
       D.neck = 2.0 * std::sqrt(2.0 * neck) * dx * 1e3;   // pi (D/2)^2 = 2 pi sum(r v) dx^2
       const double drained = double(fs.drained_mass());
-      const double injected = inj_step * (t / dt);
+      const double injected = o.cyc ? inj_acc : inj_step * (t / dt);
+      double rate_now = 0;
+      D.Tw = o.cyc ? cyc_T(t, rate_now) : P.Tnoz;
+      D.feed = P.Q * 1e9 * feed_fac(t);
+      D.fed = injected * v3;
       D.drained = drained * v3;
       D.jet = double(fs.sunk_mass()) * v3;
       D.jet_asked = jet_asked * v3;
@@ -654,7 +794,8 @@ int main(int argc, char** argv) {
       fs_out = std::fopen((o.out + "_series.csv").c_str(), "w");
       if (fs_out) std::fprintf(fs_out, "t_s,melt_total_mm3,tip_zone_mm3,gap_mm3,z_low_mm,neck_mm,drained_mm3,"
                                "ledger,max_pe_over_gamma_R,max_E_kV_per_mm,E_below_tip_kV_per_mm,phi_end,rho_piston,"
-                               "T_end_C,T_gap_mean_C,T_min_C,frozen_mm3,width_mm,jet_mm3,jet_asked_mm3\n");
+                               "T_end_C,T_gap_mean_C,T_min_C,frozen_mm3,width_mm,jet_mm3,jet_asked_mm3%s\n",
+                               o.cyc ? ",T_nozzle_C,out_of_bore_mm3_s,fed_mm3" : "");
     }
     std::printf("\n  %8s %10s %10s %10s %7s %6s %9s %8s %7s %7s %6s %8s %s\n", "t [s]", "melt mm^3", "tip mm^3",
                 "gap mm^3", "z_low", "neck", "ledger", "pE/g/R", "E kV/mm", "E end", "phi_e", "rho_pst", "wall s/s");
@@ -712,6 +853,7 @@ int main(int argc, char** argv) {
         }
       }
       Kokkos::fence();
+      inj_acc += inj_step * fac_now * double(o.M);     // what the piston put in over these steps
       auto c1 = std::chrono::steady_clock::now();
       // Melt that spreads on the collector to the box's rim leaves there.
       fs.drain(KOKKOS_LAMBDA(Index n) {
@@ -727,7 +869,8 @@ int main(int argc, char** argv) {
         }
         if (contacted) std::printf("  first contact with the collector at t = %.3f s\n", (t + o.M) * dt);
       }
-      if (o.feedfix) set_piston(Real(Un_l / rho_piston()));
+      fac_now = feed_fac((t + o.M) * dt);              // -cycle -breathe: the outflow follows dT/dt
+      if (o.feedfix) set_piston(Real(Un_l * fac_now / rho_piston()));
       auto c2 = std::chrono::steady_clock::now();
       // -fieldon: until t_on the melt oozes with the field off (no stress, no solve)
       const bool field_now = o.field && (t + o.M) * dt >= o.t_on;
@@ -751,6 +894,7 @@ int main(int argc, char** argv) {
         el.apply(fs);
       }
       if (o.heat) {
+        if (o.cyc) { double rr; set_heat_walls(cyc_T((t + o.M) * dt, rr)); }
         fields_from(fs, d, HF);
         heat.update(HF, double(o.M));
         heat.write_omega(fs, o.nu, EaR, P.Tnoz, o.nucap);
@@ -799,11 +943,15 @@ int main(int argc, char** argv) {
           rc = 1;
           break;
         }
-        if (fs_out) std::fprintf(fs_out, "%.5f,%.6f,%.6f,%.6f,%.5f,%.5f,%.6f,%.3e,%.4f,%.4f,%.4f,%.5f,%.6f,"
-                                 "%.3f,%.3f,%.3f,%.6f,%.4f,%.6f,%.6f\n",
-                                 D.t, D.total, D.tip, D.gap, D.zlow, D.neck, D.drained, D.ledger, D.pe, D.emax,
-                                 D.etip, D.phitip, D.rho_p, D.Tend, D.Tgap, D.Tmin, D.frozen, D.width, D.jet,
-                                 D.jet_asked);
+        if (fs_out) {
+          std::fprintf(fs_out, "%.5f,%.6f,%.6f,%.6f,%.5f,%.5f,%.6f,%.3e,%.4f,%.4f,%.4f,%.5f,%.6f,"
+                               "%.3f,%.3f,%.3f,%.6f,%.4f,%.6f,%.6f",
+                       D.t, D.total, D.tip, D.gap, D.zlow, D.neck, D.drained, D.ledger, D.pe, D.emax,
+                       D.etip, D.phitip, D.rho_p, D.Tend, D.Tgap, D.Tmin, D.frozen, D.width, D.jet,
+                       D.jet_asked);
+          if (o.cyc) std::fprintf(fs_out, ",%.3f,%.6f,%.6f", D.Tw, D.feed, D.fed);
+          std::fprintf(fs_out, "\n");
+        }
         if (ts % sframe == 0) {
           const double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - wall0).count();
           const double rate = (wall - last_wall) / std::max(1e-9, D.t - last_t);
@@ -812,6 +960,7 @@ int main(int argc, char** argv) {
                       D.total, D.tip, D.gap, D.zlow, D.neck, D.ledger, D.pe, D.emax, D.etip, D.phitip, D.rho_p, rate);
           if (o.heat) std::printf("  T end %5.1f gap %5.1f min %5.1f frozen %.4f", D.Tend, D.Tgap, D.Tmin, D.frozen);
           if (o.jet > 0) std::printf("  jet %.5f of %.5f", D.jet, D.jet_asked);
+          if (o.cyc) std::printf("  nozzle %5.1f C, out %.4f", D.Tw, D.feed);
           std::printf("\n");
           std::fflush(stdout);
           if (fs_out) std::fflush(fs_out);

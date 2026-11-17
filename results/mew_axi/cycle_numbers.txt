@@ -1,0 +1,133 @@
+R4_heat_best -- steady 120 C, 31.3 kJ/mol (the earlier run, to 60 s); series to 60.0 s; no contact
+    t [s]       z_low_mm  tip_zone_mm3       gap_mm3      width_mm       T_end_C  T_gap_mean_C
+       10          4.475         0.207         0.207         0.580          60.4          82.9
+       20          4.025         0.330         0.416         0.697          44.8          67.9
+       40          3.625         0.549         0.832         0.898          36.5          60.5
+       60          3.525         0.750         1.247         1.084          37.4          57.9
+    largest |ledger| after 1 s: 5.7e-05
+
+R4_heat_Ea41 -- steady 120 C, 40.9 kJ/mol; series to 150.0 s; no contact
+    t [s]       z_low_mm  tip_zone_mm3       gap_mm3      width_mm       T_end_C  T_gap_mean_C
+       10          4.475         0.207         0.207         0.582          49.5          83.2
+       20          3.975         0.326         0.416         0.692          40.7          68.1
+       40          3.625         0.561         0.832         0.908          37.7          62.3
+       60          3.475         0.782         1.248         1.096          36.9          60.0
+       80          3.375         0.964         1.664         1.220          36.5          58.6
+      100          3.325         1.119         2.080         1.327          37.2          57.7
+      120          3.225         1.267         2.496         1.421          35.8          56.9
+      150          3.175         1.465         3.120         1.548          36.9          55.6
+    largest |ledger| after 1 s: 5.7e-05
+
+R4_heat_Ea41_cycT -- cycle on the temperature only; series to 150.0 s; no contact
+    t [s]       z_low_mm  tip_zone_mm3       gap_mm3      width_mm       T_end_C  T_gap_mean_C
+       10          4.525         0.207         0.207         0.583          63.0          84.7
+       20          3.975         0.317         0.416         0.680          44.8          70.4
+       40          3.625         0.556         0.832         0.903          37.6          61.6
+       60          3.475         0.793         1.248         1.103          33.3          57.5
+       80          3.425         0.990         1.664         1.236          37.4          60.8
+      100          3.275         1.107         2.080         1.329          35.3          58.5
+      120          3.225         1.247         2.496         1.420          35.7          54.9
+      150          3.175         1.491         3.120         1.550          36.8          57.6
+    largest |ledger| after 1 s: 5.6e-05
+    fed by the end: 3.1197 mm^3 (a steady feed: 3.1197)
+
+R4_heat_Ea41_cyc -- cycle with the melt's expansion, from switch-on; series to 150.0 s; no contact
+    t [s]       z_low_mm  tip_zone_mm3       gap_mm3      width_mm       T_end_C  T_gap_mean_C
+       10          3.725         0.402         0.612         0.762          44.1          71.9
+       20          3.525         0.541         0.874         0.905          37.2          60.7
+       40          3.475         0.680         1.091         1.016          35.3          57.5
+       60          3.425         0.802         1.308         1.110          34.2          55.1
+       80          3.275         1.228         2.182         1.387          36.5          63.5
+      100          3.225         1.237         2.399         1.430          36.7          56.8
+      120          3.175         1.293         2.616         1.483          34.8          53.4
+      150          3.125         1.717         3.598         1.666          37.9          58.6
+    largest |ledger| after 1 s: 5.7e-05
+    fed by the end: 3.5975 mm^3 (a steady feed: 3.1197)
+
+R4_heat_Ea41_cyc_ph13 -- cycle with the melt's expansion, from switch-off; series to 150.0 s; no contact
+    t [s]       z_low_mm  tip_zone_mm3       gap_mm3      width_mm       T_end_C  T_gap_mean_C
+       10          4.725         0.108         0.108         0.482          66.4          93.3
+       20          4.225         0.193         0.217         0.552          42.1          74.6
+       40          3.875         0.338         0.434         0.720          37.5          63.7
+       60          3.575         0.699         1.005         1.032          37.8          66.8
+       80          3.325         0.877         1.525         1.177          36.0          58.8
+      100          3.275         0.951         1.742         1.235          34.1          55.0
+      120          3.275         1.066         2.010         1.309          34.2          52.9
+      150          3.125         1.411         2.941         1.524          36.3          56.1
+    largest |ledger| after 1 s: 5.6e-05
+    fed by the end: 2.9408 mm^3 (a steady feed: 3.1197)
+
+against the steady 40.9 kJ/mol run at the same time (z_low difference in mm; tip-zone ratio):
+  cycle on the temperature only                         10 s: +0.050, x1.00;  20 s: +0.000, x0.97;  40 s: +0.000, x0.99;  60 s: +0.000, x1.01;  80 s: +0.050, x1.03; 100 s: -0.050, x0.99; 120 s: +0.000, x0.98; 150 s: +0.000, x1.02
+  cycle with the melt's expansion, from switch-on       10 s: -0.750, x1.94;  20 s: -0.450, x1.66;  40 s: -0.150, x1.21;  60 s: -0.050, x1.03;  80 s: -0.100, x1.27; 100 s: -0.100, x1.11; 120 s: -0.050, x1.02; 150 s: -0.050, x1.17
+  cycle with the melt's expansion, from switch-off      10 s: +0.250, x0.52;  20 s: +0.250, x0.59;  40 s: +0.250, x0.60;  60 s: +0.100, x0.89;  80 s: -0.050, x0.91; 100 s: -0.050, x0.85; 120 s: +0.050, x0.84; 150 s: -0.050, x0.96
+
+R4_heat_Ea41_cyc: the melt below the tip face (gap_mm3) over each leg of the cycle
+       0.0 -   13.0 s  heating  gap 0.003 -> 0.796 mm^3 (+0.793), z_low 5.475 -> 3.575 mm, T_end 104.9 -> 40.9 C
+      13.0 -   66.0 s  cooling  gap 0.798 -> 1.373 mm^3 (+0.575), z_low 3.575 -> 3.425 mm, T_end 41.3 -> 34.7 C
+      66.0 -   79.0 s  heating  gap 1.376 -> 2.169 mm^3 (+0.793), z_low 3.425 -> 3.325 mm, T_end 34.7 -> 39.2 C
+      79.0 -  132.0 s  cooling  gap 2.171 -> 2.746 mm^3 (+0.575), z_low 3.325 -> 3.175 mm, T_end 39.2 -> 34.7 C
+     132.0 -  145.0 s  heating  gap 2.748 -> 3.542 mm^3 (+0.793), z_low 3.175 -> 3.125 mm, T_end 34.7 -> 36.5 C
+     145.0 -  150.0 s  cooling  gap 3.544 -> 3.598 mm^3 (+0.054), z_low 3.125 -> 3.125 mm, T_end 36.6 -> 37.9 C
+R4_heat_Ea41_cyc_ph13: the melt below the tip face (gap_mm3) over each leg of the cycle
+       0.0 -   53.0 s  cooling  gap 0.001 -> 0.575 mm^3 (+0.574), z_low 5.475 -> 3.775 mm, T_end 103.5 -> 36.0 C
+      53.0 -   66.0 s  heating  gap 0.576 -> 1.373 mm^3 (+0.796), z_low 3.775 -> 3.425 mm, T_end 36.0 -> 39.6 C
+      66.0 -  119.0 s  cooling  gap 1.373 -> 1.948 mm^3 (+0.574), z_low 3.425 -> 3.275 mm, T_end 39.6 -> 34.2 C
+     119.0 -  132.0 s  heating  gap 1.949 -> 2.745 mm^3 (+0.796), z_low 3.275 -> 3.225 mm, T_end 34.2 -> 37.9 C
+     132.0 -  150.0 s  cooling  gap 2.746 -> 2.941 mm^3 (+0.195), z_low 3.225 -> 3.125 mm, T_end 37.9 -> 36.3 C
+
+WITH THE NO-FAN JET (0.011552 mm^3/s taken at the apex, 56 % of the feed)
+R4_heat_Ea41_jet116 -- steady feed; series to 150.0 s; no contact
+    t [s]       z_low_mm  tip_zone_mm3       gap_mm3      width_mm       T_end_C  T_gap_mean_C       jet_mm3   created_mm3
+       10          5.025         0.092         0.092         0.537          77.4         100.6        0.1152       -0.0000
+       20          4.575         0.186         0.186         0.553          59.3          82.6        0.2310        0.0009
+       40          3.975         0.314         0.392         0.675          34.8          68.1        0.4621        0.0221
+       60          3.775         0.405         0.594         0.782          39.5          63.7        0.6931        0.0387
+       80          3.625         0.494         0.790         0.859          36.7          60.8        0.9242        0.0500
+      100          3.575         0.544         0.981         0.895          30.9          56.4        1.1552        0.0557
+      120          3.575         0.677         1.175         1.008          37.5          58.1        1.3863        0.0648
+      150          3.425         0.769         1.468         1.099          32.3          56.4        1.7326        0.0807
+    by the end: jet took 1.7326 of 1.7326 asked; the free surface created 0.0807 mm^3 = 4.7 % of what the jet took, 5.5 % of the melt below the tip
+
+R4_heat_Ea41_cyc_jet116 -- cycle with the melt's expansion, from switch-on; series to 150.0 s; no contact
+    t [s]       z_low_mm  tip_zone_mm3       gap_mm3      width_mm       T_end_C  T_gap_mean_C       jet_mm3   created_mm3
+       10          3.825         0.338         0.497         0.692          44.2          74.7        0.1152        0.0003
+       20          3.525         0.399         0.651         0.787          30.0          59.5        0.2310        0.0082
+       40          3.625         0.401         0.672         0.800          32.0          56.2        0.4621        0.0432
+       60          3.825         0.414         0.671         0.788          36.7          54.4        0.6931        0.0566
+       80          3.425         0.790         1.322         1.122          39.1          65.9        0.9242        0.0651
+      100          3.425         0.661         1.322         1.111          35.5          54.1        1.1552        0.0792
+      120          3.625         0.669         1.321         1.096          31.6          52.1        1.3863        0.0920
+      150          3.425         1.064         1.973         1.318          41.0          61.6        1.7326        0.1082
+    by the end: jet took 1.7326 of 1.7326 asked; the free surface created 0.1082 mm^3 = 6.2 % of what the jet took, 5.5 % of the melt below the tip
+
+R4_heat_Ea41_cyc_ph13_jet116 -- cycle with the melt's expansion, from switch-off; series to 150.0 s; no contact
+    t [s]       z_low_mm  tip_zone_mm3       gap_mm3      width_mm       T_end_C  T_gap_mean_C       jet_mm3   created_mm3
+       10          5.475         0.000         0.000         0.000           nan           nan        0.1108        0.0000
+       20          5.475         0.000         0.000         0.100           nan           nan        0.2195       -0.0000
+       40          5.475         0.000         0.000         0.100           nan           nan        0.4363       -0.0000
+       60          4.075         0.258         0.347         0.591          34.5          78.8        0.6582       -0.0001
+       80          3.425         0.445         0.668         0.817          27.0          61.8        0.8893        0.0325
+      100          3.625         0.436         0.701         0.807          30.8          58.0        1.1203        0.0791
+      120          3.725         0.466         0.751         0.802          36.6          57.3        1.3514        0.0927
+      150          3.375         0.694         1.353         1.120          35.5          55.0        1.6977        0.1098
+    by the end: jet took 1.6977 of 1.6977 asked; the free surface created 0.1098 mm^3 = 6.5 % of what the jet took, 8.1 % of the melt below the tip
+
+R4_heat_Ea41_cyc_jet116: the melt below the tip face over each leg of the cycle
+       0.0 -   13.0 s  heating  gap 0.002 -> 0.648 mm^3 (+0.645; supply less jet +0.644, created +0.001), z_low 5.475 -> 3.575 mm
+      13.0 -   66.0 s  cooling  gap 0.649 -> 0.669 mm^3 (+0.020; supply less jet -0.037, created +0.057), z_low 3.575 -> 3.825 mm
+      66.0 -   79.0 s  heating  gap 0.672 -> 1.321 mm^3 (+0.650; supply less jet +0.644, created +0.006), z_low 3.825 -> 3.475 mm
+      79.0 -  132.0 s  cooling  gap 1.323 -> 1.319 mm^3 (-0.004; supply less jet -0.037, created +0.033), z_low 3.475 -> 3.675 mm
+     132.0 -  145.0 s  heating  gap 1.321 -> 1.972 mm^3 (+0.651; supply less jet +0.644, created +0.007), z_low 3.675 -> 3.525 mm
+     145.0 -  150.0 s  cooling  gap 1.974 -> 1.973 mm^3 (-0.001; supply less jet -0.003, created +0.003), z_low 3.525 -> 3.425 mm
+R4_heat_Ea41_cyc_ph13_jet116: the melt below the tip face over each leg of the cycle
+       0.0 -   53.0 s  cooling  gap 0.000 -> 0.000 mm^3 (-0.000; supply less jet -0.037, created -0.000), z_low 5.475 -> 5.475 mm
+      53.0 -   66.0 s  heating  gap 0.000 -> 0.647 mm^3 (+0.646; supply less jet +0.646, created +0.002), z_low 5.475 -> 3.375 mm
+      66.0 -  119.0 s  cooling  gap 0.647 -> 0.700 mm^3 (+0.053; supply less jet -0.037, created +0.091), z_low 3.375 -> 3.725 mm
+     119.0 -  132.0 s  heating  gap 0.701 -> 1.355 mm^3 (+0.653; supply less jet +0.646, created +0.007), z_low 3.725 -> 3.425 mm
+     132.0 -  150.0 s  cooling  gap 1.355 -> 1.353 mm^3 (-0.002; supply less jet -0.013, created +0.011), z_low 3.425 -> 3.375 mm
+
+the fibres' flow against what the orifice delivers while the heater is off:
+    fibres 0.0116 mm^3/s; cooling leg 0.0108 with -breathe 0.0293 (0.0132 to 0.0097 over the expansion coefficient's range, results/mew_hotend)
+    a fibre laid at 35 mm/s carrying the cooling leg's flow: 19.9 um across
+    a fibre laid at 35 mm/s carrying the fibres' own: 20.5 um across

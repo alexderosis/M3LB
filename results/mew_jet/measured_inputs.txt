@@ -1,0 +1,155 @@
+# demonstrator/mew_jet with Murat Kilic's measurements of 2026-11-17: Ea 40.9 kJ/mol (results/mew_hotend),
+# and the jet starting at the heater cycle's two ends, 110 and 128 C. One flag set per block, as in variants.txt.
+
+=== mew_jet 
+mew_jet: the MEW jet as a slender viscous thread (validation/Jet1D.hpp)
+  flow 0.0116 mm^3/s (a 20.5 um fibre at 35 mm/s; 56 % of 0.0208), from a 50 um apex at 1.47 mm/s, 5.00 mm to the collector
+  melt 120 C at the apex; 820 Pa s at 120 C, Ea 31.3 kJ/mol; gamma 0.030 N/m
+  field 1.182 kV/mm, uniform
+  air 25 C, Nu 0.40, k_air 0.026 W/m/K: the jet cools over 0.764 mm (e-fold), viscosity x 21.1 of 120 C at the air
+
+   I [nA]  landing speed [mm/s]  diameter there [um]  T there [C]  viscosity x10 at [mm]  stretching in 1st mm  N0 [uN]
+     0.01                 2.127                83.15         25.1                  1.239                  0.80   29.450
+     0.03                 3.365                66.12         25.1                  1.239                  0.78   59.998
+     0.10                 6.827                46.42         25.1                  1.239                  0.79  112.491
+     0.30                15.019                31.29         25.1                  1.239                  0.80  182.555
+     1.00                39.782                19.23         25.1                  1.239                  0.81  297.652
+     3.00               103.922                11.90         25.1                  1.239                  0.83  464.793
+    10.00               314.381                 6.84         25.1                  1.239                  0.85  775.501
+    30.00               893.229                 4.06         25.1                  1.239                  0.87  1270.553
+   100.00              2873.344                 2.26         25.1                  1.239                  0.88  2235.176
+
+  lands at the collector's 35 mm/s with I = 0.8590 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+  there: viscosity 10x its apex value at 1.239 mm, 81 % of the stretching in the first mm, landing at 25.1 C
+
+=== mew_jet -Ea 40.9
+mew_jet: the MEW jet as a slender viscous thread (validation/Jet1D.hpp)
+  flow 0.0116 mm^3/s (a 20.5 um fibre at 35 mm/s; 56 % of 0.0208), from a 50 um apex at 1.47 mm/s, 5.00 mm to the collector
+  melt 120 C at the apex; 820 Pa s at 120 C, Ea 40.9 kJ/mol; gamma 0.030 N/m
+  field 1.182 kV/mm, uniform
+  air 25 C, Nu 0.40, k_air 0.026 W/m/K: the jet cools over 0.764 mm (e-fold), viscosity x 53.9 of 120 C at the air
+
+   I [nA]  landing speed [mm/s]  diameter there [um]  T there [C]  viscosity x10 at [mm]  stretching in 1st mm  N0 [uN]
+     0.01                 1.966                86.49         25.1                  0.788                  0.87   31.233
+     0.03                 2.892                71.31         25.1                  0.788                  0.86   66.311
+     0.10                 5.447                51.97         25.1                  0.788                  0.86  127.748
+     0.30                11.314                36.06         25.1                  0.788                  0.87  207.899
+     1.00                28.458                22.73         25.1                  0.788                  0.88  333.176
+     3.00                71.558                14.34         25.1                  0.788                  0.88  506.443
+    10.00               209.668                 8.38         25.1                  0.788                  0.90  819.234
+    30.00               583.601                 5.02         25.1                  0.788                  0.91  1312.747
+   100.00              1850.033                 2.82         25.1                  0.788                  0.92  2273.897
+
+  lands at the collector's 35 mm/s with I = 1.2887 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+  there: viscosity 10x its apex value at 0.788 mm, 88 % of the stretching in the first mm, landing at 25.1 C
+
+=== mew_jet -Ea 40.9 -T0 110
+mew_jet: the MEW jet as a slender viscous thread (validation/Jet1D.hpp)
+  flow 0.0116 mm^3/s (a 20.5 um fibre at 35 mm/s; 56 % of 0.0208), from a 50 um apex at 1.47 mm/s, 5.00 mm to the collector
+  melt 110 C at the apex; 820 Pa s at 120 C, Ea 40.9 kJ/mol; gamma 0.030 N/m
+  field 1.182 kV/mm, uniform
+  air 25 C, Nu 0.40, k_air 0.026 W/m/K: the jet cools over 0.764 mm (e-fold), viscosity x 53.9 of 120 C at the air
+
+   I [nA]  landing speed [mm/s]  diameter there [um]  T there [C]  viscosity x10 at [mm]  stretching in 1st mm  N0 [uN]
+     0.01                 1.873                88.61         25.1                  0.884                  0.85   32.709
+     0.03                 2.647                74.55         25.1                  0.884                  0.83   72.229
+     0.10                 4.799                55.36         25.1                  0.884                  0.83  144.628
+     0.30                 9.740                38.86         25.1                  0.884                  0.84  241.302
+     1.00                24.121                24.69         25.1                  0.884                  0.85  393.102
+     3.00                60.136                15.64         25.1                  0.884                  0.86  601.645
+    10.00               175.173                 9.16         25.1                  0.884                  0.88  974.349
+    30.00               485.919                 5.50         25.1                  0.884                  0.89  1558.206
+   100.00              1536.694                 3.09         25.1                  0.884                  0.90  2691.471
+
+  lands at the collector's 35 mm/s with I = 1.5807 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+  there: viscosity 10x its apex value at 0.884 mm, 86 % of the stretching in the first mm, landing at 25.1 C
+
+=== mew_jet -Ea 40.9 -T0 128
+mew_jet: the MEW jet as a slender viscous thread (validation/Jet1D.hpp)
+  flow 0.0116 mm^3/s (a 20.5 um fibre at 35 mm/s; 56 % of 0.0208), from a 50 um apex at 1.47 mm/s, 5.00 mm to the collector
+  melt 128 C at the apex; 820 Pa s at 120 C, Ea 40.9 kJ/mol; gamma 0.030 N/m
+  field 1.182 kV/mm, uniform
+  air 25 C, Nu 0.40, k_air 0.026 W/m/K: the jet cools over 0.764 mm (e-fold), viscosity x 53.9 of 120 C at the air
+
+   I [nA]  landing speed [mm/s]  diameter there [um]  T there [C]  viscosity x10 at [mm]  stretching in 1st mm  N0 [uN]
+     0.01                 2.053                84.64         25.1                  0.731                  0.89   29.969
+     0.03                 3.120                68.67         25.1                  0.731                  0.88   61.652
+     0.10                 6.046                49.32         25.1                  0.731                  0.88  115.382
+     0.30                12.781                33.92         25.1                  0.731                  0.88  184.460
+     1.00                32.532                21.26         25.1                  0.731                  0.89  292.387
+     3.00                82.358                13.36         25.1                  0.731                  0.90  442.771
+    10.00               242.484                 7.79         25.1                  0.731                  0.91  716.594
+    30.00               676.916                 4.66         25.1                  0.731                  0.92  1150.940
+   100.00              2150.272                 2.62         25.1                  0.731                  0.93  1998.749
+
+  lands at the collector's 35 mm/s with I = 1.0935 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+  there: viscosity 10x its apex value at 0.731 mm, 89 % of the stretching in the first mm, landing at 25.1 C
+
+=== mew_jet -Ea 40.9 -I 1.2887
+mew_jet: the MEW jet as a slender viscous thread (validation/Jet1D.hpp)
+  flow 0.0116 mm^3/s (a 20.5 um fibre at 35 mm/s; 56 % of 0.0208), from a 50 um apex at 1.47 mm/s, 5.00 mm to the collector
+  melt 120 C at the apex; 820 Pa s at 120 C, Ea 40.9 kJ/mol; gamma 0.030 N/m
+  field 1.182 kV/mm, uniform
+  air 25 C, Nu 0.40, k_air 0.026 W/m/K: the jet cools over 0.764 mm (e-fold), viscosity x 53.9 of 120 C at the air
+
+  I = 1.289 nA: lands at 35.001 mm/s, 20.50 um across, 25.1 C
+
+=== mew_jet -Ea 40.9 -I 1.2887 -T0 110
+mew_jet: the MEW jet as a slender viscous thread (validation/Jet1D.hpp)
+  flow 0.0116 mm^3/s (a 20.5 um fibre at 35 mm/s; 56 % of 0.0208), from a 50 um apex at 1.47 mm/s, 5.00 mm to the collector
+  melt 110 C at the apex; 820 Pa s at 120 C, Ea 40.9 kJ/mol; gamma 0.030 N/m
+  field 1.182 kV/mm, uniform
+  air 25 C, Nu 0.40, k_air 0.026 W/m/K: the jet cools over 0.764 mm (e-fold), viscosity x 53.9 of 120 C at the air
+
+  I = 1.289 nA: lands at 29.597 mm/s, 22.29 um across, 25.1 C
+
+=== mew_jet -Ea 40.9 -I 1.2887 -T0 128
+mew_jet: the MEW jet as a slender viscous thread (validation/Jet1D.hpp)
+  flow 0.0116 mm^3/s (a 20.5 um fibre at 35 mm/s; 56 % of 0.0208), from a 50 um apex at 1.47 mm/s, 5.00 mm to the collector
+  melt 128 C at the apex; 820 Pa s at 120 C, Ea 40.9 kJ/mol; gamma 0.030 N/m
+  field 1.182 kV/mm, uniform
+  air 25 C, Nu 0.40, k_air 0.026 W/m/K: the jet cools over 0.764 mm (e-fold), viscosity x 53.9 of 120 C at the air
+
+  I = 1.289 nA: lands at 40.084 mm/s, 19.16 um across, 25.1 C
+
+=== mew_jet -Ea 40.9 -T0 90
+mew_jet: the MEW jet as a slender viscous thread (validation/Jet1D.hpp)
+  flow 0.0116 mm^3/s (a 20.5 um fibre at 35 mm/s; 56 % of 0.0208), from a 50 um apex at 1.47 mm/s, 5.00 mm to the collector
+  melt 90 C at the apex; 820 Pa s at 120 C, Ea 40.9 kJ/mol; gamma 0.030 N/m
+  field 1.182 kV/mm, uniform
+  air 25 C, Nu 0.40, k_air 0.026 W/m/K: the jet cools over 0.764 mm (e-fold), viscosity x 53.9 of 120 C at the air
+
+   I [nA]  landing speed [mm/s]  diameter there [um]  T there [C]  viscosity x10 at [mm]  stretching in 1st mm  N0 [uN]
+     0.01                 1.733                92.13         25.1                  1.276                  0.78   35.217
+     0.03                 2.268                80.53         25.1                  1.276                  0.76   83.810
+     0.10                 3.794                62.26         25.1                  1.276                  0.76  182.392
+     0.30                 7.316                44.84         25.1                  1.276                  0.77  322.692
+     1.00                17.517                28.98         25.1                  1.276                  0.79  548.615
+     3.00                42.925                18.51         25.1                  1.276                  0.81  858.443
+    10.00               123.694                10.90         25.1                  1.276                  0.82  1404.063
+    30.00               341.118                 6.57         25.1                  1.276                  0.84  2246.878
+   100.00              1074.538                 3.70         25.1                  1.276                  0.86  3869.196
+
+  lands at the collector's 35 mm/s with I = 2.3548 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+  there: viscosity 10x its apex value at 1.276 mm, 80 % of the stretching in the first mm, landing at 25.1 C
+
+=== mew_jet -Ea 40.9 -T0 60
+mew_jet: the MEW jet as a slender viscous thread (validation/Jet1D.hpp)
+  flow 0.0116 mm^3/s (a 20.5 um fibre at 35 mm/s; 56 % of 0.0208), from a 50 um apex at 1.47 mm/s, 5.00 mm to the collector
+  melt 60 C at the apex; 820 Pa s at 120 C, Ea 40.9 kJ/mol; gamma 0.030 N/m
+  field 1.182 kV/mm, uniform
+  air 25 C, Nu 0.40, k_air 0.026 W/m/K: the jet cools over 0.764 mm (e-fold), viscosity x 53.9 of 120 C at the air
+
+   I [nA]  landing speed [mm/s]  diameter there [um]  T there [C]  viscosity x10 at [mm]  stretching in 1st mm  N0 [uN]
+     0.01                 1.609                95.60         25.1                  never                  0.63   37.750
+     0.03                 1.918                87.56         25.1                  never                  0.61   98.323
+     0.10                 2.845                71.90         25.1                  never                  0.61  242.696
+     0.30                 5.029                54.08         25.1                  never                  0.62  477.260
+     1.00                11.369                35.97         25.1                  never                  0.65  887.635
+     3.00                27.115                23.29         25.1                  never                  0.68  1472.401
+    10.00                77.034                13.82         25.1                  never                  0.71  2508.930
+    30.00               211.171                 8.35         25.1                  never                  0.74  4096.337
+   100.00               663.050                 4.71         25.1                  never                  0.77  7119.578
+
+  lands at the collector's 35 mm/s with I = 4.0621 nA: straight lines need less, more makes them wave (if the free-landing speed is the critical one)
+  there: viscosity never 10x its apex value, 69 % of the stretching in the first mm, landing at 25.1 C

@@ -54,6 +54,22 @@
 //     90 / 60 C: 1.28 / 1.84; Ea 50 kJ/mol: 1.76. So 0.43 to 1.84 nA under
 //     everything tried, and 0.14 nA if the jet stayed at 120 C: the cooling is
 //     the largest single effect. 8000 steps give the same 0.8590 nA as 4000.
+//   - WITH THE MEASURED ACTIVATION ENERGY, 40.9 kJ/mol (-Ea 40.9; Murat Kilic's
+//     viscosities at 90-120 C, results/mew_hotend; 2026-11-17, printout in
+//     results/mew_jet/measured_inputs.txt), that current is 1.29 nA, not 0.86:
+//     a jet that stiffens faster as it cools needs half as much pull again. The
+//     default stays 31.3 so that the data above still regenerate; four
+//     temperatures do not exclude it (95 % interval 29-53 kJ/mol).
+//   - AND THE NOZZLE IS NOT AT 120 C: its heater cycles it 110 -> 128 C every
+//     66 s (demonstrator/mew_axi, THE HEATER'S CYCLE). A jet starting at those
+//     two ends lands at 35 mm/s carrying 1.58 and 1.09 nA; at a fixed 1.29 nA it
+//     lands on its own at 29.6, 35.0 and 40.1 mm/s from 110, 120 and 128 C. So
+//     IF the jet starts at the nozzle's temperature, its free-landing speed
+//     swings 15 % either way with the heater, across the collector's 35 mm/s,
+//     and lines laid near the critical speed would wave and straighten once a
+//     cycle. It does not start there if the drop has cooled the melt first: from
+//     90 / 60 C the current is 2.35 / 4.06 nA. The cycle also pulses what the
+//     orifice delivers (mew_axi -breathe), and this model's flow is an input.
 //   - At 0.859 nA the jet lands at 35.0 mm/s and 20.50 um across: the fibre, as
 //     mass conservation requires, since the flow was taken from it -- a
 //     consistency check, not a prediction.
@@ -85,8 +101,9 @@
 //  heel, and nothing is said about the coiling below the critical speed; the field
 //  is the mean gap field or mew_axi's on the axis, vertical, a function of height
 //  alone, and not changed by the jet's charge; Newtonian -- the jet is stretched
-//  at up to 22 1/s (nominal; 10 1/s held at 120 C), just past the 16 1/s the
-//  measured curve reaches, and that curve is in shear, not in extension.
+//  at up to 22 1/s (nominal; 10 1/s held at 120 C), and the measured table
+//  (results/mew_hotend) is Newtonian to within 4 % only up to 10 1/s, is not a
+//  viscosity past 16-25 1/s, and is in shear, not in extension.
 //
 //  Usage: mew_jet [-dfib UM 20.5] [-vc MMS 35] [-L MM 5.0] [-a0 UM 50] [-T0 C 120]
 //                 [-Tair C 25] [-Nu 0.4] [-kair 0.026] [-E KV_PER_MM 1.1818]

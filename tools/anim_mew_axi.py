@@ -5,6 +5,8 @@ with the fibres' flow taken out at its apex, without and with the fan.
     python3 tools/anim_mew_axi.py iso  DIR results/mew_axi/mew_axi_jet_iso.mp4  [--fps 20]
     python3 tools/anim_mew_axi.py heat DIR results/mew_axi/mew_axi_jet_heat.mp4 [--fps 20]
     python3 tools/anim_mew_axi.py apex DIR results/mew_axi/mew_axi_jet_apex.mp4 [--fps 20]
+    python3 tools/anim_mew_axi.py cycle    results/mew_axi results/mew_axi/mew_axi_cycle.mp4
+    python3 tools/anim_mew_axi.py cyclejet results/mew_axi results/mew_axi/mew_axi_cycle_jet.mp4
 
 DIR holds the frames, series and logs of these runs, made with -tframe 0.1
 (isothermal) or 0.25 (heat): the runs kept in results/mew_axi wrote one frame a
@@ -28,6 +30,15 @@ apex  a close-up of the no-fan isothermal drop's apex, cell by cell, with the bo
       shows the artefact recorded in mew_axi's banner: the suction dimples the
       surface on the axis, and once that surface is within about a cell of the
       box the free surface creates mass.
+
+cycle, cyclejet  the heater's on-off cycle (mew_axi -cycle 110 128 13 53
+      -breathe 0.0293, measured activation energy): a steady feed at 120 C beside
+      the cycle started as the heater switches on and as it switches off, without
+      a jet (cycle) and with the no-fan fibres' flow taken at the apex (cyclejet);
+      on the right what leaves the orifice, the melt's lowest point and the melt
+      hanging below the tip face. These read results/mew_axi itself: R4_heat_Ea41[_cyc[_ph13]]
+      wrote a frame a second, the _jet116 runs one every half second, and a video
+      frame shows each run's nearest stored frame, never a blend of two.
 
 Frames are drawn by matplotlib (ffmpeg here has no drawtext) into a temporary
 directory beside the output, encoded H.264 by ffmpeg, and deleted.
@@ -64,6 +75,12 @@ JET_R, JET_DEPTH = 2, 4                          # mew_axi's default box at 50 u
 ISO = [("iso_none", "no jet", "", "#2a78d6", "no jet"),
        ("iso_fan", "the fan's jet", "0.0036 mm³/s: 11.5 µm fibres", "#eb6834", "fan"),
        ("iso_nofan", "the no-fan jet", "0.0116 mm³/s: 20.5 µm fibres", "#1baf7a", "no fan")]
+CYCLE = [("R4_heat_Ea41", "steady feed at 120 °C", "what the models assumed", "#2a78d6", "steady"),
+         ("R4_heat_Ea41_cyc", "the heater's cycle", "starting as the heater switches on", "#1baf7a", "from switch-on"),
+         ("R4_heat_Ea41_cyc_ph13", "the heater's cycle", "starting as it switches off", "#eda100", "from switch-off")]
+# (the colours are tools/plot_mew_axi.py cycle's: its orange is the temperature-only run, not shown here)
+CYCLEJET = [(stem + "_jet116", lab, sub, col, short) for stem, lab, sub, col, short in CYCLE]
+JET_NOFAN = 0.011552                             # mm^3/s: the 20.5 um fibres laid at 35 mm/s
 HEAT = [("heat_none", "no jet", "still air: h 90 W/m²K", "#2a78d6", "no jet"),
         ("heat_fan", "the fan's jet", "0.0036 mm³/s, h 90", "#eb6834", "fan"),
         ("heat_nofan", "the no-fan jet", "0.0116 mm³/s, h 90", "#1baf7a", "no fan"),
@@ -102,6 +119,16 @@ class Run:
         m = re.search(r"first contact with the collector at t = ([0-9.]+)", log)
         self.contact = float(m.group(1)) if m else None
         self.dx = float(re.search(r"dx ([0-9.]+) um", log).group(1)) * 1e-3     # mm
+        self.cycled = "T_nozzle_C" in self.ser
+        if not self.cycled:                               # a steady run: the nozzle and the feed as given
+            self.ser["T_nozzle_C"] = np.full_like(self.ser["t_s"], 120.0)
+            self.ser["out_of_bore_mm3_s"] = np.full_like(self.ser["t_s"], FEED)
+
+    def heater_on(self, t):
+        """Whether the block is warming at t (a cycled run)."""
+        s = self.ser
+        i = min(int(np.argmin(np.abs(s["t_s"] - t))), len(s["t_s"]) - 2)
+        return bool(s["T_nozzle_C"][i + 1] > s["T_nozzle_C"][i])
 
     def frame(self, t):
         """The frame nearest t, never one after the run's first contact."""
@@ -169,7 +196,7 @@ def style_box(ax):
     ax.tick_params(colors=INK2, labelsize=8, length=3)
 
 
-def draw_drop(ax, run, t, heat, first):
+def draw_drop(ax, run, t, heat, first, hanging=False):
     rgb, phg, full, nx, ny = drop_layers(run.frame(t), heat)
     dx = run.dx
     ax.imshow(rgb, origin="lower", extent=(-nx * dx, nx * dx, -dx, (ny - 1) * dx), interpolation="bilinear")
@@ -193,11 +220,15 @@ def draw_drop(ax, run, t, heat, first):
     ax.text(0.065, 1.052, run.label, transform=ax.transAxes, fontsize=11, color=INK, va="bottom", weight="bold")
     ax.text(0.0, 1.012, run.sub, transform=ax.transAxes, fontsize=8.5, color=INK2, va="bottom")
     lines = ["lowest point %.2f mm" % run.at("z_low_mm", t),
-             "melt at the tip %.3f mm³" % run.at("tip_zone_mm3", t)]
+             ("melt hanging below the tip %.3f mm³" % run.at("gap_mm3", t)) if hanging
+             else ("melt at the tip %.3f mm³" % run.at("tip_zone_mm3", t))]
     if run.at("jet_asked_mm3", t) > 0:
         lines.append("taken by the jet %.3f mm³" % run.at("jet_mm3", t))
-    if heat:
-        lines.append("melt below the tip %.0f °C" % run.at("T_gap_mean_C", t))
+    if heat and np.isfinite(run.at("T_gap_mean_C", t)):
+        lines.append(("its mean temperature %.0f °C" if hanging else "melt below the tip %.0f °C")
+                     % run.at("T_gap_mean_C", t))
+    if run.cycled:
+        lines.append("nozzle %.0f °C, heater %s" % (run.at("T_nozzle_C", t), "ON" if run.heater_on(t) else "off"))
     ax.apply_aspect()                                 # the equal aspect shrinks the box: place below its real edge
     pos = ax.get_position()
     for k, s in enumerate(lines):
@@ -227,7 +258,7 @@ def spread(ys, lo, hi, gap):
     return out
 
 
-def series(ax, runs, t, key, ylab, ylim, tmax, title):
+def series(ax, runs, t, key, ylab, ylim, tmax, title, gap=0.075):
     ends = []
     for r in runs:
         s = r.ser
@@ -243,7 +274,7 @@ def series(ax, runs, t, key, ylab, ylim, tmax, title):
         ends.append((tt[-1], v[-1], r.short))
     if ends:
         span = ylim[1] - ylim[0]
-        ys = spread([e[1] for e in ends], ylim[0] + 0.03 * span, ylim[1] - 0.03 * span, 0.075 * span)
+        ys = spread([e[1] for e in ends], ylim[0] + 0.03 * span, ylim[1] - 0.03 * span, gap * span)
         for (x, _, lab), y in zip(ends, ys):
             ax.text(x + 0.012 * tmax, y, lab, fontsize=8.5, color=INK2, va="center")
     ax.axvline(t, color=INK3, lw=0.7, ls=":")
@@ -287,6 +318,38 @@ def side_by_side(fig, runs, t, tmax, heat, title, sub, foot):
         cax.axvspan(30, 40, ymin=0, ymax=1, fill=False, hatch="////", ec=INK, lw=0)
     for k, line in enumerate(foot):
         fig.text(0.045, 0.060 - 0.024 * k, line, fontsize=9, color=INK3)
+
+
+def cycle_frame(fig, runs, t, tmax, jet, title, sub, foot):
+    """Three drops coloured by temperature; on the right the orifice's outflow, the lowest point, the tip's melt."""
+    n = len(runs)
+    gs = fig.add_gridspec(1, n, left=0.045, right=0.585, top=0.80, bottom=0.265, wspace=0.10)
+    for k, r in enumerate(runs):
+        draw_drop(fig.add_subplot(gs[0, k]), r, t, True, k == 0, hanging=True)
+    g2 = fig.add_gridspec(3, 1, left=0.655, right=0.935, top=0.80, bottom=0.21, hspace=0.62)
+    ax = fig.add_subplot(g2[0, 0])
+    series(ax, runs, t, "out_of_bore_mm3_s", "mm³/s", (0, 0.07), tmax,
+           "melt leaving the orifice (dashed: what the fibres carry)" if jet
+           else "melt leaving the orifice (fed 0.0208 mm³/s)", gap=0.17)
+    if jet:
+        ax.axhline(JET_NOFAN, color=INK2, lw=0.9, ls=(0, (4, 3)))
+    series(fig.add_subplot(g2[1, 0]), runs, t, "z_low_mm", "mm", (0, 5.7), tmax,
+           "lowest point of the melt above the collector", gap=0.17)
+    gapmax = max(float(np.max(r.ser["gap_mm3"])) for r in runs)
+    series(fig.add_subplot(g2[2, 0]), runs, t, "gap_mm3", "mm³", (0, 1.12 * gapmax), tmax,
+           "melt hanging below the tip face", gap=0.17)
+    fig.axes[-1].set_xlabel("time since the field and feed start [s]", fontsize=9, color=INK2)
+    fig.text(0.045, 0.945, title, fontsize=17, color=INK, weight="bold")
+    fig.text(0.045, 0.905, sub, fontsize=10.5, color=INK2)
+    fig.text(0.935, 0.945, "t = %5.1f s" % t, fontsize=17, color=INK, ha="right", family="monospace")
+    cax = fig.add_axes([0.655, 0.115, 0.28, 0.016])
+    cb = fig.colorbar(plt.cm.ScalarMappable(norm=TN, cmap=TMAP), cax=cax, orientation="horizontal")
+    cb.set_label("melt temperature [°C]; hatched: the band it freezes in, 30-40 °C (nominal)", fontsize=8.5, color=INK2)
+    cb.ax.tick_params(labelsize=8, colors=INK2)
+    cb.outline.set_edgecolor(INK3)
+    cax.axvspan(30, 40, ymin=0, ymax=1, fill=False, hatch="////", ec=INK, lw=0)
+    for k, line in enumerate(foot):
+        fig.text(0.045, 0.074 - 0.0215 * k, line, fontsize=8.6, color=INK3)
 
 
 def apex_frame(fig, run, t, tmax, dimple):
@@ -418,7 +481,7 @@ def dimple_series(run):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("which", choices=("iso", "heat", "apex"))
+    ap.add_argument("which", choices=("iso", "heat", "apex", "cycle", "cyclejet"))
     ap.add_argument("dir")
     ap.add_argument("out")
     ap.add_argument("--fps", type=int, default=20)
@@ -426,8 +489,12 @@ def main():
     ap.add_argument("--still", type=float, default=None, help="write one frame at this time to OUT (a .png)")
     a = ap.parse_args()
 
+    global TN
     if a.which == "heat":
         runs = [Run(a.dir, *r) for r in HEAT]
+    elif a.which in ("cycle", "cyclejet"):
+        TN = Normalize(25.0, 130.0)                     # the nozzle reaches 128 C
+        runs = [Run(a.dir, *r) for r in (CYCLE if a.which == "cycle" else CYCLEJET)]
     else:
         runs = [Run(a.dir, *r) for r in ISO]
     if a.which == "iso":
@@ -436,6 +503,9 @@ def main():
     elif a.which == "heat":
         clock = runs[0]
         tend = max(clock.frames)
+    elif a.which in ("cycle", "cyclejet"):
+        clock = max(runs, key=lambda r: len(r.frames))  # the run with the finest frames sets the clock
+        tend = min(max(r.frames) for r in runs)
     else:
         runs = [runs[2]]
         clock = runs[0]
@@ -446,6 +516,8 @@ def main():
     if a.still is not None:
         times = [min(times, key=lambda x: abs(x - a.still))]
     tmax = 33.0 if a.which != "heat" else 60.0
+    if a.which in ("cycle", "cyclejet"):
+        tmax = float(np.ceil(tend / 10.0) * 10.0)
     dim = dimple_series(runs[0]) if a.which == "apex" else None
 
     tmp = tempfile.mkdtemp(prefix="anim_mew_axi_", dir=os.path.dirname(os.path.abspath(a.out)))
@@ -474,6 +546,21 @@ def main():
                               "30-40 °C the melt is held by a drag (crystallising).",
                               "The jet's suction dimples the apex, and the free surface then creates 1-3 % of what "
                               "the jet takes here (mew_axi's banner)."])
+            elif a.which in ("cycle", "cyclejet"):
+                jet = a.which == "cyclejet"
+                cycle_frame(fig, runs, t, tmax, jet,
+                            "The heater's on-off cycle at the nozzle" + (", with the jet" if jet else ""),
+                            "PCL 820 Pa s at 120 °C, 40.9 kJ/mol (measured), 6.5 kV over 5.5 mm, fed 0.0208 mm³/s, "
+                            "air 25 °C; r-z on 50 µm cells (mew_axi -cycle -breathe)",
+                            ["The block goes 110 → 128 °C in 13 s with the heater on and back in 53 s with it off "
+                             "(measured). The melt in the hot end expands and contracts with it,",
+                             "so the orifice delivers about three times the feed while the block heats and half of "
+                             "it while it cools (an estimate: the expansion coefficient is nominal)."]
+                            + (["The jet is below the grid: the no-fan fibres' flow, 0.0116 mm³/s, is drawn out of the "
+                                "melt four cells above the apex. The notch at a drop's end is that suction,",
+                                "an artefact of the model and not a jet. Below 30-40 °C the melt is held by a drag "
+                                "(crystallising). Grey lines: equipotentials."] if jet else
+                               ["Below 30-40 °C the melt is held by a drag (crystallising). Grey lines: equipotentials."]))
             else:
                 apex_frame(fig, runs[0], t, tmax, dim)
             fig.savefig(os.path.join(tmp, "f%05d.png" % n), facecolor=SURF)

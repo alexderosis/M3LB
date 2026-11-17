@@ -142,3 +142,26 @@ log beside its frames: redirect its output to `$D/<name>.log`.
   50 µm cells only.
 - The jet flows are inputs taken from the fibres, not predictions, and h, the
   surface tension and the freezing band are nominal.
+
+## The heater's cycle (2026-11-17)
+
+Seven more runs, all `-heat -nu 0.0416666667 -Ea 40.9 -tend 150` (the measured
+activation energy; `results/mew_hotend` holds the measurements and where 0.0293
+comes from), two threads each:
+
+| run | options added | what it is |
+|---|---|---|
+| `R4_heat_Ea41` | none | steady 120 °C: the control |
+| `R4_heat_Ea41_cycT` | `-cycle 110 128 13 53` | the heater's cycle on the nozzle's temperature only |
+| `R4_heat_Ea41_cyc` | `-cycle 110 128 13 53 -breathe 0.0293` | with the melt's expansion, starting as the heater switches on |
+| `R4_heat_Ea41_cyc_ph13` | the same, `-phase 13` | starting as it switches off |
+| `R4_heat_Ea41_jet116` | `-jet 0.011552` | steady feed with the no-fan fibres' flow taken at the apex |
+| `R4_heat_Ea41_cyc_jet116` | `-jet 0.011552 -cycle 110 128 13 53 -breathe 0.0293` | the cycle with that jet, from switch-on |
+| `R4_heat_Ea41_cyc_ph13_jet116` | the same, `-phase 13` | from switch-off |
+
+The first four wrote a frame a second (`-tframe 1`), the jet runs one every half
+second. `cycle_numbers.py` tabulates all seven (`cycle_numbers.txt`);
+`tools/plot_mew_axi.py cycle` draws the first four (`mew_axi_cycle.png`);
+`tools/anim_mew_axi.py cycle | cyclejet` animates them from the frames here.
+None touches the collector. What they say is in `demonstrator/mew_axi.cpp`'s
+banner (THE HEATER'S CYCLE) and in `results/mew_hotend/README.md`.
