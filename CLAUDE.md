@@ -1692,6 +1692,27 @@ does) fails on it. Run such scripts from elsewhere.
   of steadiness), no edge clause; and A and B at Re = 2000, N = 512, FP32 for
   (0.2, 0.1), gating nothing, to measure the top rung's survival and settling
   time. `tg_mhd_forced.py pilot --round 2` applies it.
+  **THE STRETCHING PART OF THE FORCED TEST WAS FIXED ON 2026-11-17, BEFORE THE S
+  OF ANY FORCED RUN WAS READ; the push of that commit to origin/mhd is its
+  timestamp.** The rule is the docstring of `tools/tg_mhd_forced.py`, applied by
+  its `stretch` subcommand: sigma_X = <S>/<ohm> within delta over the production
+  window (the layer is unforced: the forces vanish within 0.15 of a wall and
+  delta <= 0.064); its uncertainty the largest of the two-grid difference,
+  twice the batch standard error and the difference between the window's
+  halves; Q1 "TAKES" / "FEEDS" / "MIXED" on the sign of sigma_B at every rung,
+  Q2 "REMOVES" on sigma_A - sigma_B; no trend in Re. It exists because the
+  decaying runs' "reversal" turned out to be the window's (Phase 1 above), and
+  only "TAKES" would be written up as a reversal. NOT fixed yet, and to be
+  fixed in the production job's header from the pilot's E_V, E_M, eps and
+  umax_lat alone: the forcing pair, the rungs and grids, the window, the
+  batches, the stationarity test. **`stretch` REFUSES forced runs without
+  `--registered COMMIT`, and checks that before it opens a single budget.dat**
+  -- do not work around it, and do not run `tg_mhd_budget.py` on a forced
+  directory either: its table has an S-within-delta column. Round 1's pilot
+  budgets are on disk and have been read for the box mean of injM only. The
+  code was checked on the DECAYING budgets (it reproduces the paper's
+  S/Omega over t = 2..10 to every printed digit) and on those runs relabelled
+  as forced, never on a forced run.
 - Left for the author: in `main.tex` the department, funding, the AI-use
   disclosure AIP asks for, and the DOI; in `ARCHIVING.md` a LICENSE (the
   repository has none, so the code is readable but not reusable, and Zenodo will

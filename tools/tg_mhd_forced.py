@@ -3,6 +3,7 @@
 
     tg_mhd_forced.py pilot PILOT_DIR [--round 1|2] [--window T0 T1] [--round2 DIR]
     tg_mhd_forced.py shares RUN_DIR... --window T0 T1 --batches NB
+    tg_mhd_forced.py stretch RUNS_DIR... --window T0 T1 --batches NB [--registered COMMIT]
 
 PILOT_DIR holds what a pilot job writes -- GPU/csf3/tg_mhd_pilot.sub (round 1,
 runs/tg_mhd_pilot/ or results/P_tg_mhd/pilot/) or tg_mhd_pilot2.sub (round 2,
@@ -52,8 +53,81 @@ integrals, read as the decaying ladder's integrated share is
 lag-1 correlation of the batches (which should be small, or the batches are too
 short) and the two halves' shares (stationarity).
 
-Exit status 0 when a pair was selected (pilot) or every run was read (shares),
-1 otherwise. Pure stdlib.
+THE STRETCHING PART OF THE FORCED TEST (`stretch`) -- REGISTERED 2026-11-17,
+BEFORE THE S OF ANY FORCED RUN WAS READ.
+
+Why. Over t = 2..10 of the decaying ladder the stretching S = B_i B_j d_j u_i
+within delta of the no-slip conducting wall is negative at every rung, and the
+paper first read that as "the no-slip wall reverses the stretching". Against
+time the sign belongs to the window (tg_mhd_budget.py's POST HOC section; the
+paper's Sec. IV G): it changes in both boxes, and over t = 5..10 S_B > 0 at
+three rungs of four. A decaying flow cannot say whether a no-slip wall layer
+takes energy from the field ON AVERAGE. A statistically steady one can, because
+it has no "when" -- which is what the forced boxes are for.
+
+The observable. For a forced run of box X (A free slip, B no slip; conducting
+walls), with <.> the trapezoidal time integral over the production window
+[T0, T1] of a row of budget.dat read within delta = Re^-1/2 of the walls, as
+tg_mhd_budget.within reads it (m = 1),
+
+    sigma_X = <S> / <ohm>:
+
+the share of the layer's Ohmic dissipation that the stretching inside the layer
+supplies. The forces vanish within 0.15 of every wall (tg_mhd's -gap default)
+and delta <= 0.064 at Re >= 250, so the layer is unforced, and in a steady
+state <ohm> = <S> + transport. sigma < 0 says the layer's field loses energy to
+the flow as well as to Ohmic dissipation, transport supplying both.
+
+Its uncertainty u_X is the largest of three, the last two on the finer grid:
+  (a) the grid: |sigma(finer) - sigma(coarser)| on the rung's two grids;
+  (b) the statistics: twice the standard error of sigma from NB equal batches
+      of the window, each batch's sigma the ratio of its own two integrals;
+  (c) the drift: |sigma(first half of the window) - sigma(second half)|.
+
+The rule. Each question needs every rung of the forced ladder, which has at
+least three Reynolds numbers with two grids each; the verdicts are read on the
+finer grids.
+  Q1, the sign at the no-slip wall:
+      "TAKES"  if sigma_B + u_B < 0 at every rung -- a no-slip conducting wall
+               layer takes energy from the field on average;
+      "FEEDS"  if sigma_B - u_B > 0 at every rung -- it does not, and the
+               reversal read in the decaying runs was the window's;
+      "MIXED"  otherwise: reported rung by rung, and neither is claimed.
+  Q2, the removal:
+      "REMOVES"   if (sigma_A - sigma_B) - (u_A + u_B) > 0 at every rung -- the
+                  stretching feeds the free-slip layer's Ohmic dissipation more
+                  than the no-slip layer's;
+      "NOT SHOWN" otherwise.
+No trend in Re is tested: the decaying ladder showed that this plan cannot
+carry one. sigma within 2 delta (0.127 at Re = 250, still unforced) is printed
+beside the test and judges nothing. Only "TAKES" would be claimed as a
+reversal, and a letter would be written on it; that is the reason the rule is
+fixed first.
+
+What is NOT fixed here, and must be, in the production job's header, before
+its runs and from the pilot's E_V, E_M, eps and umax_lat alone: the forcing
+pair (the pilot's own rule), the rungs and their grids, the window [T0, T1],
+NB, and the production's stationarity test. Whoever fixes them must not have
+read the S, the profiles or the f_w of any forced run. `stretch` refuses forced
+runs unless --registered names the commit that fixed them.
+
+What had been seen when this was written. Of the decaying runs, everything.
+Of the forced runs: round 1 of the pilot (38 runs, CSF3, 2026-10-04) through
+`pilot`, which reads E_V, E_M, eps, umax_lat and div B; of that round's
+budget.dat files, the box mean of injM and nothing nearer a wall than the whole
+box (GPU/csf3/tg_mhd_pilot2.sub says so); on 2026-11-17 the directory listing
+and one series header with its t = 0 row, the initial condition. The driven
+twin-check references at N = 65, Re = 200 (results/P_tg_mhd/xcheck_n65_re200/
+*_drive0.1_bdrive0.1_*, 1.4 cells in delta, not rungs) had their budgets
+compared between the two codes and with the periodic twin, and their box
+closure read, on 2026-10-03; tg_mhd_budget.py's table has an S-within-delta
+column, so a value may have been on screen then. None was recorded, and none
+was read for this rule. Pilot round 2 had not been run.
+
+Exit status 0 when a pair was selected (pilot), every run was read (shares) or
+both verdicts were issued (stretch), 1 otherwise, and 2 when `stretch` read
+nothing -- no runs, several runs for one box, Re and N, or forced runs without
+--registered. Pure stdlib.
 """
 import argparse
 import math
@@ -63,8 +137,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tg_mhd_ladder as T     # noqa: E402
+import tg_mhd_budget as BU    # noqa: E402
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+ROOT =os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 UMAX = 0.08                    # the Mach bound on umax_lat, Ma = 0.139
 UNSTEADY = 0.01                # r.m.s./mean of eps above which a run is unsteady
 EDGE_D = 0.5                   # round 1: a selection on the scan's edge further than this is no selection
@@ -322,6 +397,132 @@ def shares(args):
     return rc
 
 
+def sigma_of(b, t0, t1, nb, m=1.0):
+    """sigma = int S / int ohm within m delta over [t0, t1], twice its standard error
+    from nb equal batches, the batches' lag-1 correlation and sigma over each half of
+    the window; or a string saying why there is none. The rule is in the docstring."""
+    r = m * b["dh"]
+    q = [(t, [BU.within(cs, r), BU.within(co, r)])
+         for t, cs, co in zip(b["t"], b["rows"]["S"], b["rows"]["ohm"])]
+    if q[0][0] > t0 + 1e-2 or q[-1][0] < t1 - 1e-2:
+        return "covers t = %.2f..%.2f only" % (q[0][0], q[-1][0])
+    t1 = min(t1, q[-1][0])
+
+    def sig(a, z):
+        s, o = T.trapz_window(q, a, z)
+        return s / o
+
+    L = (t1 - t0) / nb
+    sb = [sig(t0 + k * L, t0 + (k + 1) * L) for k in range(nb)]
+    mb = sum(sb) / nb
+    var = sum((x - mb) ** 2 for x in sb) / (nb - 1)
+    r1 = (sum((sb[k] - mb) * (sb[k + 1] - mb) for k in range(nb - 1)) / ((nb - 1) * var)
+          if var > 0 else 0.0)
+    h = 0.5 * (t0 + t1)
+    return {"sigma": sig(t0, t1), "se2": 2.0 * math.sqrt(var / nb), "r1": r1,
+            "halves": (sig(t0, h), sig(h, t1))}
+
+
+def stretch(args):
+    """The registered stretching test (the docstring's rule), on the runs under
+    args.runs_dirs: one directory per run, each with series.dat and budget.dat."""
+    t0, t1 = args.window
+    if args.batches < 2:
+        print("stretch: --batches must be at least 2")
+        return 2
+    found = []
+    for d in args.runs_dirs:
+        for name in sorted(os.listdir(d)):
+            p = os.path.join(d, name, "budget.dat")
+            if not os.path.exists(p):
+                continue
+            s = T.load(os.path.join(d, name, "series.dat"))
+            if s is not None and s["setup"] in ("A", "B"):
+                found.append((s, p))
+    if not found:
+        print("stretch: no A or B run with a budget.dat under %s" % " ".join(args.runs_dirs))
+        return 2
+    # The guard comes BEFORE any budget.dat is opened: a forced run's S is not read,
+    # not even into memory, until its window is registered.
+    forced = sorted(s["tag"] for s, _ in found if "drive" in s["tag"])
+    if forced and not args.registered:
+        print("stretch: %d forced run(s) here (%s, ...). Their S is not to be read before the window,\n"
+              "the batches, the rungs and the stationarity test are fixed and pushed -- from the pilot's\n"
+              "E_V, E_M, eps and umax_lat alone. Then pass --registered COMMIT, the commit that fixed them."
+              % (len(forced), forced[0]))
+        return 2
+    runs, clash = {}, []
+    for s, p in found:
+        b = BU.load_budget(p)
+        if b is None:
+            continue
+        b["tag"] = s["tag"]
+        if b["N"] in runs.setdefault((s["setup"], s["Re"]), {}):
+            clash.append(s["tag"])
+        runs[(s["setup"], s["Re"])][b["N"]] = b
+    if not runs:
+        print("stretch: no readable budget.dat under %s" % " ".join(args.runs_dirs))
+        return 2
+    if clash:
+        print("stretch: several runs for one box, Re and N (%s, ...): give it the production's"
+              " directory, one forcing pair" % clash[0])
+        return 2
+
+    print("THE STRETCHING PART OF THE FORCED TEST (rule registered 2026-11-17, in this file's docstring):")
+    print("sigma = <S>/<ohm> within delta over t = %g..%g, %d batches%s" % (
+        t0, t1, args.batches, "; window and batches registered in %s" % args.registered if args.registered else ""))
+    if not forced:
+        print("NOTE: these runs are NOT forced. A decaying flow has no steady state, so what follows is a"
+              " check of the code, not the test, and its verdicts mean nothing.")
+    rc, q1, q2 = 0, [], []
+    rungs = sorted({Re for (_, Re) in runs})
+    for Re in rungs:
+        got = {}
+        for s in ("A", "B"):
+            by = runs.get((s, Re), {})
+            if len(by) < 2:
+                print("  Re %5g %s: %d grid(s); the rule needs two" % (Re, s, len(by)))
+                continue
+            (nc, bc), (nf, bf) = sorted(by.items())[-2:]
+            f, c = sigma_of(bf, t0, t1, args.batches), sigma_of(bc, t0, t1, args.batches)
+            if isinstance(f, str) or isinstance(c, str):
+                print("  Re %5g %s: %s" % (Re, s, f if isinstance(f, str) else "the coarser grid " + c))
+                continue
+            grid, drift = abs(f["sigma"] - c["sigma"]), abs(f["halves"][0] - f["halves"][1])
+            u = max(grid, f["se2"], drift)
+            got[s] = (f["sigma"], u)
+            f2 = sigma_of(bf, t0, t1, args.batches, 2.0)
+            print("  Re %5g %s N %d/%d: sigma %+.3f (coarser %+.3f); u = %.3f = max(grid %.3f, 2 s.e. %.3f,"
+                  " halves %.3f: %+.3f / %+.3f); batches' r1 %+.2f; within 2 delta %s" % (
+                      Re, s, nc, nf, f["sigma"], c["sigma"], u, grid, f["se2"], drift, f["halves"][0],
+                      f["halves"][1], f["r1"], f2 if isinstance(f2, str) else "%+.3f" % f2["sigma"]))
+        if "B" in got:
+            sg, u = got["B"]
+            q1.append("TAKES" if sg + u < 0 else "FEEDS" if sg - u > 0 else "inside its band")
+        else:
+            q1.append("no reading")
+        if "A" in got and "B" in got:
+            d, u = got["A"][0] - got["B"][0], got["A"][1] + got["B"][1]
+            q2.append("REMOVES" if d - u > 0 else "not shown")
+            print("  Re %5g: Q1 %s; sigma_A - sigma_B = %+.3f against u_A + u_B = %.3f -> Q2 %s"
+                  % (Re, q1[-1], d, u, q2[-1]))
+        else:
+            q2.append("no reading")
+            print("  Re %5g: Q1 %s; Q2 no reading" % (Re, q1[-1]))
+    if len(rungs) < 3 or "no reading" in q1 + q2:
+        print("  NO VERDICT: the rule needs every rung of at least three, each with two grids covering the window")
+        return 1
+    v1 = ("TAKES: within delta of the no-slip wall the field loses energy to the flow on average"
+          if all(c == "TAKES" for c in q1) else
+          "FEEDS: within delta of the no-slip wall the flow feeds the field on average"
+          if all(c == "FEEDS" for c in q1) else "MIXED (%s): neither is claimed" % ", ".join(q1))
+    v2 = ("REMOVES: the stretching feeds the free-slip layer's Ohmic dissipation more than the no-slip layer's"
+          if all(c == "REMOVES" for c in q2) else "NOT SHOWN (%s)" % ", ".join(q2))
+    print("  Q1 verdict: %s" % v1)
+    print("  Q2 verdict: %s" % v2)
+    return rc
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -335,11 +536,20 @@ def main(argv):
     q.add_argument("run_dirs", nargs="+")
     q.add_argument("--window", type=float, nargs=2, required=True)
     q.add_argument("--batches", type=int, required=True)
+    s = sub.add_parser("stretch", help="the registered stretching test: sigma = <S>/<ohm> within delta")
+    s.add_argument("runs_dirs", nargs="+")
+    s.add_argument("--window", type=float, nargs=2, required=True)
+    s.add_argument("--batches", type=int, required=True)
+    s.add_argument("--registered", default=None, metavar="COMMIT",
+                   help="the commit that fixed the window, the batches, the rungs and the stationarity"
+                        " test; forced runs are refused without it")
     args = ap.parse_args(argv)
     if args.cmd == "pilot":
         return pilot(args)
     if args.cmd == "shares":
         return shares(args)
+    if args.cmd == "stretch":
+        return stretch(args)
     return 2
 
 
