@@ -1,0 +1,29 @@
+Decaying MHD turbulence in a confined disc -- Neffaa, Bos & Schneider (2008)   DEMONSTRATOR
+backend Threads   precision FP64   D2Q9 fluid + D2Q5 magnetic   operator MhdCMS
+
+  vector potential: max|curl a - b| / max|b| = 1.651e-15
+  N 329   disc, half-width 148.1 (45% of the box)   68849 fluid nodes
+  OPERATOR (dispatched) MhdCMS   fluid forcing FieldGuo (stirring paddle)   magnetic source flux under the stroking hand
+  Re 1750   Pr_m 1.00   nu 0.00846 (tau 0.5254)   eta 0.00846 (omega_mag 1.9034)
+  u_rms 0.0500 (Ma 0.0866)   banded k0   E_kin/E_mag 16.000   walls insulating (Dirichlet)   seed 12345
+  one turnover 2R/u0 = 5922 steps; running 19200 (3.2 turnovers)
+
+  stir: paddle follows results/N_neffaa/stir329/hand.txt, 961 rows, one every 20 steps, to step 19200; band 0.66-0.94 R, 30 deg either side, eps 80 steps
+        largest paddle speed in contact 0.0629 at the band's outer edge (Ma 0.1089); initial velocity x 0.1
+        feed: da/dt = +-4.000e-04 under the hand, 6 strokes of 2435 contact steps; field left by one about 0.0235 = 0.47 u0
+
+      step    t/T_e       E_kin       E_mag   E_k/E_m        E/A   enstrophy       <j^2>     L_u     L_b      H_c       |<b>|      max|b|     dv/cl      bulk  Bn/B|wall
+  --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+         0     0.00  1.2500e-05  7.8125e-05    0.1600      21.01  1.8407e-07  1.2381e-06   11.65   11.23  +0.0391  2.4560e-07  4.3694e-02  2.52e-03  8.34e-16  7.809e-02
+      1920     0.32  1.0661e-04  7.4853e-05    1.4242      52.43  1.7620e-06  2.0237e-06   11.00    8.60  +0.1054  1.9232e-06  3.9631e-02  6.20e-03  5.11e-03  1.816e-01
+      3840     0.65  7.6388e-05  6.8142e-05    1.1210      51.43  9.8346e-07  1.6234e-06   12.46    9.16  +0.0968  1.6558e-05  4.6567e-02  9.93e-03  6.14e-03  9.974e-02
+      5760     0.97  1.5874e-04  8.3069e-05    1.9109      107.5  1.5721e-06  3.3483e-06   14.21    7.04  -0.0068  4.2625e-05  5.3120e-02  1.06e-02  6.60e-03  1.447e-01
+      7680     1.30  1.0733e-04  6.8489e-05    1.5670      100.4  1.0941e-06  1.8257e-06   14.01    8.66  +0.0155  3.6216e-06  4.6387e-02  1.93e-02  8.46e-03  9.852e-02
+      9600     1.62  2.0081e-04  7.2124e-05    2.7843      191.7  1.5132e-06  2.1492e-06   16.29    8.19  +0.1162  1.1267e-04  6.0362e-02  1.84e-02  1.01e-02  1.323e-01
+     11520     1.95  1.6661e-04  5.9619e-05    2.7946      196.9  1.2149e-06  1.4970e-06   16.56    8.92  +0.0451  1.2464e-04  4.7169e-02  1.98e-02  1.07e-02  9.936e-02
+     13440     2.27  2.4071e-04  6.5327e-05    3.6847      329.3  1.4256e-06  1.8098e-06   18.38    8.50  -0.0103  5.9308e-05  5.2011e-02  1.60e-02  9.30e-03  1.098e-01
+     15360     2.59  2.0834e-04  6.0739e-05    3.4301      362.8  1.3133e-06  1.2379e-06   17.81    9.91  +0.0210  4.8325e-05  4.1203e-02  1.23e-02  8.16e-03  9.793e-02
+     17280     2.92  2.7954e-04  7.9279e-05    3.5260      598.1  1.3459e-06  1.8697e-06   20.38    9.21  +0.0439  6.2967e-05  5.7524e-02  1.72e-02  8.61e-03  1.079e-01
+     19200     3.24  2.6541e-04  6.5432e-05    4.0563        662  1.6996e-06  1.4426e-06   17.67    9.52  +0.0395  1.3255e-04  5.5712e-02  3.32e-02  1.14e-02  1.591e-01
+
+  initial total energy 9.0625e-05;  dmass -6.263e-04

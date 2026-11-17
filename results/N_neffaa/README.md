@@ -285,3 +285,46 @@ realisation**. Regime II is 39× short. And every regime is one draw: the paper
 does not state how many realisations its curves average, and a single 2-D decay
 at these Reynolds numbers is not self-averaging, which is the most likely reason
 regime I's alignment goes the other way.
+
+## The stirred disc, `stir329/` — not Neffaa's problem
+
+`mhd_decay -swirl`, `-stir`, `-stirfeed` and `-uinit` are that driver's own and are
+refused with `-regime`. They exist for a film (`tools/anim_mhd_decay_glow.py`), and
+nothing here reproduces the reference. `stir329/` holds the four small runs behind
+the measured paragraphs of the driver's banner — one grid, one seed, FP64, MhdCMS,
+3.2 turnovers, a probe every 0.32:
+
+```
+C="-n 329 -re 1750 -alf 16 -uinit 0.1 -steps 19200 -probe 1920 --kokkos-num-threads=4"
+mhd_decay $C                                                           > ctrl.txt
+mhd_decay $C -stir results/N_neffaa/stir329/hand.txt                   > stir.txt
+mhd_decay $C -stir results/N_neffaa/stir329/hand.txt -stirfeed 2e-4    > feed_2e-4.txt
+mhd_decay $C -stir results/N_neffaa/stir329/hand.txt -stirfeed 4e-4    > feed_4e-4.txt
+```
+
+about 35 s each on four threads. `hand.txt` is the hand's track, and
+`tools/anim_mhd_decay_glow.py --write-stir hand.txt --frames 960 --binevery 20
+--radius 148.05` rewrites it byte for byte. `stir.txt` was run with
+`-bin <frames> -binevery 240` added, for the rotation below; the frames (81 pairs,
+70 MB) are not kept.
+
+`stir_numbers.py` recomputes every number the banner quotes from these four logs,
+and with the frames directory as its argument the rotation too; `stir_numbers.txt`
+is its output. In short:
+
+| | unstirred | stirred | stirred, fed 2e-4 | stirred, fed 4e-4 |
+|---|---|---|---|---|
+| E_kin at the end / unstirred | 1 | 151 | 154 | 152 |
+| E_mag at the end / its start | 0.099 | 0.092 | 0.31 | 0.84 |
+| r.m.s. current at the end / its start | 0.26 | 0.42 | 0.73 | 1.08 |
+| bulk rms(div b)/rms(curl b) at the end | 0.041 | 0.021 | 0.013 | 0.011 |
+| mass change | +2.0e-6 | −6.3e-4 | −6.2e-4 | −6.3e-4 |
+
+The paddle spins the fluid up — the azimuthal mean of u_θ at the band's centre
+reaches 0.48 of the paddle's largest speed there, higher in each of the five
+complete strokes — and the field decays anyway, to slightly *less* than the
+unstirred run keeps. Only the source under the hand holds it, and only the larger
+of the two amplitudes tried. The stirred runs lose mass at the regularised wall.
+
+All four series are identical, row for row, to the runs of 14 November 2026 that
+the banner was first written from.

@@ -1,0 +1,29 @@
+Decaying MHD turbulence in a confined disc -- Neffaa, Bos & Schneider (2008)   DEMONSTRATOR
+backend Threads   precision FP64   D2Q9 fluid + D2Q5 magnetic   operator MhdCMS
+
+  vector potential: max|curl a - b| / max|b| = 1.651e-15
+  N 329   disc, half-width 148.1 (45% of the box)   68849 fluid nodes
+  OPERATOR (dispatched) MhdCMS   fluid forcing FieldGuo (stirring paddle)   magnetic source none
+  Re 1750   Pr_m 1.00   nu 0.00846 (tau 0.5254)   eta 0.00846 (omega_mag 1.9034)
+  u_rms 0.0500 (Ma 0.0866)   banded k0   E_kin/E_mag 16.000   walls insulating (Dirichlet)   seed 12345
+  one turnover 2R/u0 = 5922 steps; running 19200 (3.2 turnovers)
+
+  stir: paddle follows results/N_neffaa/stir329/hand.txt, 961 rows, one every 20 steps, to step 19200; band 0.66-0.94 R, 30 deg either side, eps 80 steps
+        largest paddle speed in contact 0.0629 at the band's outer edge (Ma 0.1089); initial velocity x 0.1
+
+      step    t/T_e       E_kin       E_mag   E_k/E_m        E/A   enstrophy       <j^2>     L_u     L_b      H_c       |<b>|      max|b|     dv/cl      bulk  Bn/B|wall
+  --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+         0     0.00  1.2500e-05  7.8125e-05    0.1600      21.01  1.8407e-07  1.2381e-06   11.65   11.23  +0.0391  2.4560e-07  4.3694e-02  2.52e-03  8.34e-16  7.809e-02
+      1920     0.32  1.0564e-04  6.2715e-05    1.6844      48.65  1.7119e-06  1.7735e-06   11.11    8.41  +0.0238  2.9603e-06  3.7187e-02  6.82e-03  5.76e-03  1.816e-01
+      3840     0.65  7.3673e-05  4.6899e-05    1.5709      42.82  8.4252e-07  1.1263e-06   13.22    9.13  +0.0207  3.9617e-06  2.8800e-02  9.03e-03  6.20e-03  1.357e-01
+      5760     0.97  1.5919e-04  4.5720e-05    3.4819      89.92  1.4396e-06  1.9547e-06   14.87    6.84  -0.0043  1.5964e-05  4.4414e-02  1.01e-02  7.33e-03  1.904e-01
+      7680     1.30  1.0755e-04  3.3371e-05    3.2229      78.36  7.8918e-07  1.1934e-06   16.51    7.48  +0.0019  2.0106e-05  3.4990e-02  1.91e-02  8.26e-03  6.671e-02
+      9600     1.62  2.0176e-04  2.6490e-05    7.6165      157.7  1.4416e-06  1.2029e-06   16.73    6.64  +0.0623  7.4958e-05  3.2287e-02  2.10e-02  1.29e-02  1.350e-01
+     11520     1.95  1.6303e-04  1.8199e-05    8.9580      153.7  8.9939e-07  7.1193e-07   19.04    7.15  +0.0104  9.9160e-05  1.9382e-02  2.40e-02  1.37e-02  9.554e-02
+     13440     2.27  2.4173e-04  1.5733e-05   15.3649      261.5  1.2500e-06  6.9575e-07   19.67    6.72  -0.0240  6.7417e-05  2.3560e-02  2.56e-02  1.54e-02  8.382e-02
+     15360     2.59  2.1362e-04  1.0600e-05   20.1531        271  1.1142e-06  3.4414e-07   19.58    7.85  -0.0281  2.8910e-05  1.6995e-02  2.74e-02  1.87e-02  9.817e-02
+     17280     2.92  2.8100e-04  9.4321e-06   29.7924      409.1  1.2067e-06  3.6548e-07   21.58    7.18  -0.0057  5.8759e-05  2.2512e-02  2.62e-02  1.82e-02  7.828e-02
+     19200     3.24  2.6332e-04  7.1652e-06   36.7500      443.5  1.2814e-06  2.1791e-07   20.27    8.11  -0.0463  7.3509e-05  1.6124e-02  2.91e-02  2.05e-02  1.250e-01
+
+  initial total energy 9.0625e-05;  dmass -6.264e-04
+  wrote 81 binary frames to <frames>

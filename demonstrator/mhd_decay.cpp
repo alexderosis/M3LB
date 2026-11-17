@@ -238,6 +238,88 @@
 //  no question of seed-independence to check -- but -seed selects the random
 //  stream, and a claim about a decay exponent that moves between streams is a
 //  claim about one realisation. Run several before believing any of it.
+//
+//  -swirl F IS NOT THE REFERENCE'S PROBLEM, AND IT IS OFF BY DEFAULT. It puts a
+//  fraction F of the initial kinetic energy into one counter-clockwise vortex
+//  that fills the disc, u_theta ~ r (1 - (r/R)^2)^2, and leaves 1 - F in the
+//  banded random field; the magnetic field is untouched. Neffaa's initial
+//  conditions carry no net rotation, so a run with F > 0 reproduces nothing of
+//  theirs and is refused together with -regime. It exists for the picture: the
+//  vortex rotates differentially, fastest at the centre, so it WINDS the field
+//  it is given into a spiral of current sheets before they reconnect -- flux
+//  expulsion by an eddy (Weiss 1966), with a turbulent field in place of his
+//  uniform one. How tight the spiral gets is set by -alf: at alf = 1 the field
+//  is as strong as the flow and resists the winding, so use alf well above 1.
+//  The profile vanishes at the wall together with its slope, like the taper on
+//  the random part, and its peak speed is 1.57 sqrt(F) u0 -- read the Mach
+//  number the header prints for it before running.
+//
+//  -stir FILE IS A PADDLE THAT FOLLOWS A DRAWN HAND, and like -swirl it is this
+//  file's own, off by default and refused with -regime. tools/
+//  anim_mhd_decay_glow.py draws a hand stroking round the outside of the disc
+//  and writes where that hand is, step by step (--write-stir); this reads the
+//  track and drags the fluid just INSIDE the wall, under the hand, at the
+//  hand's own speed:
+//
+//      F = contact * g(r) * w(phi - phi_hand) * (omega_hand r - u_theta) / eps
+//
+//  along the tangent, through FieldGuo -- the forcing the penalised wall
+//  already uses, so the operator is the forcing-capable one. g is a cos^2
+//  window on 0.66 < r/R < 0.94, w a cos^2 window 30 degrees either side of the
+//  hand, eps (-stireps, 80 steps) the time the fluid takes to catch the paddle
+//  up, and contact is 1 while the hand strokes and 0 while it is lifted back.
+//  WHAT IT IS NOT: a model of a hand. Nothing solid enters the flow, the drag
+//  is tangential only, and it acts through the wall. What it buys is that the
+//  rotation on screen is CAUSED by the motion on screen, at the same place and
+//  time, instead of being an initial condition with a hand drawn beside it.
+//  g IS ZERO WITHIN 0.06 R OF THE WALL on purpose: a body force that reaches a
+//  regularised wall makes it slip (FluidSolver's run_step), and one that stops
+//  short cannot. THE HAND'S SPEED IS A LATTICE VELOCITY, omega r, so the track
+//  sets the Mach number: the header prints the largest paddle speed and it
+//  should be read before the run. -uinit F scales the initial velocity (not
+//  the field, and not nu, which stays u0 2R / Re), so that a stirred run can
+//  start nearly at rest. It is refused with -regime for -swirl's reason, and
+//  the header says so whenever it is not 1: the "u_rms" it prints is u0.
+//
+//  STIRRING DOES NOT KEEP THE CURRENT UP, AND THE OPPOSITE WAS PREDICTED.
+//  Measured at N = 329, Re = 1750, alf 16, -uinit 0.1 over 3.2 turnovers, on
+//  one grid and one seed (FP64, MhdCMS, a probe every 0.32 turnovers; logs,
+//  track and commands in results/N_neffaa/stir329): E_kin ends 151 times the
+//  unstirred control's, and the azimuthal mean of u_theta at the band's centre
+//  climbs to 0.48 of the paddle's largest speed there. It has not saturated:
+//  its maximum is higher in each of the five complete strokes (0.26, 0.33,
+//  0.38, 0.43, 0.48). Yet the r.m.s. current falls 3.0-fold from its peak at
+//  0.97 turnovers to the end, and E_mag ends 7 % BELOW the control's. A field
+//  in two dimensions has no dynamo to keep it: the stirring winds what there
+//  is into sheets, and the sheets dissipate it. -stirfeed A is the remedy, and
+//  it is one more invention: while the hand is in contact it also lays down flux
+//  under itself, a source curl(a z) on the induction equation with
+//      da/dt = +-A g(r) w(phi - phi_hand),
+//  the same two windows as the paddle, the sign taken from the track's fourth
+//  column, which alternates from stroke to stroke so that neighbouring strokes
+//  leave opposite flux for the flow to wind together. The source is written as
+//  the analytic curl of that potential, so it is solenoidal in the continuum,
+//  and it vanishes where g does, within 0.06 R of the wall. A IS A VELOCITY
+//  SQUARED (the field is in Alfven units), not a free lattice number: the field
+//  a stroke leaves is about A (contact steps) / 2 / (0.14 R), which the header
+//  prints beside u0, and at a fixed Mach number that estimate does not change
+//  with N.
+//
+//  WHAT THE FEED DOES, on the same run with the same track: A = 4e-4 (a
+//  stroke's field about 0.47 u0) keeps E_mag between 0.76 and 1.06 of its
+//  initial value at every probe, where the unfed run's falls 10.9-fold, and
+//  the r.m.s. current ends 8 % above its start against 0.42 of it unfed. E_kin
+//  stays within 4 % of the unfed run's. Half the feed does not hold the field:
+//  at A = 2e-4 E_mag sinks to 0.25 of its start. The feed does not raise the
+//  divergence the run carries: rms div b / rms curl b in the bulk ends at
+//  0.011 fed, 0.021 unfed and 0.041 unstirred. Nothing here is a threshold --
+//  two values of A, one grid, one seed.
+//
+//  A STIRRED RUN LOSES MASS: 6.2e-4 to 6.3e-4 of it over those 3.2 turnovers,
+//  fed or not, against a gain of 2.0e-6 unstirred. The force and the collision
+//  conserve mass, so it goes at the regularised wall, which is not mass
+//  conserving once a flow is driven past it. Do not read an absolute pressure
+//  off a stirred run.
 //==============================================================================
 #include "Campaign.hpp"
 #include "collision/MhdBGK.hpp"
@@ -246,6 +328,8 @@
 #include "solver/MagneticSolver.hpp"
 #include "solver/ScalarSolver.hpp"
 
+#include <algorithm>
+#include <fstream>
 #include <type_traits>
 
 using namespace lbm;
@@ -376,6 +460,11 @@ struct Opts {
   double eps = 2.0, smooth = 1.0, epsm = 2.0;
   int regime = 0;                 // 0 = this file's own IC; 1..4 = Neffaa Table I
   double hct = 0.0;               // Table I's H_c for that regime; 0 = do not impose
+  double swirl = 0.0;             // -swirl: share of E_kin in one disc-filling vortex
+  std::string stir;               // -stir: the track of a stroking hand; empty = no paddle
+  double stireps = 80.0;          // -stireps: steps for the fluid to catch the paddle up
+  double stirfeed = 0.0;          // -stirfeed: vector potential laid down per step of contact
+  double uinit = 1.0;             // -uinit: scales the initial velocity only
   int kmax = 0;                   // spectrum cut for -regime; 0 = the default 24
   std::string vtkdir, bindir, walls = "insul", shape = "disc", wall = "reg";
 };
@@ -483,6 +572,38 @@ static int run(const Opts& o) {
         apot[std::size_t(y) * N + x] = a * tap;
       }
     auto at = [&](Index x, Index y) { return std::size_t(y) * N + x; };
+    // -swirl: mix one vortex into the stream function, by ENERGY. Both parts are
+    // scaled to unit r.m.s. velocity first, measured with the same central
+    // differences that build u below, so F is the share of E_kin up to their
+    // correlation -- which is printed, because for a finite draw it is not zero.
+    if (o.swirl > 0.0) {
+      std::vector<double> ps(psi.size(), 0.0);
+      for (Index y = 0; y < N; ++y)
+        for (Index x = 0; x < N; ++x) {
+          const double r = rad(x, y);
+          const double tt = (r < R) ? (1.0 - (r / R) * (r / R)) : 0.0;
+          ps[at(x, y)] = tt * tt * tt;     // u_theta = -d psi/dr > 0: counter-clockwise
+        }
+      double sr = 0, ss = 0, sc = 0;
+      for (Index y = 1; y < N - 1; ++y)
+        for (Index x = 1; x < N - 1; ++x) {
+          if (solid(x, y)) continue;
+          const double rx =  0.5 * (psi[at(x, y + 1)] - psi[at(x, y - 1)]);
+          const double ry = -0.5 * (psi[at(x + 1, y)] - psi[at(x - 1, y)]);
+          const double sx =  0.5 * (ps[at(x, y + 1)] - ps[at(x, y - 1)]);
+          const double sy = -0.5 * (ps[at(x + 1, y)] - ps[at(x - 1, y)]);
+          sr += rx * rx + ry * ry; ss += sx * sx + sy * sy; sc += rx * sx + ry * sy;
+        }
+      const double wr = std::sqrt(1.0 - o.swirl) / std::sqrt(std::max(sr, 1e-300));
+      const double ws = std::sqrt(o.swirl) / std::sqrt(std::max(ss, 1e-300));
+      for (std::size_t k = 0; k < psi.size(); ++k) psi[k] = wr * psi[k] + ws * ps[k];
+      std::printf("  swirl: %.3f of E_kin in a counter-clockwise vortex "
+                  "u_theta ~ r (1 - (r/R)^2)^2   (correlation with the random part "
+                  "%+.4f; peak speed %.4f, Ma %.4f)\n",
+                  o.swirl, sc / std::sqrt(std::max(sr * ss, 1e-300)),
+                  1.5677 * std::sqrt(o.swirl) * o.u0,
+                  1.5677 * std::sqrt(o.swirl) * o.u0 / 0.5773502692);
+    }
     for (Index y = 1; y < N - 1; ++y)
       for (Index x = 1; x < N - 1; ++x) {
         hux[at(x, y)] =  0.5 * (psi[at(x, y + 1)] - psi[at(x, y - 1)]);
@@ -606,6 +727,8 @@ static int run(const Opts& o) {
       hux[k] *= fu; huy[k] *= fu; hbx[k] *= fb; hby[k] *= fb;
       hapot[k] = apot[k] * fb;          // b = curl a, so a scales with b
     }
+    if (o.uinit != 1.0)                 // -uinit: a calmer start; nu and b are untouched
+      for (std::size_t k = 0; k < hux.size(); ++k) { hux[k] *= o.uinit; huy[k] *= o.uinit; }
   }
 
   const Real nu  = Real(o.u0 * 2.0 * R / o.Re);
@@ -686,6 +809,74 @@ static int run(const Opts& o) {
       }
     Kokkos::deep_copy(pnx, hnx); Kokkos::deep_copy(pny, hny);
     mag.set_source(psx, psy, View1D<Real>());
+  }
+
+  //--------------------------------------------------------------------------
+  // -stir: the paddle. The track is (step, phi in degrees, contact) rows, read
+  // once; the window in r, the tangent and the polar angle of every node are
+  // set here and the force itself is refreshed every step, below.
+  //--------------------------------------------------------------------------
+  const bool stir = !o.stir.empty();
+  std::vector<double> st_step, st_phi, st_con, st_feed;
+  View1D<Real> sgr, sph, srr, stx, sty;
+  const double st_half = 30.0 * M_PI / 180.0;
+  if (stir) {
+    std::ifstream in(o.stir);
+    std::string line;
+    while (std::getline(in, line)) {
+      if (line.empty() || line[0] == '#') continue;
+      double a, b2, c2, f2 = 0.0;                    // the fourth column is optional
+      if (std::sscanf(line.c_str(), "%lf %lf %lf %lf", &a, &b2, &c2, &f2) >= 3) {
+        st_step.push_back(a); st_phi.push_back(b2 * M_PI / 180.0); st_con.push_back(c2);
+        st_feed.push_back(f2);
+      }
+    }
+    // A track that cannot be read, or whose steps do not increase, is refused
+    // here rather than interpolated: a repeated step is a division by zero in
+    // the paddle's speed, and the run would carry the NaN into the fluid.
+    bool rising = true;
+    for (std::size_t k = 0; k + 1 < st_step.size(); ++k)
+      if (!(st_step[k + 1] > st_step[k])) rising = false;
+    if (st_step.size() < 2 || !rising) {
+      std::printf("  -stir %s: %s\n  NOTHING WAS RUN.\n", o.stir.c_str(),
+                  !in.is_open() ? "cannot be opened"
+                  : st_step.size() < 2 ? "fewer than two rows of (step, phi_deg, contact)"
+                                       : "the steps in its first column do not increase");
+      return 2;
+    }
+    if constexpr (penalisable<C>) {
+      pfx = View1D<Real>("pfx", d.n_padded);
+      pfy = View1D<Real>("pfy", d.n_padded);
+      fl.collision().forcing.Ex = pfx;
+      fl.collision().forcing.Ey = pfy;
+    }
+    sgr = View1D<Real>("stir_g", d.n_padded); sph = View1D<Real>("stir_phi", d.n_padded);
+    srr = View1D<Real>("stir_r", d.n_padded);
+    stx = View1D<Real>("stir_tx", d.n_padded); sty = View1D<Real>("stir_ty", d.n_padded);
+    auto hg = Kokkos::create_mirror_view(sgr), hp2 = Kokkos::create_mirror_view(sph);
+    auto hr2 = Kokkos::create_mirror_view(srr);
+    auto htx = Kokkos::create_mirror_view(stx), hty = Kokkos::create_mirror_view(sty);
+    for (Index n = 0; n < d.n_padded; ++n) {
+      hg(n) = Real(0); hp2(n) = Real(0); hr2(n) = Real(0); htx(n) = Real(0); hty(n) = Real(0);
+    }
+    const double rc = 0.80 * R, rw = 0.14 * R;         // the band 0.66 R .. 0.94 R
+    for (Index y = 0; y < N; ++y)
+      for (Index x = 0; x < N; ++x) {
+        const double dx = double(x) - c, dy = double(y) - c;
+        const double r = std::sqrt(dx * dx + dy * dy);
+        if (std::abs(r - rc) >= rw) continue;          // g = 0 there, and at the wall
+        const Index n = d.id(x, y, 0);
+        const double cg = std::cos(0.5 * M_PI * (r - rc) / rw);
+        hg(n) = Real(cg * cg); hr2(n) = Real(r); hp2(n) = Real(std::atan2(dy, dx));
+        htx(n) = Real(-dy / r); hty(n) = Real(dx / r); // counter-clockwise tangent
+      }
+    Kokkos::deep_copy(sgr, hg); Kokkos::deep_copy(sph, hp2); Kokkos::deep_copy(srr, hr2);
+    Kokkos::deep_copy(stx, htx); Kokkos::deep_copy(sty, hty);
+    if (o.stirfeed != 0.0) {
+      psx = View1D<Real>("psx", d.n_padded);
+      psy = View1D<Real>("psy", d.n_padded);
+      mag.set_source(psx, psy, View1D<Real>());
+    }
   }
 
   fl.set_geometry([&](Index x, Index y, Index) -> CellType {
@@ -859,8 +1050,10 @@ static int run(const Opts& o) {
   // that records the request rather than the fact cannot answer "what did this
   // run actually use?" afterwards.
   std::printf("  OPERATOR (dispatched) %s   fluid forcing %s   magnetic source %s\n",
-              C::name, penalisable<C> ? "FieldGuo (penalisation ACTIVE)" : "none",
-              (o.wall == "pen") ? "penalised B.n" : "none");
+              C::name, penalisable<C> ? (stir ? "FieldGuo (stirring paddle)"
+                                                   : "FieldGuo (penalisation ACTIVE)") : "none",
+              (o.wall == "pen") ? "penalised B.n"
+                                : (o.stirfeed != 0.0) ? "flux under the stroking hand" : "none");
   std::printf("  Re %.0f   Pr_m %.2f   nu %.5f (tau %.4f)   eta %.5f "
               "(omega_mag %.4f)\n", o.Re, o.prm, double(nu),
               1.0 / double(fc.omega), double(eta),
@@ -880,8 +1073,40 @@ static int run(const Opts& o) {
                     : hunt ? "Neumann on y-faces, Dirichlet on x-faces"
                            : "insulating (Dirichlet)",
               (unsigned long long)o.seed);
+  // -uinit without -stir: the line above still prints u0, which is no longer
+  // the r.m.s. velocity the run starts with. (A stirred run says it below.)
+  if (o.uinit != 1.0 && !stir)
+    std::printf("  -uinit %.3g: the initial velocity is scaled, u_rms starts at %.4f; Re, nu "
+                "and the turnover are still those of u0\n", o.uinit, o.uinit * o.u0);
   std::printf("  one turnover 2R/u0 = %.0f steps; running %zu (%.1f turnovers)\n\n",
               T_e, o.steps, double(o.steps) / T_e);
+  if (stir) {
+    // The paddle's speed is a lattice velocity: say what the track asks for.
+    double wmax = 0.0;
+    for (std::size_t k = 0; k + 1 < st_step.size(); ++k)
+      if (st_con[k] > 0.0 || st_con[k + 1] > 0.0)
+        wmax = std::max(wmax, std::abs(st_phi[k + 1] - st_phi[k]) / (st_step[k + 1] - st_step[k]));
+    std::printf("  stir: paddle follows %s, %zu rows, one every %.0f steps, to step %.0f; band "
+                "0.66-0.94 R, 30 deg either side, eps %.0f steps\n"
+                "        largest paddle speed in contact %.4f at the band's outer edge (Ma %.4f); "
+                "initial velocity x %.3g\n",
+                o.stir.c_str(), st_step.size(), st_step[1] - st_step[0], st_step.back(),
+                o.stireps, wmax * 0.94 * R, wmax * 0.94 * R / 0.5773502692, o.uinit);
+    if (o.stirfeed != 0.0) {
+      // What A amounts to: the field one stroke leaves, beside the velocity scale.
+      double fed = 0.0; int strokes = 0;
+      for (std::size_t k = 0; k + 1 < st_step.size(); ++k) {
+        fed += 0.5 * (std::abs(st_feed[k]) + std::abs(st_feed[k + 1])) * (st_step[k + 1] - st_step[k]);
+        if (st_feed[k] == 0.0 && st_feed[k + 1] != 0.0) ++strokes;
+      }
+      const double per = fed / std::max(strokes, 1);
+      std::printf("        feed: da/dt = +-%.3e under the hand, %d strokes of %.0f contact steps; "
+                  "field left by one about %.4f = %.2f u0\n",
+                  o.stirfeed, strokes, per, o.stirfeed * per / 2.0 / (0.14 * R),
+                  o.stirfeed * per / 2.0 / (0.14 * R) / o.u0);
+    }
+    std::printf("\n");
+  }
   std::printf("  %8s %8s %11s %11s %9s %10s %11s %11s %7s %7s %8s %11s %11s %9s %9s %10s\n",
               "step", "t/T_e", "E_kin", "E_mag", "E_k/E_m", "E/A", "enstrophy",
               "<j^2>", "L_u", "L_b", "H_c", "|<b>|", "max|b|", "dv/cl", "bulk",
@@ -1135,6 +1360,55 @@ static int run(const Opts& o) {
             sy(n) = -ch(n) * bn * ny2(n) * iem;
           });
       }
+      // THE PADDLE, refreshed from the current velocity every step for the reason
+      // the penalisation force is: it is explicit in u.
+      if (stir) {
+        const double ts = double(t);
+        Real phc = Real(0), om = Real(0), con = Real(0), fee = Real(0);
+        if (ts < st_step.back()) {
+          std::size_t k = std::size_t(std::upper_bound(st_step.begin(), st_step.end(), ts) -
+                                      st_step.begin());
+          k = (k == 0) ? 0 : k - 1;
+          const double f = (ts - st_step[k]) / (st_step[k + 1] - st_step[k]);
+          phc = Real(st_phi[k] + f * (st_phi[k + 1] - st_phi[k]));
+          om  = Real((st_phi[k + 1] - st_phi[k]) / (st_step[k + 1] - st_step[k]));
+          con = Real(st_con[k] + f * (st_con[k + 1] - st_con[k]));
+          fee = Real(o.stirfeed * (st_feed[k] + f * (st_feed[k + 1] - st_feed[k])));
+        }
+        fl.compute_macroscopic();
+        auto ux = fl.ux(); auto uy = fl.uy();
+        auto fx = pfx; auto fy = pfy;
+        auto gr = sgr; auto ph = sph; auto rr = srr; auto tx = stx; auto ty = sty;
+        const Real ie = Real(1.0 / o.stireps), half = Real(st_half);
+        const Real twopi = Real(2.0 * M_PI), pi = Real(M_PI);
+        auto sx = psx; auto sy = psy;
+        const bool feeding = (o.stirfeed != 0.0);
+        const Real rc2 = Real(0.80 * R), rw2 = Real(0.14 * R);
+        Kokkos::parallel_for("stir", Kokkos::RangePolicy<ExecSpace>(0, d.n_padded),
+          KOKKOS_LAMBDA(Index n) {
+            Real F = Real(0), Sr = Real(0), St = Real(0);
+            if (gr(n) > Real(0) && (con > Real(0) || fee != Real(0))) {
+              Real dp = ph(n) - phc;
+              dp -= twopi * Kokkos::floor((dp + pi) / twopi);        // into [-pi, pi)
+              if (Kokkos::abs(dp) < half) {
+                const Real cw = Kokkos::cos(Real(0.5) * pi * dp / half);
+                const Real ut = ux(n) * tx(n) + uy(n) * ty(n);
+                F = con * gr(n) * cw * cw * (om * rr(n) - ut) * ie;
+                // The source, S = curl(a z) = -(da/dr) t + (1/r)(da/dphi) r, with
+                // a = fee g(r) w(dphi): the two windows' own derivatives.
+                const Real dg = -(pi / (Real(2) * rw2)) * Kokkos::sin(pi * (rr(n) - rc2) / rw2);
+                const Real dw = -(pi / (Real(2) * half)) * Kokkos::sin(pi * dp / half);
+                St = -fee * dg * cw * cw;
+                Sr = fee * gr(n) * dw / rr(n);
+              }
+            }
+            fx(n) = F * tx(n); fy(n) = F * ty(n);
+            if (feeding) {                                           // r = (ty, -tx)
+              sx(n) = St * tx(n) + Sr * ty(n);
+              sy(n) = St * ty(n) - Sr * tx(n);
+            }
+          });
+      }
       mag.compute_field(); fl.step(true); mag.step(true); av.step();
     }
   }
@@ -1262,8 +1536,30 @@ int main(int argc, char** argv) {
         if (o.regime == 4) { o.alf = 1.0;   o.hct = 0.045;   }
       }
       if (a == "-kmax"  && i + 1 < argc) o.kmax = std::atoi(argv[++i]);
+      if (a == "-swirl" && i + 1 < argc) o.swirl = std::atof(argv[++i]);
+      if (a == "-stir"  && i + 1 < argc) o.stir = argv[++i];
+      if (a == "-stireps" && i + 1 < argc) o.stireps = std::atof(argv[++i]);
+      if (a == "-stirfeed" && i + 1 < argc) o.stirfeed = std::atof(argv[++i]);
+      if (a == "-uinit" && i + 1 < argc) o.uinit = std::atof(argv[++i]);
       if (a == "-op"    && i + 1 < argc) op = argv[++i];
       if (a == "-fcheck") fcheck = true;
+    }
+    // -swirl is this file's own, for a disc with this file's own spectrum. With
+    // -regime it would label a run after a table it no longer reproduces.
+    if (o.swirl < 0.0 || o.swirl >= 1.0 || (o.swirl > 0.0 && (o.regime || o.shape != "disc"))) {
+      std::printf("  -swirl F needs 0 <= F < 1, -shape disc and no -regime; got F = %g, "
+                  "shape %s, regime %d\n  NOTHING WAS RUN.\n",
+                  o.swirl, o.shape.c_str(), o.regime);
+      Kokkos::finalize();
+      return 2;
+    }
+    // -uinit changes the initial condition and nothing in the run's name, so it
+    // is refused with -regime for the same reason -swirl is.
+    if (o.uinit < 0.0 || (o.uinit != 1.0 && o.regime)) {
+      std::printf("  -uinit F needs F >= 0 and no -regime; got F = %g, regime %d\n"
+                  "  NOTHING WAS RUN.\n", o.uinit, o.regime);
+      Kokkos::finalize();
+      return 2;
     }
     if (fcheck) {
       std::printf("FORCE CHECK  periodic box, uniform F, 500 steps; rho*u must "
@@ -1275,6 +1571,21 @@ int main(int argc, char** argv) {
       Kokkos::finalize();
       return status;
     }
+    // -stir drives the fluid through FieldGuo, which the penalised wall also
+    // owns, and its band is laid out on a disc.
+    if (o.stir.empty() && o.stirfeed != 0.0) {
+      std::printf("  -stirfeed lays flux down under the hand of -stir, and there is no -stir\n"
+                  "  NOTHING WAS RUN.\n");
+      Kokkos::finalize();
+      return 2;
+    }
+    if (!o.stir.empty() && (o.regime || o.shape != "disc" || o.wall == "pen" || o.stireps < 2.0)) {
+      std::printf("  -stir needs -shape disc, -wall reg, no -regime and -stireps >= 2; got shape "
+                  "%s, wall %s, regime %d, eps %g\n  NOTHING WAS RUN.\n",
+                  o.shape.c_str(), o.wall.c_str(), o.regime, o.stireps);
+      Kokkos::finalize();
+      return 2;
+    }
     std::printf("Decaying MHD turbulence in a confined disc -- Neffaa, Bos & "
                 "Schneider (2008)   DEMONSTRATOR\n");
     std::printf("backend %s   precision %s   %s fluid + %s magnetic   operator %s\n\n",
@@ -1282,7 +1593,7 @@ int main(int argc, char** argv) {
                 op == "bgk" ? "MhdBGK" : op == "cm" ? "MhdCM" : "MhdCMS");
     // -wall pen selects the forcing-capable operator regardless of -op, and
     // says so rather than silently overriding.
-    if (o.wall == "pen") {
+    if (o.wall == "pen" || !o.stir.empty()) {      // both need the forcing-capable operator
       status = (op == "bgk") ? run<CollP>(o)
              : (op == "cm")  ? run<CollCP>(o)
                              : run<CollSP>(o);

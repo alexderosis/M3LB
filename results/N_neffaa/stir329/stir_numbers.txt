@@ -1,0 +1,28 @@
+turnovers at the last probe                 3.24
+E_kin, stirred / unstirred, at the end      151   (first probe after t = 0: 12)
+r.m.s. current, stirred: peak at 0.97 turnovers, peak / end = 3.00
+E_mag, stirred / unstirred, at the end      0.929
+E_mag, stirred unfed, start / end           10.9
+E_mag / its start, fed A = 4e-4: 0.76 to 1.06 over the probes after t = 0, 0.84 at the end
+E_mag / its start, fed A = 2e-4: 0.25 to 0.84 over the probes after t = 0, 0.31 at the end
+r.m.s. current end / start: fed 4e-4 1.08, unfed 0.42
+E_kin, fed 4e-4 against unfed: within 3.7 % at every probe (0.8 % at the end)
+bulk rms(div b)/rms(curl b) at the end: fed 4e-4 0.011, unfed 0.021, unstirred 0.041
+dmass: unstirred +1.96e-06, stirred -6.26e-04, fed 2e-4 -6.20e-04, fed 4e-4 -6.26e-04
+
+the table in ../README.md, at the end of each run:
+  unstirred  E_kin / unstirred   1   E_mag / its start 0.099   r.m.s. current / its start 0.26   bulk div/curl 0.041
+  stirred    E_kin / unstirred 151   E_mag / its start 0.092   r.m.s. current / its start 0.42   bulk div/curl 0.021
+  fed 2e-4   E_kin / unstirred 154   E_mag / its start 0.314   r.m.s. current / its start 0.73   bulk div/curl 0.013
+  fed 4e-4   E_kin / unstirred 152   E_mag / its start 0.838   r.m.s. current / its start 1.08   bulk div/curl 0.011
+
+rotation, from 81 vorticity frames; the paddle's largest angular speed in contact is 4.5173e-04 rad/step
+  stroke 1, contact over steps    20- 2980 of the track's 19200: largest at 0.80 R 0.263 of the paddle's largest speed there (15 frames)
+  stroke 2, contact over steps  3740- 6700 of the track's 19200: largest at 0.80 R 0.331 of the paddle's largest speed there (16 frames)
+  stroke 3, contact over steps  7460-10420 of the track's 19200: largest at 0.80 R 0.383 of the paddle's largest speed there (15 frames)
+  stroke 4, contact over steps 11180-14140 of the track's 19200: largest at 0.80 R 0.426 of the paddle's largest speed there (16 frames)
+  stroke 5, contact over steps 14900-17860 of the track's 19200: largest at 0.80 R 0.477 of the paddle's largest speed there (15 frames)
+  stroke 6, contact over steps 18620-19200 of the track's 19200: largest at 0.80 R 0.471 of the paddle's largest speed there (3 frames)
+  azimuthal mean of u_theta at 0.66 R: largest 0.02344 in frame 75 of 80 = 0.531 of the paddle's largest speed there; counter-clockwise in 80 of 80 frames after t = 0; last frame 0.525
+  azimuthal mean of u_theta at 0.80 R: largest 0.02552 in frame 70 of 80 = 0.477 of the paddle's largest speed there; counter-clockwise in 80 of 80 frames after t = 0; last frame 0.471
+  azimuthal mean of u_theta at 0.94 R: largest 0.01273 in frame 74 of 80 = 0.203 of the paddle's largest speed there; counter-clockwise in 79 of 80 frames after t = 0; last frame 0.190
