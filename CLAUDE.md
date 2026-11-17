@@ -1394,6 +1394,20 @@ the same few mistakes, so they are worth naming.
   viscous. Before quoting a trend read at one instant of an unsteady flow, plot
   the observable against time at every rung, and try more than one definition of
   "when".
+- **A SIGN INTEGRATED OVER ONE WINDOW OF AN UNSTEADY FLOW IS A STATEMENT ABOUT THE
+  WINDOW, AND IT PASSED EVERY CHECK THE PLAN HAD.** The budget test found S_B < 0
+  within delta of the no-slip wall at every rung and on both grids over
+  t = 2..10, and for six weeks that was written, here and in the paper, as "the
+  no-slip wall reverses the stretching". Against time, the whole box and the
+  free-slip layer have S < 0 early in the decay too; the no-slip layer keeps
+  that sign 0.9-2.2 time units longer and then turns positive; and over
+  t = 5..10 S_B > 0 at three rungs of four. Two grids, a Mach control and two
+  Prandtl numbers had all agreed, because each compares runs over the SAME
+  window. It is the entry above with a sign in place of a trend, and it was
+  found only when the sign was about to carry a paper of its own. The
+  pre-registered quantity (phi against 1/2) held in every window; the sentence
+  EXPLAINING it did not. Check the explanation of a verdict against time as
+  hard as the verdict.
 - **Agreement between a port and its host reference proves the port, not the
   physics.** Both run the same arithmetic. When a port sits several times worse
   than the code it came from, that gap is a defect until shown otherwise — do not
@@ -1412,8 +1426,8 @@ the same few mistakes, so they are worth naming.
 ## Papers (`paper/`)
 
 `paper/tg_mhd/` is the confined-MHD paper, "Walls or cascade? A pre-registered
-test of wall dissipation in decaying magnetohydrodynamic turbulence": 11 pages in
-REVTeX 4.2 for Physics of Plasmas, plus 5 of supplementary material
+test of wall dissipation in decaying magnetohydrodynamic turbulence": 13 pages in
+REVTeX 4.2 for Physics of Plasmas, plus 7 of supplementary material
 (`supplementary.tex`), both tracked with their PDFs. `make -C paper/tg_mhd`
 rebuilds both: each reads the other's labels through `xr-hyper` (`S-<label>` in
 `main.tex`, `M-<label>` in the supplement), so the Makefile runs supplement,
@@ -1449,7 +1463,9 @@ does) fails on it. Run such scripts from elsewhere.
   definition: B - A positive and viscous; the near-wall Ohmic dissipation 40-45 %
   lower than at a free-slip wall, in absolute terms; the no-slip wall layer
   intensifying with Re; and, at Re = 1000, the hydrodynamic box putting 3.3x more
-  of its dissipation within delta of the walls. It claims no trend in Re, and
+  of its dissipation within delta of the walls. It claims that the no-slip wall
+  REMOVES the near-wall stretching, not that it reverses it: the reversal is the
+  registered window's (Phase 1 below). It claims no trend in Re, and
   reports A'/B' only as confounded. A revision that strengthens a trend claim --
   choosing the window that gives "walls hold", say -- is the forking path the
   protocol exists to prevent. It needs its own pre-registered test; the
@@ -1544,20 +1560,40 @@ does) fails on it. Run such scripts from elsewhere.
   preview over t = 2..10: phi = 2.5, not a rung and not a measurement).
   **THE VERDICT (CSF3, 2026-10-02; `results/P_tg_mhd/budget/`) IS "STRETCHING"
   AT EVERY RUNG**: phi = 1.86 / 1.55 / 1.47 / 1.84 at Re = 250..2000, bands
-  <= 0.052. phi > 1 because the stretching CHANGES SIGN: within delta of the
-  free-slip wall S_A = 0.56-0.67 of Omega_A, within delta of the no-slip wall
-  S_B = -0.08 to -0.40 of Omega_B on every grid, and the Lorentz work has the
-  opposite signs -- the field does work on the flow there. At Re = 1000 S_A is
+  <= 0.052. OVER t = 2..10 phi > 1 because the stretching differs in SIGN: within
+  delta of the free-slip wall S_A = 0.56-0.67 of Omega_A, within delta of the
+  no-slip wall S_B = -0.08 to -0.40 of Omega_B on every grid, and the Lorentz
+  work has the opposite signs -- over that window the field does work on the
+  flow there.
+  **THAT SIGN BELONGS TO THE WINDOW, NOT TO THE WALL (found 2026-11-17, post
+  hoc, while scoping a letter on it).** S changes sign in time in BOTH boxes.
+  The whole box's is negative at t = 1 and until 3.4-3.9; the free-slip layer's
+  from 1.1-1.3 to 3.5-3.7; the no-slip layer's until 6.05 / 4.95 / 4.53 / 4.50
+  (Re = 250..2000), 0.9-2.2 time units after its box, then positive, and
+  negative again from 9.18 / 7.66 / 6.17 at Re = 500 / 1000 / 2000 (finer grids,
+  episodes shorter than 0.5 merged; the coarser grids within 0.04). Over
+  t = 5..10 S_B/Omega_B = -0.03 / +0.41 / +0.54 / +0.11, and over t = 2..6
+  S_A < 0 at Re = 250. What does NOT depend on the window: the verdict (phi
+  0.72-3.18, "stretching" in all 20 readings over the paper's five fixed
+  windows), and S_A - S_B > 0 at 86-97 % of the probes after t = 1. So the wall
+  REMOVES stretching; "reverses" is true of t = 2..10 only, and the paper says
+  so since that day (abstract, Sec. IV G, discussion, conclusions, Sec. S7 and
+  Table S5). `tools/tg_mhd_budget.py` prints all of it in its POST HOC section.
+  Whether a no-slip layer takes energy from the field ON AVERAGE needs the
+  forced boxes, with a rule on the mean S within delta fixed BEFORE any forced
+  `budget.dat` is read -- the pilots' are on disk and unread for S.
+  At Re = 1000 S_A is
   largest ON the wall (0.39 of the mean dissipation) and S_B vanishes there
-  identically (u = 0, B tangential), negative out to 0.8 delta; the Ohmic peak
+  identically (u = 0, B tangential), over t = 2..10 negative out to 0.8 delta; the Ohmic peak
   moves from 1.2 delta (A) to 1.9 delta (B). B's near-wall viscous loss: 54-66 %
   viscous transport, 14-36 % Lorentz work (rising with Re -- one window, no trend
   claimed). Closure within delta on the finer grids: magnetic 1.0-2.9 % (A),
   0.3-0.7 % (B). The 16 runs reproduce round 2's series and all 48 profiles byte
   for byte, so git keeps round 2's profiles only. They cost 15.1 GPU-h, not the
   13 estimated: the probes were 1.8-4.8x dearer on CSF3's host CPUs where the
-  laptop measured 1.6x. In the paper: Sec. IV G, Fig. 6, Table S4, Sec. S8.
-  **A STAND-IN'S NUMBER IS NOT THE MEASUREMENT.** Drafting S8, the device's
+  laptop measured 1.6x. In the paper: Sec. IV G, Fig. 6, Tables S4 and S5,
+  Sec. S7.
+  **A STAND-IN'S NUMBER IS NOT THE MEASUREMENT.** Drafting that section, the device's
   budget was quoted as matching the host's to 1.4e-15 -- the figure of the
   laptop DRY RUN of the verify check, with the host twin standing in for the
   device, before the verify job's own log had been seen. It came back later
@@ -1596,7 +1632,7 @@ does) fails on it. Run such scripts from elsewhere.
   at Re = 500, 1000, 2000. C3: passes -- B - A moves 7e-5 (band 9e-4), phi 0.003
   (band 0.052), peak Ma 0.133 -> 0.107. C4: holds at Pm = 0.5 and 2 -- B - A
   0.060 / 0.052 (0.054 at Pm = 1), viscous, Ohmic negative; phi 2.01 / 1.22
-  (1.47 at Pm = 1). In the paper: Sec. IV H, Table S5, Sec. S9; the abstract
+  (1.47 at Pm = 1). In the paper: Sec. IV H, Table S6, Sec. S8; the abstract
   says the gentler start enlarges the excess by up to 20 % at Re = 500 rather
   than "all controls passed". The job's verify log (21890230) passes all 20
   checks on the A100, the first device runs of the per-node wall velocity among

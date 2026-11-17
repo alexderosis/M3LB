@@ -43,6 +43,19 @@ budget's closure (T against advM + difM + cmpM), the box identity <S> = -<lor>,
 the shares within 2 and 4 delta and over other windows, and the kinetic budget
 of each box's layer -- what supplies its viscous dissipation.
 
+POST HOC (2026-11-17, after the verdict; no rule was fixed for it). The test reads
+S within delta over ONE window, and over t = 2..10 S_B is negative at every rung,
+which is why phi exceeds 1 there. THAT SIGN BELONGS TO THE WINDOW. The last section
+prints, for every run, the times after t = 1 at which S within delta and S in the
+whole box change sign, and then S/Omega of each box and phi over POST_HOC's
+windows. Read it before writing that a no-slip wall "reverses" the stretching: the
+layer at the free-slip wall and the whole of either box have S < 0 early in the
+decay as well, the no-slip layer's S turns positive between t = 4 and 6, and over
+t = 5..10 S_B is positive at Re = 500, 1000 and 2000. What does not depend on the
+window is the test: phi clears 1/2 in every one of them. This is the same trap as
+tg_mhd_ladder's reading at a peak -- a sign integrated over one window of an
+unsteady flow is a statement about the window.
+
 Exit status: 0 with a verdict, 1 if a rung lacks a pair of grids, 2 if nothing
 was found. Pure stdlib, like tg_mhd_ladder.py, whose loader and integrator it uses.
 """
@@ -59,6 +72,8 @@ TERMS = ("eK", "eM", "visc", "ohm", "S", "lor", "advK", "pres", "difK", "advM", 
 # Written only by a driven run (Phase 3): the bulk forces' work, u.F (-drive) and
 # B.S (-bdrive). A run without one reads it as zero.
 OPTIONAL = ("injK", "injM")
+# The windows of the POST HOC section: the paper's (paper/tg_mhd/numbers.py, WINDOWS).
+POST_HOC = ((2.0, 6.0), (2.0, 10.0), (3.0, 10.0), (4.0, 10.0), (5.0, 10.0))
 
 
 def load_budget(path):
@@ -156,6 +171,59 @@ def find(dirs):
 def phi_of(la, lb):
     dO = la["ohm"] - lb["ohm"]
     return (la["S"] - lb["S"]) / dO if dO > 0 else None
+
+
+def crossings(q, t_from=1.0):
+    """[(t, +1 or -1)]: the times after t_from at which the one-column series
+    q = [(t, [v])] changes sign, linear between probes, and the sign it changes TO.
+    t_from = 1 leaves out the start, where S is still near zero and flickers."""
+    out = []
+    for (ta, (a,)), (tb, (b,)) in zip(q, q[1:]):
+        if a == 0.0 or (a > 0) == (b > 0):
+            continue
+        tc = ta + (tb - ta) * a / (a - b)
+        if tc >= t_from:
+            out.append((tc, 1 if b > 0 else -1))
+    return out
+
+
+def probes_above(qa, qb, t_from=1.0):
+    """(n, of): the probes of qb after t_from at which qa - qb > 0, qa interpolated
+    to them; a probe outside qa's range is not counted."""
+    n = of = 0
+    for t, (v,) in qb:
+        a = T.lerp(qa, t) if t >= t_from else None
+        if a is None:
+            continue
+        of += 1
+        n += a[0] - v > 0
+    return n, of
+
+
+def episodes(q, t_from=1.0, min_len=0.5):
+    """[(t_start, +1 or -1)]: the sign of a one-column series from t_from on, with every
+    episode shorter than min_len merged into its neighbours, the shortest first. The
+    first episode is kept whatever its length (t_from cuts it); the last is judged by
+    what the run holds of it, so one cut short by the end of the run is merged too.
+    A description for a text, not a measurement: crossings() is the unmerged list."""
+    seg = [(t_from, 1 if T.lerp(q, t_from)[0] > 0 else -1)] + crossings(q, t_from)
+    end = q[-1][0]
+    while True:
+        length = [(seg[k + 1][0] if k + 1 < len(seg) else end) - seg[k][0] for k in range(len(seg))]
+        short = [k for k in range(1, len(seg)) if length[k] < min_len]
+        if not short:
+            return seg
+        k = min(short, key=lambda j: length[j])
+        del seg[k]                                   # its span falls to the episode before
+        if k < len(seg) and seg[k][1] == seg[k - 1][1]:
+            del seg[k]                               # and the one after, of the same sign, joins it
+
+
+def crossing_text(q, t_from=1.0):
+    """'< 0 at t = 1, then > 0 from 4.53, < 0 from 7.66' for a one-column series."""
+    s0 = T.lerp(q, t_from)[0]
+    return "%s 0 at t = %g%s" % ("<" if s0 < 0 else ">", t_from, "".join(
+        ", %s 0 from %.2f" % (">" if sg > 0 else "<", tc) for tc, sg in crossings(q, t_from)))
 
 
 def main(argv):
@@ -260,6 +328,36 @@ def main(argv):
                   " + residual %+.3f  (shares of visc)" % (
                       s, Re, v, la["lor"] / v, la["advK"] / v, la["pres"] / v, la["difK"] / v,
                       la["deK"] / v, (la["Kres"] - la["Kexp"]) / v))
+
+    print()
+    print("POST HOC (no rule was fixed for this; see the docstring): THE SIGN OF S AGAINST TIME, within %g delta"
+          % args.m)
+    for s in ("A", "B"):
+        for Re in rungs:
+            for N, b in sorted(runs.get((s, Re), {}).items()):
+                print("  %s Re %5g N %4d: S within %g delta %s" % (
+                    s, Re, N, args.m, crossing_text(series(b, "S", args.m))))
+                print("  %s            the whole box's S %s" % (" " * len("%s Re %5g N %4d" % (s, Re, N)),
+                                                                crossing_text(series(b, "S", None))))
+    for Re in rungs:
+        by_a, by_b = runs.get(("A", Re), {}), runs.get(("B", Re), {})
+        if by_a and by_b:
+            n, of = probes_above(series(by_a[max(by_a)], "S", args.m), series(by_b[max(by_b)], "S", args.m))
+            print("  Re %5g, finer grids: S_A - S_B > 0 at %d of B's %d probes with t >= 1" % (Re, n, of))
+    print("  and over other windows (S / Omega within %g delta, finer / coarser grid; phi with its band):" % args.m)
+    for w0, w1 in POST_HOC:
+        for Re in rungs:
+            Ns = sorted(set(runs.get(("A", Re), {})) & set(runs.get(("B", Re), {})))
+            L = {N: (layer(runs[("A", Re)][N], w0, w1, args.m), layer(runs[("B", Re)][N], w0, w1, args.m))
+                 for N in Ns}
+            Ns = [N for N in Ns if L[N][0] is not None and L[N][1] is not None]
+            if len(Ns) < 2:
+                continue
+            ph = [phi_of(*L[N]) for N in Ns[-2:]]
+            (lac, lbc), (la, lb) = L[Ns[-2]], L[Ns[-1]]
+            print("    t = %g..%g  Re %5g: S_A/Omega_A %+.3f / %+.3f, S_B/Omega_B %+.3f / %+.3f, phi %s" % (
+                w0, w1, Re, la["S"] / la["ohm"], lac["S"] / lac["ohm"], lb["S"] / lb["ohm"], lbc["S"] / lbc["ohm"],
+                "no deficit" if None in ph else "%+.3f band %.3f" % (ph[1], abs(ph[1] - ph[0]))))
     return rc
 
 

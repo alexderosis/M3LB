@@ -13,6 +13,12 @@ energy budgets per wall-distance layer, out to 8 delta), `series.dat` and
   `../round2/<run>/series.dat` (the job checked, and the log ends saying so),
   and so are all 48 `profile*.dat` files, compared after copying. Git keeps
   round 2's profiles only (`.gitignore`).
+- **The sign of S within delta depends on when it is read** (post hoc,
+  2026-11-17; no rule was fixed for it). Over t = 2..10, the test's window,
+  S_B < 0 at every rung. Over t = 5..10 it is positive at Re = 500, 1000 and
+  2000, and early in the decay the free-slip layer and the whole of either box
+  have S < 0 too. The tool's POST HOC section prints the sign changes and the
+  other windows; phi clears 1/2 in every one of them.
 - **Cost: 15.1 GPU-hours**, against the job header's estimate of 13. The steps
   took the same time as round 2's (ratio 1.00-1.01); the probes took 36-77 % of
   each run, against 14-52 % in round 2 -- the budget made a probe 1.8-4.8x as

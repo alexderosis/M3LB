@@ -526,6 +526,76 @@ def main():
           "$\\Rey$ & $N$ & $\\phi$ & $\\phi_{\\mathrm{coarse}}$ & band & transport & storage"
           " & $S_A/\\Omega_A$ & $S_B/\\Omega_B$ & closure (\\%) \\\\\n\\hline\n" + "\n".join(rows) + "\n\\end{tabular}\n")
 
+    # ---- the sign of the stretching against time (POST HOC, 2026-11-17) -------------
+    # No rule was fixed for this. The test above reads S within delta over ONE window,
+    # and there S_A > 0 > S_B at every rung; these lines say what that sign owes to the
+    # window, with the helpers of tools/tg_mhd_budget.py's POST HOC section.
+    say()
+    say("IV.H' THE STRETCHING'S SIGN AGAINST TIME (post hoc, 2026-11-17: no rule was fixed for it; within delta)")
+    tabw, phis, negb = {"A": [], "B": [], "phi": []}, [], {}
+    for w in WINDOWS:
+        val = {"A": [], "B": [], "phi": []}
+        for Re in RUNGS:
+            Ns = sorted(set(bud[("A", Re)]) & set(bud[("B", Re)]))
+            L = {N: (BU.layer(bud[("A", Re)][N], *w, 1.0), BU.layer(bud[("B", Re)][N], *w, 1.0)) for N in Ns}
+            ph = {N: BU.phi_of(*L[N]) for N in Ns}
+            band = abs(ph[Ns[-1]] - ph[Ns[-2]])
+            (lac, lbc), (la, lb) = L[Ns[0]], L[Ns[-1]]
+            r = [x["S"] / x["ohm"] for x in (la, lac, lb, lbc)]
+            call = "stretching" if ph[Ns[-1]] - band > 0.5 else "transport" if ph[Ns[-1]] + band < 0.5 else "undecided"
+            phis.append((ph[Ns[-1]], call))
+            say("  t = %g-%g Re %4d: S_A/Omega_A %+.2f (coarser grid %+.2f), S_B/Omega_B %+.2f (coarser %+.2f),"
+                " the two grids agree on both signs: %s; phi %.2f band %.3f -> %s" % (
+                    w[0], w[1], Re, r[0], r[1], r[2], r[3], (r[0] > 0) == (r[1] > 0) and (r[2] > 0) == (r[3] > 0),
+                    ph[Ns[-1]], band, call))
+            val["A"].append("$%+.2f$" % r[0])
+            val["B"].append("$%+.2f$" % r[2])
+            val["phi"].append("%.2f" % ph[Ns[-1]])
+            negb.setdefault(w, []).append(r[2] < 0)
+        for k in tabw:
+            tabw[k].append("$%g$--$%g$ & %s \\\\" % (w[0], w[1], " & ".join(val[k])))
+    say("  S_B < 0 within delta at %s of the %d rungs over t = %s" % (
+        ", ".join(str(sum(negb[w])) for w in WINDOWS), len(RUNGS), ", ".join("%g-%g" % w for w in WINDOWS)))
+    say("  phi over these %d windows and %d rungs: %.2f to %.2f; 'stretching' in %d of %d" % (
+        len(WINDOWS), len(RUNGS), min(p for p, _ in phis), max(p for p, _ in phis),
+        sum(c == "stretching" for _, c in phis), len(phis)))
+    for s_ in ("A", "B"):
+        for Re in RUNGS:
+            for N in sorted(bud[(s_, Re)]):
+                b = bud[(s_, Re)][N]
+                say("  %s Re %4d N %d: S within delta %s; the whole box's S %s" % (
+                    s_, Re, N, BU.crossing_text(BU.series(b, "S", 1.0)), BU.crossing_text(BU.series(b, "S", None))))
+    say("  the same on the finer grids, episodes shorter than 0.5 merged into their neighbours (tg_mhd_budget.episodes):")
+    worst, alike, lag = 0.0, 0, []
+    for s_ in ("A", "B"):
+        for Re in RUNGS:
+            by_n = bud[(s_, Re)]
+            b, bc = by_n[max(by_n)], by_n[min(by_n)]
+            E = {m: BU.episodes(BU.series(b, "S", m)) for m in (1.0, None)}
+            ep = lambda m: ", ".join("%s 0 from %.2f" % (">" if sg > 0 else "<", t) for t, sg in E[m])
+            say("    %s Re %4d N %d: within delta %s; whole box %s" % (s_, Re, b["N"], ep(1.0), ep(None)))
+            for m in (1.0, None):                 # the coarser grid: the same episodes, and how far apart
+                Ec = BU.episodes(BU.series(bc, "S", m))
+                if [sg for _, sg in Ec] == [sg for _, sg in E[m]]:
+                    alike += 1
+                    worst = max([worst] + [abs(t - tc) for (t, _), (tc, _) in zip(E[m][1:], Ec[1:])])
+            if s_ == "B":                         # how long the layer keeps S < 0 after its box
+                lag.append(E[1.0][1][0] - E[None][1][0])
+    say("  the coarser grids: the same episodes in %d of 16 series (2 boxes x 4 rungs x layer and box); where they"
+        " are, the times differ by at most %.2f" % (alike, worst))
+    say("  B's layer turns positive %s time units after its whole box (Re 250 to 2000)"
+        % ", ".join("%.2f" % x for x in lag))
+    for Re in RUNGS:
+        a, b = (bud[(s_, Re)][max(bud[(s_, Re)])] for s_ in ("A", "B"))
+        n, of = BU.probes_above(BU.series(a, "S", 1.0), BU.series(b, "S", 1.0))
+        say("  Re %4d, finer grids: S_A - S_B > 0 within delta at %d of B's %d probes with t >= 1 (%.0f %%)"
+            % (Re, n, of, 100.0 * n / of))
+    lab = {"A": "$S_A/\\Omega_A$", "B": "$S_B/\\Omega_B$", "phi": "$\\phi$"}
+    write("tab_budget_windows.tex", "\\begin{tabular}{lccccc}\n"
+          " & window & 250 & 500 & 1000 & 2000 \\\\\n\\hline\n"
+          + "\n".join("%s & %s" % (lab[k] if i == 0 else "", row)
+                      for k in ("A", "B", "phi") for i, row in enumerate(tabw[k])) + "\n\\end{tabular}\n")
+
     # ---- Sec. III': the controls (GPU/csf3/tg_mhd_controls.sub, Phase 2) -----------
     # Each control is judged by the rule fixed in that job's header; the numbers are
     # tools/tg_mhd_controls.py's, read here through its own helpers.
