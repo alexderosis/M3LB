@@ -10156,7 +10156,8 @@ Stated plainly, because each has been measured.
   around the nozzle move an isothermal contact by 15--20\,\% (a long needle
   $15.10$\,s, a printhead disc $18.19$\,s, the default box $15.80$\,s), and the
   nominal surface tension at $\pm20\,\%$ moves the stalled drop by less than
-  a cell. So the model's
+  a cell; the measured activation energy, $40.9$ in place of the literature's
+  $31.3$\,kJ/mol, by one cell and $4\,\%$ at 60\,s. So the model's
   prediction is a regime, not a time, and the measurement that decides it is
   the temperature of the air and of the melt at the tip.
 \item \textbf{The MEW jet model (\code{validation/Jet1D.hpp},
@@ -10172,12 +10173,15 @@ Stated plainly, because each has been measured.
   bending stiffness, so it lands tangentially with no heel; the field is the
   mean gap field or \code{mew\_axi}'s on the axis, vertical and unchanged by the
   jet's charge; there is no air drag and no viscoelasticity, and the jet's peak
-  stretch rate (22\,s$^{-1}$, nominal) is just past the 16\,s$^{-1}$ the
-  measured shear curve reaches. With those inputs a jet landing at 35\,mm/s
+  stretch rate (22\,s$^{-1}$, nominal) is above the 10\,s$^{-1}$ up to which
+  the measured shear table is Newtonian (past 16--25\,s$^{-1}$ its stress falls
+  as the rate rises, which is not a viscosity). With those inputs a jet landing at 35\,mm/s
   carries $0.43$--$1.84$\,nA under every unmeasured input tried ($0.86$\,nA
   nominal), and $0.14$\,nA if it stayed at 120\,$^\circ$C; \code{mew\_axi}'s field
   RAISES it to $0.89$--$1.00$\,nA, because a pull at the apex stretches no part of
-  the jet. At half that current and 35\,mm/s the jet lags $3.9$--$4.4$\,mm
+  the jet. With the measured activation energy ($40.9$\,kJ/mol; the default
+  stays $31.3$) the nominal current is $1.29$\,nA, and $1.09$--$1.58$\,nA for a
+  jet starting at the two ends of the heater's cycle (below). At half that current and 35\,mm/s the jet lags $3.9$--$4.4$\,mm
   behind the cone.
 \item \textbf{The jet sink in \code{mew\_axi} (\code{-jet}) dimples the apex
   it stands in for, and the free surface creates mass where the dimple reaches
@@ -10202,6 +10206,42 @@ Stated plainly, because each has been measured.
   60\,s with no jet, the fan's and the no-fan one: the fan's thinner fibres
   leave $1.7\times$ as much at the tip, and $2.7\times$ ($0.989$\,mm$^3$) if
   the fan also cools the drop at a nominal 300 rather than 90\,W/m$^2$/K.
+\item \textbf{The MEW nozzle's heater switches on and off, and what that does
+  to the melt at the tip rests on an expansion coefficient that was not
+  measured.} The heater block was measured going from 110 to 128\,$^\circ$C in
+  13\,s with its 30\,W heater on and back in 53\,s with it off, where every MEW
+  model here had held the nozzle at 120\,$^\circ$C. \code{mew\_axi -cycle} puts
+  that cycle on the nozzle's wall and on the melt it feeds, as two straight
+  legs; that the melt leaves at the block's temperature is argued from the
+  drawings of the hot end (it spends 41\,min in the hot zone and follows its
+  wall $1.9$\,s behind), not modelled. On the temperature alone the cycle does
+  nothing measurable to the drop, although the measured viscosity (Newtonian to
+  within $4\,\%$ up to 10\,s$^{-1}$ at 90--120\,$^\circ$C; activation energy
+  $40.9$\,kJ/mol, standard error $2.9$) changes by a factor $1.78$ across it.
+  What matters is that the hot zone holds $50.6$\,mm$^3$ of melt between a solid
+  filament and the orifice, which expands and contracts with the cycle:
+  \code{-breathe} makes the bore deliver $Q+B\,\mathrm{d}T/\mathrm{d}t$,
+  $0.061$\,mm$^3$/s while the block heats and $0.011$ while it cools against a
+  feed of $0.0208$, with $B=0.0293$\,mm$^3$/K from a melt expansion of
+  $6.4\times10^{-4}$\,K$^{-1}$ --- nominal, and not confirmed for PCL: the range
+  of polymer melts, $5$--$7\times10^{-4}$, moves the pulse from $0.41$ to
+  $0.59$\,mm$^3$ a cycle of the $1.37$ fed. The hot zone itself is that one
+  number, and any give in the filament or its drive would take part of the
+  pulse. Without a jet the cycle sets when the melt arrives and not where the
+  drop stops: all four runs stall $3.1$--$3.2$\,mm up at 150\,s. With the no-fan
+  fibres' flow taken at the apex, the melt below the tip grows only while the
+  heater is on, by $0.65$\,mm$^3$ in each 13\,s of heating, and is flat over
+  each 53\,s of cooling --- flat because the jet sink's mass creation
+  ($4.7$--$6.5\,\%$ of what the jet takes by 150\,s) offsets the $0.04$\,mm$^3$
+  it should lose; and the melt's lowest point rises $0.2$--$0.35$\,mm over each
+  cooling leg at constant volume, which is not diagnosed. The fibres' own flow,
+  $0.0116$\,mm$^3$/s, is what the orifice delivers while the heater is off
+  ($0.0108$; $0.0097$--$0.0132$ over the coefficient's range), which is what a
+  jet carrying the cooling leg's flow, with each heating leg's surplus left at
+  the tip, would give. That is one agreement between two numbers, one of them
+  nominal: a thing to test, by tightening the heater's band, rather than a
+  result. (\code{results/mew\_hotend} holds the numbers and
+  \code{results/mew\_axi/cycle\_numbers.txt} the runs.)
 \item \textbf{A mirror-symmetric free surface does not stay symmetric, and a
   thread drawn below a cell creates mass.} Neither is diagnosed. In
   \code{mew\_nozzle} an advancing front amplifies round-off until the column

@@ -1240,6 +1240,36 @@ Do not spend time on these without saying so first; several are deliberate.
   mew_axi's field), and at half that current it trails the cone by about 4 mm.
   Neither predicts the jet's flow or current: the cone that sets them is below
   every grid.
+- **THE MEW NOZZLE'S HEATER CYCLES, AND THE HOT END BREATHES -- ON A COEFFICIENT
+  THAT WAS NOT MEASURED.** Measured (Murat Kilic, 2026-11-17): the block goes
+  110 → 128 °C in 13 s with its 30 W heater on and back in 53 s with it off,
+  where every MEW model here held 120 °C; PCL is Newtonian to within 4 % up to
+  10 1/s at 90–120 °C (2220 / 1690 / 1087 / 815 Pa s), with Ea = 40.9 kJ/mol
+  (s.e. 2.9; four temperatures do not exclude the literature's 31.3, which stays
+  the drivers' DEFAULT so that saved runs regenerate -- pass `-Ea 40.9`; the jet
+  model then needs 1.29 nA, not 0.86). Past 16–25 1/s that table's STRESS falls
+  as the rate rises, which is not a viscosity: check that μγ̇ rises before
+  fitting shear thinning to a rheometer's table. `mew_axi -cycle 110 128 13 53`
+  puts the cycle on the nozzle, and on the temperature alone it does nothing
+  measurable. `-breathe 0.0293` (mm³/K) is the half that matters: the hot zone
+  holds 50.6 mm³ of melt (E3D's drawings) between a solid filament and the
+  orifice, which expands and contracts with the cycle, so 0.061 mm³/s leaves
+  while the block heats and 0.011 while it cools, against a feed of 0.0208.
+  THAT IS AN ESTIMATE: 6.4e-4 /K is a polymer melt's nominal expansion, not
+  confirmed for PCL (5–7e-4 gives 0.41–0.59 mm³ a cycle of the 1.37 fed), and
+  the hot zone is that one number, not a model. Without a jet the cycle sets
+  WHEN the melt arrives, not where the drop stalls (3.1–3.2 mm up at 150 s in
+  all four runs); with the no-fan fibres' flow taken at the apex the melt below
+  the tip grows ONLY while the heater is on, 0.65 mm³ a cycle (flat in between
+  only because the jet sink creates 5–6 % of what it takes). The fibres' own
+  flow, 0.0116 mm³/s, is what the orifice delivers with the heater off (0.0108;
+  0.0097–0.0132 over the coefficient's range): a hypothesis for the oozing, to
+  be tested by tightening the heater's band, not a result. **Two runs under a
+  periodic forcing compared at one time compare PHASES**: the tip's melt at
+  150 s read 1.72, 1.47 and 1.41 mm³ only because the runs stop at different
+  points of their cycles; compare over whole periods. `results/mew_hotend`
+  holds the numbers. Murat's raw table is NOT tracked (his unpublished data, a
+  public repository), and neither is the figure that plots every point of it.
 - **`GPU/` HAS THE PARITY WALL AND THE TAYLOR-GREEN MHD BOX** as of 2026-09-25
   (`src/tg_mhd.cu`, `set_parity_walls`, `seed_populations_with`). Its HOST build
   reproduces `demonstrator/tg_mhd` to every printed digit in FP64, free-slip and
