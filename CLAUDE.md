@@ -1263,8 +1263,12 @@ Do not spend time on these without saying so first; several are deliberate.
   the tip grows ONLY while the heater is on, 0.65 mm³ a cycle (flat in between
   only because the jet sink creates 5–6 % of what it takes). The fibres' own
   flow, 0.0116 mm³/s, is what the orifice delivers with the heater off (0.0108;
-  0.0097–0.0132 over the coefficient's range): a hypothesis for the oozing, to
-  be tested by tightening the heater's band, not a result. **Two runs under a
+  0.0097–0.0132 over the coefficient's range): a hypothesis for the oozing, not
+  a result. **Tightening the heater's band is NOT the test**: PID control, which
+  keeps the heater working, upsets the cone at every heating (Murat, 17 Nov),
+  which is why the experiment runs on/off. The drop does grow in steps, about
+  every 50 s; whether they keep time with the heater is the test, and a step's
+  volume V measures B = (V - (Q - Q_jet) t_on)/dT. **Two runs under a
   periodic forcing compared at one time compare PHASES**: the tip's melt at
   150 s read 1.72, 1.47 and 1.41 mm³ only because the runs stop at different
   points of their cycles; compare over whole periods. `results/mew_hotend`

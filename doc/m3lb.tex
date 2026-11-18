@@ -10239,8 +10239,14 @@ Stated plainly, because each has been measured.
   ($0.0108$; $0.0097$--$0.0132$ over the coefficient's range), which is what a
   jet carrying the cooling leg's flow, with each heating leg's surplus left at
   the tip, would give. That is one agreement between two numbers, one of them
-  nominal: a thing to test, by tightening the heater's band, rather than a
-  result. (\code{results/mew\_hotend} holds the numbers and
+  nominal: a thing to test rather than a result. Tightening the heater's band
+  is not the test: PID control, which keeps the heater working, upset the cone
+  at every heating (Murat Kilic, 2026-11-17), which is why the experiment runs
+  on/off. He sees the drop at the tip grow in steps about every 50\,s, as the
+  model makes it grow once a cycle; whether the steps keep time with the heater
+  is the test, and a step's volume $V$ would measure the expansion,
+  $B=[V-(Q-Q_\mathrm{jet})\,t_\mathrm{on}]/\Delta T$.
+  (\code{results/mew\_hotend} holds the numbers and
   \code{results/mew\_axi/cycle\_numbers.txt} the runs.)
 \item \textbf{A mirror-symmetric free surface does not stay symmetric, and a
   thread drawn below a cell creates mass.} Neither is diagnosed. In

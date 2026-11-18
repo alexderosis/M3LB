@@ -262,6 +262,15 @@
 //     what a jet carrying the cooling leg's flow steadily, with the surplus
 //     oozing in the 13 s of heating, would give. It is one agreement between
 //     two numbers, one of them nominal -- a thing to test, not a result.
+//     MURAT'S ANSWERS (2026-11-17, results/mew_hotend/README.md): the drop at
+//     the tip DOES grow in steps, about every 50 s, which he reads as the cone
+//     settling after each growth; and PID control, which keeps the heater
+//     working, upset the cone at every heating, which is why they run on/off --
+//     so a tighter band is not the clean test it was put to him as. The steps
+//     are the model's, one a cycle in the heating legs; whether his keep time
+//     with the heater is not yet known, and the model, which does not resolve
+//     the cone, cannot make steps of its own. A step's volume V would measure
+//     the expansion: B = (V - (Q - Q_jet) t_on) / dT.
 //     The free surface creates 4.7 / 6.2 / 6.5 % of what the jet takes by 150 s
 //     (THE JET above): 0.08-0.11 mm^3, against steps of 0.65. The melt's lowest
 //     point RISES 0.2-0.35 mm over each cooling leg with its volume unchanged;

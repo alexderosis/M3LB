@@ -78,3 +78,42 @@ cycle.
 
 Animations (git-ignored, `tools/anim_mew_axi.py cycle | cyclejet`):
 `results/mew_axi/mew_axi_cycle.mp4` and `mew_axi_cycle_jet.mp4`.
+
+## Murat's answers (2026-11-17, his second message)
+
+1. **The drop at the tip grows in steps, about every 50 s.** His reading: after
+   the Taylor cone grows it needs time to settle again.
+2. **The controller can run PID, and they do not.** Holding 120 °C keeps the
+   heater working, and each time it works the PCL expands and the cone loses its
+   stability; on/off control at least gives a stable process.
+3. **110–128 °C is what the sensor read**, and it differs from run to run: a
+   range, not a fixed cycle.
+4. **The melt's density is not available.**
+
+What they mean for the model:
+
+- **Steps are what it predicts.** With the no-fan jet the melt below the tip
+  grows only while the heater is on, one step a cycle: 0.65 mm³ in each 13 s of
+  heating, then flat for 53 s. His spacing, about 50 s, is close to that quiet
+  leg (53 s) and shorter than the period (66 s), which he says varies from run
+  to run. The open question is whether his steps keep
+  time with the heater. If they do, they are the hot end's breathing; if not,
+  they are the cone's own settling, which this model cannot make, since it does
+  not resolve the cone.
+- **A step's volume measures the expansion**, which is what the density was
+  wanted for. If the jet carries a steady flow through the step, a step is
+  `(Q - Q_jet) t_on + B dT`: 0.120 + 0.527 = 0.647 mm³ with the no-fan jet,
+  t_on = 13 s, dT = 18 K and B = 0.0293 mm³/K. A measured step V gives
+  `B = (V - 0.120) / dT`, and the melt's expansion `B / 50.6 + 5.5e-5` per K
+  (the second term is the brass bore's own growth). A step of 0.65 mm³ is a
+  sphere about 1.07 mm across, so it should be visible in a frame before and
+  after a step.
+- **Tightening the heater's band is not the test** that the earlier reply
+  proposed: PID control, which keeps the heater working, upset the cone, so it
+  changes the thing the test was meant to hold fixed. Whether the steps keep
+  time with the heater, and how large they are, is the test instead.
+- **A swing that changes from run to run scales the breathing in proportion**:
+  0.44 mm³ a cycle at 15 K and 0.59 at 20 K, against 0.53 at the 18 K used.
+  The conclusions above do not hang on the exact values.
+- **No published PCL melt expansion was found** (2026-11-17: four web searches
+  in all, and one fetched paper). It stays nominal at 6.4e-4 /K.
