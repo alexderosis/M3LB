@@ -117,6 +117,11 @@ sbatch GPU/csf3/rr_paper/rr_paper_spectral.sub                    # its spectral
 sbatch GPU/csf3/rr_paper/rr_paper_post.sub                        # after both: spectra + tarball
 sbatch --array=11,13 --time=1:00:00 GPU/csf3/rr_paper/rr_paper.sub         # its omega_b = 1 follow-up,
 sbatch --array=12    --time=3:00:00 GPU/csf3/rr_paper/rr_paper.sub         # then ONLY="<tags>" post
+sbatch GPU/csf3/vortex_disruption_verify.sub                      # single-vortex disruption: device twin
+sbatch --array=0-23,40-44,50-54 --time=0:30:00 GPU/csf3/vortex_disruption_map.sub   # then its map,
+sbatch --array=24-31 --time=1:00:00 GPU/csf3/vortex_disruption_map.sub              # chained on the
+sbatch --array=45-49 --time=2:00:00 GPU/csf3/vortex_disruption_map.sub              # verify job
+sbatch --array=32-39 --time=6:00:00 GPU/csf3/vortex_disruption_map.sub              # (see below)
 ```
 
 `mhd_jet.sub` needs a **per-precision build tree**, because `Real` is a
@@ -386,6 +391,40 @@ then `python3 tools/tg_mhd_forced.py pilot runs/tg_mhd_pilot2 --round 2`, and co
 ```
 rsync -av --include='*/' --include='series.dat' --include='profile*.dat' --include='budget.dat' --include='log.txt' --exclude='*' csf3:scratch/M3LB/runs/tg_mhd_pilot2/ results/P_tg_mhd/pilot2/
 ```
+
+**`vortex_disruption_verify.sub`, then `vortex_disruption_map.sub`** are the
+disruption of a single vortex by a weak field (`GPU/src/vortex_disruption.cu`,
+the twin of `validation/vortex_disruption.cpp`, on branch `mhd`). The laptop map
+in `results/Q_vortex_disruption/` reached Rm = 4000; this extends it to 32000,
+FP64. The verify job builds its OWN tree, `GPU/build64_vd` (`-DLBM_ONLY_OP=cm
+-DLBM_ONLY_FORCE=none`): not `build64`, which the tg_mhd jobs need configured
+with the field force. It checks the device against the Kokkos parent's tracked
+series to 1e-7 of each column's scale -- the host build already matches them to
+every printed digit -- and then times a run at the Rm = 16000 rung's size and
+projects the largest elements' wallclock. **Read those projections before the
+`--time=6:00:00` group starts.** The map job's header fixes, before the runs,
+the rule its verdict comes from (the exponent of the destruction threshold
+against -1/2 and -1/3), and `tools/vortex_disruption_campaign.py` applies it.
+55 elements, about 38 GPU-hours, 27 of them the Rm = 32000 rung's eight:
+
+```
+git pull
+jid=$(sbatch --parsable GPU/csf3/vortex_disruption_verify.sub)
+sbatch --dependency=afterok:$jid --array=0-23,40-44,50-54 --time=0:30:00 GPU/csf3/vortex_disruption_map.sub
+sbatch --dependency=afterok:$jid --array=24-31 --time=1:00:00 GPU/csf3/vortex_disruption_map.sub
+sbatch --dependency=afterok:$jid --array=45-49 --time=2:00:00 GPU/csf3/vortex_disruption_map.sub
+sbatch --dependency=afterok:$jid --array=32-39 --time=6:00:00 GPU/csf3/vortex_disruption_map.sub
+```
+
+then `python3 tools/vortex_disruption_campaign.py runs/vortex_disruption` on the
+login node, and copy back with
+
+```
+rsync -av --include='*/' --include='series.dat' --include='log.txt' --exclude='*' csf3:scratch/M3LB/runs/vortex_disruption/ results/Q_vortex_disruption/gpu_campaign/
+```
+
+`DRY_RUN=1 SLURM_ARRAY_TASK_ID=<i> bash GPU/csf3/vortex_disruption_map.sub`
+prints an element's command line without running anything.
 
 ---
 

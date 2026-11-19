@@ -1,0 +1,130 @@
+#!/bin/bash --login
+#==============================================================================
+#  Disruption of a single vortex by a weak field (src/vortex_disruption.cu):
+#  the DEVICE twin check, and a throughput probe for vortex_disruption_map.sub.
+#  Run it first; the map job is chained on it.
+#
+#  WHAT IS ESTABLISHED WITHOUT A GPU (2026-11-19). The FP64 HOST build of this
+#  driver reproduces the Kokkos parent, validation/vortex_disruption.cpp with
+#  -lat d3q27, to all ten printed digits of every column of series.dat at every
+#  probe -- R0 = 10, a box of 20 R0, Re = Rm = 500, t = 0..20, M = 0.05 and
+#  M = 0 -- with no shared headers. The parent's two series are tracked in
+#  results/Q_vortex_disruption/gpu_port/twin/kokkos_M0.05 and kokkos_M0.
+#
+#  WHAT THIS JOB ADDS. The device build has never been compiled: this driver was
+#  written on a laptop with no CUDA. It adds no solver method, but CMakeLists'
+#  warning stands -- nvcc can reject what the host compiler accepted, and a
+#  device run can differ in ways the host cannot see. So:
+#
+#    1. BUILD GPU/build64_vd: FP64, -DLBM_ONLY_OP=cm -DLBM_ONLY_FORCE=none.
+#       ITS OWN TREE, NOT build64. The tg_mhd jobs share build64, configured
+#       WITHOUT LBM_ONLY_FORCE because tg_mhd -drive needs the field force;
+#       narrowing that tree to no force would make the next tg_mhd build abort
+#       on -drive, and a cache variable is not something anyone rereads.
+#    2. THE TWIN RUNS ON THE DEVICE, at exactly the parameters above, each
+#       column against its own largest value over the run: PASS below 1e-7.
+#       (Delta at t = 0 is zero to round-off and passes on the same scale.)
+#       The series header must say `native FP64`.
+#    3. A SHORT RUN AT A PRODUCTION SIZE -- the Rm = 16000 rung's grid, R0 = 80,
+#       1600^2, to t = 10 -- for MLUPS and the host probes' cost, and from them
+#       the projected wallclock of the map job's largest elements. READ THAT
+#       LINE: the map job's --time values assume ~1100 MLUPS, from tg_mhd's FP64
+#       runs on gpuA.
+#
+#  Submit from the repo root, after git pull:
+#      sbatch GPU/csf3/vortex_disruption_verify.sub
+#  or chained, as vortex_disruption_map.sub's header shows.
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-1:00              # build ~5 min, twins ~1 min, probe run ~2 min
+#SBATCH -J vd_verify
+#SBATCH -o vortex_disruption_verify-%j.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+if [ ! -f "$ROOT/GPU/src/vortex_disruption.cu" ]; then
+  echo "ERROR: no GPU/src/vortex_disruption.cu under $ROOT -- submit from the repo root, or set M3LB_ROOT" >&2
+  exit 1
+fi
+cd "$ROOT/GPU"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+# ---- 1. build ------------------------------------------------------------------
+cmake -S . -B build64_vd -DCMAKE_BUILD_TYPE=Release -DLBM_GPU_ARCH=80 \
+      -DLBM_ONLY_OP=cm -DLBM_ONLY_FORCE=none -DLBM_DOUBLE=ON > /dev/null
+cmake --build build64_vd --target vortex_disruption -j8
+BIN=./build64_vd/vortex_disruption
+
+# ---- 2. the twin runs ------------------------------------------------------------
+OUT="$ROOT/runs/vortex_disruption_verify"
+mkdir -p "$OUT"
+for M in 0.05 0; do
+  $BIN -r0 10 -nr 20 -re 500 -M $M -tmax 20 -probe 1 -out "$OUT/twin_M$M" 2>&1 | tail -5
+done
+
+python3 - "$ROOT" "$OUT" <<'EOF'
+import sys
+root, out = sys.argv[1], sys.argv[2]
+def load(p):
+    head, rows = "", []
+    for l in open(p):
+        if l.startswith('#'):
+            head = head or l
+        else:
+            rows.append([float(x) for x in l.split()])
+    return head, rows
+bad = 0
+for M in ("0.05", "0"):
+    _, ref = load(f"{root}/results/Q_vortex_disruption/gpu_port/twin/kokkos_M{M}/series.dat")
+    head, dev = load(f"{out}/twin_M{M}/series.dat")
+    if "native FP64" not in head:
+        print(f"M = {M}: the series header does not say 'native FP64' -- FAIL\n  {head.strip()}")
+        bad += 1
+        continue
+    if len(ref) != len(dev):
+        print(f"M = {M}: {len(dev)} probes against {len(ref)} -- FAIL"); bad += 1; continue
+    names = "t EK B2 bmax coh surv ang wmax jmax Lb divb osc Ma mass ens dow".split()
+    worst = []
+    for i, n in enumerate(names):
+        sc = max(max(abs(r[i]) for r in ref), 1e-300)
+        d = max(abs(a[i] - b[i]) for a, b in zip(ref, dev))
+        worst.append((d / sc, n))
+    worst.sort(reverse=True)
+    ok = worst[0][0] < 1e-7
+    bad += 0 if ok else 1
+    print(f"M = {M}: device vs Kokkos parent, worst column {worst[0][1]} {worst[0][0]:.2e}"
+          f" of its scale  {'PASS' if ok else 'FAIL'}")
+sys.exit(1 if bad else 0)
+EOF
+
+# ---- 3. throughput at a production size ------------------------------------------
+$BIN -r0 80 -nr 20 -re 16000 -M 0.00883883 -tmax 10 -probe 1 -out "$OUT/probe_r080_rm16000" \
+     2>&1 | tail -6 | tee "$OUT/probe_r080_rm16000.txt"
+
+python3 - "$OUT/probe_r080_rm16000.txt" <<'EOF'
+import re, sys
+txt = open(sys.argv[1]).read()
+m = re.search(r"wall clock ([\d.]+) s, of which probes ([\d.]+) s\s+([\d.]+) MLUPS without them", txt)
+if not m:
+    print("could not read the timing line -- check it by hand"); sys.exit(0)
+wall, probes, mlups = map(float, m.groups())
+per_node_probe = probes / (11 * 1600.0 ** 2)          # t = 0..10 every 1: 10 probes + t = 0
+def element(R0, tmax, probe):
+    N = 20 * R0
+    steps = tmax * R0 / 0.05
+    return (steps * N * N / (mlups * 1e6) + (tmax / probe + 1) * per_node_probe * N * N) / 3600
+print(f"measured: {mlups:.0f} MLUPS without probes, {per_node_probe * 1e9:.1f} ns per node per probe")
+for name, R0, tmax, probe, asked in (("Rm 16000, R0 80 ", 80, 302.4, 1, 1.0),
+                                     ("Rm 32000, R0 160", 160, 381.0, 1, 6.0),
+                                     ("grid Rm 16000, R0 120", 120, 302.4, 1, 2.0)):
+    h = element(R0, tmax, probe)
+    print(f"projected element {name}: {h:.2f} h   (the map job asks {asked:.1f} h)"
+          f"{'   RAISE --time' if h > 0.85 * asked else ''}")
+EOF

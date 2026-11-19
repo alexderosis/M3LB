@@ -1,0 +1,172 @@
+#!/bin/bash --login
+#==============================================================================
+#  The map of vortex disruption in Rm and M, extended from the laptop's
+#  Rm <= 4000 to Rm = 32000 (src/vortex_disruption.cu; the setup is
+#  validation/vortex_disruption.cpp's, whose banner defines every observable).
+#
+#  WHAT THE LAPTOP FOUND (results/Q_vortex_disruption, D2Q9 + D2Q5, R0 = 20).
+#  The vortex is braked by the wind-up of the field as M^2 Rm^(2/3), and
+#  destroyed -- Delta, the Okubo-Weiss measure against the exact vortex,
+#  reaching 0.8 -- at M_c^2 Rm = 1.7-2.3, M_c ~ Rm^-0.506 over Rm = 250..4000,
+#  the ladder allowing 0.038. Both scalings belong to Rm, not Re (two slices in
+#  Pm). Rm = 8000 lost its three strongest fields to non-finite runs on that
+#  grid, and Rm = 16000 on R0 = 20 went non-finite in FP64, FP32 and shifted
+#  FP32 alike (GPU/'s host build). A factor of 16 in Rm is what made it an
+#  indication and not a measurement.
+#
+#  WHAT THIS JOB DOES. The same ladder at five Rm, a factor of 16 higher at the
+#  top, FP64 (GPU/'s banner: rounding alone moves the second stage by 8-17 % in
+#  FP32), with R0 grown with Rm to keep tau_f - 1/2 >= 7.5e-4, the margin at
+#  which the laptop lost nothing:
+#
+#      Rm       2000   4000   8000   16000   32000
+#      R0         20     20     40      80     160      box 20 R0, Pm = 1
+#
+#  at M^2 Rm = 0.625, 1.25, 1.4865, 1.7678, 2.1022, 2.5, 3.5355, 5 -- the early
+#  row, the threshold's bracket a factor 1.09 apart in M, and two above it --
+#  each to t = 12 Rm^(1/3). Rm = 2000 and 4000 overlap the laptop's map on its
+#  own R0, so the change of lattice (D3Q7 against D2Q5 for the field) is
+#  measured rather than assumed. Then two checks of the threshold:
+#    grid     the five bracket rows on a 1.5x finer grid at Rm = 8000 (R0 60)
+#             and Rm = 16000 (R0 120);
+#    scatter  the five bracket rows at Rm = 8000 with -ellip 1e-5, a
+#             perturbation far below anything physical, because the second
+#             stage is chaotic and a threshold read off single runs carries
+#             their scatter.
+#
+#  THE RULE, FIXED HERE ON 2026-11-19, BEFORE ANY RUN; tools/vortex_disruption_
+#  campaign.py applies it and its docstring repeats it. The push of the commit
+#  that carries both is its timestamp.
+#    - For each run, the LARGEST Delta over the run; a run that did not reach
+#      t = 12 Rm^(1/3) has none and is excluded and listed.
+#    - M_c(Rm): where that crosses 0.8 along the ladder, interpolated in ln M
+#      between the two runs that bracket it; an Rm without a bracket is dropped
+#      and listed.
+#    - p: the least-squares slope of ln M_c against ln Rm over the main ladder.
+#      Fewer than four Rm with a threshold: NO VERDICT.
+#    - U: the largest of (a) the ladder's bound on p, (b) |p_grid - p| with the
+#      grid group's M_c substituted at Rm = 8000 and 16000, (c) |p_scat - p|
+#      with the scatter group's M_c substituted at Rm = 8000.
+#    - "M^2 Rm DECIDES DESTRUCTION" if |p + 1/2| <= U < |p + 1/3|;
+#      "M^2 Rm^(2/3) DECIDES DESTRUCTION" if |p + 1/3| <= U < |p + 1/2|;
+#      "BOTH ALLOWED" if both are within U; "NEITHER" if neither.
+#    - Descriptive, no gate: the wind-up exponent of 1 - surv at
+#      t = 3 Rm^(1/3) along the rows 0.625 and 1.25; p at Delta = 0.7 and 0.9;
+#      M_c at Rm = 2000 and 4000 against the laptop's.
+#
+#  THE RUNS -- 55 elements:
+#      0-7     main  Rm  2000  R0  20   field k = i % 8
+#      8-15    main  Rm  4000  R0  20
+#      16-23   main  Rm  8000  R0  40
+#      24-31   main  Rm 16000  R0  80
+#      32-39   main  Rm 32000  R0 160
+#      40-44   grid  Rm  8000  R0  60   field k = 1 + (i - 40) (the bracket)
+#      45-49   grid  Rm 16000  R0 120   field k = 1 + (i - 45)
+#      50-54   scatter  Rm 8000  R0 40  field k = 1 + (i - 50), -ellip 1e-5
+#  with M^2 Rm = {0.625, 1.25, 1.4865, 1.7678, 2.1022, 2.5, 3.5355, 5}[k] and
+#  M = sqrt(M^2 Rm / Rm). Probes every 0.5 up to R0 = 60, every 1 above.
+#
+#  COST, FP64 on one A100 at ~1100 MLUPS without probes (tg_mhd's FP64 logs) and
+#  ~0.25 us of host time per node per probe (an estimate; the verify job
+#  measures both and projects the largest elements):
+#      Rm  2000 / 4000, R0 20     ~0.5 min an element
+#      Rm  8000, R0 40            ~3 min
+#      Rm 16000, R0 80            ~22 min
+#      Rm 32000, R0 160           ~3.4 h      (1.0e7 nodes, 1.2e6 steps)
+#      grid Rm 8000 / 16000       ~9 min / ~71 min
+#  About 31 GPU-hours for the ladder -- 27 of them its top rung -- 6.7 for the
+#  grid group and 0.3 for the scatter group: ~38 in all.
+#
+#  SUBMIT from the repo root, after git pull, chained on the verify job, which
+#  builds GPU/build64_vd and checks the device against the Kokkos parent:
+#
+#      jid=$(sbatch --parsable GPU/csf3/vortex_disruption_verify.sub)
+#      sbatch --dependency=afterok:$jid --array=0-23,40-44,50-54 --time=0:30:00 GPU/csf3/vortex_disruption_map.sub
+#      sbatch --dependency=afterok:$jid --array=24-31 --time=1:00:00 GPU/csf3/vortex_disruption_map.sub
+#      sbatch --dependency=afterok:$jid --array=45-49 --time=2:00:00 GPU/csf3/vortex_disruption_map.sub
+#      sbatch --dependency=afterok:$jid --array=32-39 --time=6:00:00 GPU/csf3/vortex_disruption_map.sub
+#
+#  and read the verify job's projected-wallclock lines before the last group
+#  starts: raise its --time with `scontrol update` if they say so.
+#
+#  OUTPUT: runs/vortex_disruption/<map|grid|scatter>/re<Re>_rm<Rm>_r<R0>_x<M^2 Rm>[_e1e-5]/
+#  with series.dat and log.txt. A run that goes non-finite exits 1 and its series
+#  is still data: the rule lists it. Then, on the login node (pure stdlib):
+#      python3 tools/vortex_disruption_campaign.py runs/vortex_disruption
+#  and copy back, from the laptop's repo root:
+#      rsync -av --include='*/' --include='series.dat' --include='log.txt' --exclude='*' \
+#            csf3:scratch/M3LB/runs/vortex_disruption/ results/Q_vortex_disruption/gpu_campaign/
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-0:30               # elements 0-23, 40-44, 50-54; see the header for the rest
+#SBATCH -J vd_map
+#SBATCH -o vortex_disruption_map-%A_%a.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+i=${SLURM_ARRAY_TASK_ID:?"submit as an array job; see the header"}
+
+X=(0.625 1.25 1.4865 1.7678 2.1022 2.5 3.5355 5)
+EXTRA=()
+if   [ "$i" -ge 0 ]  && [ "$i" -le 39 ]; then
+  GROUP=map; r=$(( i / 8 )); k=$(( i % 8 ))
+  RMS=(2000 4000 8000 16000 32000); R0S=(20 20 40 80 160)
+  RM=${RMS[$r]}; R0=${R0S[$r]}
+elif [ "$i" -ge 40 ] && [ "$i" -le 44 ]; then
+  GROUP=grid; RM=8000;  R0=60;  k=$(( 1 + i - 40 ))
+elif [ "$i" -ge 45 ] && [ "$i" -le 49 ]; then
+  GROUP=grid; RM=16000; R0=120; k=$(( 1 + i - 45 ))
+elif [ "$i" -ge 50 ] && [ "$i" -le 54 ]; then
+  GROUP=scatter; RM=8000; R0=40; k=$(( 1 + i - 50 )); EXTRA=(-ellip 1e-5)
+else
+  echo "ERROR: element $i -- this job has elements 0-54 (see the header)" >&2
+  exit 1
+fi
+XK=${X[$k]}
+M=$(awk -v x="$XK" -v r="$RM" 'BEGIN{printf "%.8f", sqrt(x/r)}')
+TMAX=$(awk -v r="$RM" 'BEGIN{printf "%.1f", 12*exp(log(r)/3)}')
+if [ "$R0" -le 60 ]; then PROBE=0.5; else PROBE=1; fi
+SUF=""; [ "$GROUP" = scatter ] && SUF="_e1e-5"
+
+BIN="$ROOT/GPU/build64_vd/vortex_disruption"
+if [ "${DRY_RUN:-0}" = 0 ]; then
+  if [ ! -x "$BIN" ]; then
+    echo "ERROR: no executable at $BIN -- run vortex_disruption_verify.sub first, which builds it" >&2
+    exit 1
+  fi
+  # A binary older than any source it depends on is stale: refuse, and say which.
+  STALE=$(find "$ROOT/GPU/src/vortex_disruption.cu" "$ROOT/GPU/include" -newer "$BIN" -type f | head -3)
+  if [ -n "$STALE" ]; then
+    echo "ERROR: $BIN is older than:" >&2
+    echo "$STALE" | sed 's/^/    /' >&2
+    echo "  Rebuild by running vortex_disruption_verify.sub, or: cd $ROOT/GPU && cmake --build build64_vd --target vortex_disruption -j8" >&2
+    exit 1
+  fi
+fi
+
+OUT="$ROOT/runs/vortex_disruption/$GROUP/re${RM}_rm${RM}_r${R0}_x${XK}${SUF}"
+# ${EXTRA[@]+...}: an empty array under `set -u` is an unbound variable before
+# bash 4.4 -- found by the dry run on a laptop's bash 3.2.
+CMD=("$BIN" -r0 "$R0" -nr 20 -re "$RM" -M "$M" -tmax "$TMAX" -probe "$PROBE"
+     ${EXTRA[@]+"${EXTRA[@]}"} -out "$OUT")
+echo "element $i: $GROUP, Rm = Re = $RM, R0 $R0 (box $(( 20 * R0 ))^2), M^2 Rm = $XK (M = $M), t to $TMAX -> $OUT"
+if [ "${DRY_RUN:-0}" != 0 ]; then
+  echo "  ${CMD[*]}"
+  exit 0
+fi
+mkdir -p "$OUT"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+set +e
+"${CMD[@]}" 2>&1 | tee "$OUT/log.txt"
+rc=${PIPESTATUS[0]}
+set -e
+echo "driver exit status $rc (1: the run went non-finite -- its series is still data)"
+exit "$rc"

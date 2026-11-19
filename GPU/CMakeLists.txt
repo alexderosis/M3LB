@@ -161,7 +161,7 @@ if(LBM_PTXAS_VERBOSE)
 endif()
 
 set(LBM_APPS ice_equilibrium ice_melting square_entry ehd_cavity mhd_jet tgv3d tgv3d_bench bench box channel rayleigh_benard alfven orszag_tang droplet bubble newpaths hartmann rti3d impact skip rb_high_ra
-    mhd_decay mhd_sphere tg_mhd)
+    mhd_decay mhd_sphere tg_mhd vortex_disruption)
 # tg_mhd's host diagnostics run on std::thread -- the only driver here that does.
 # glibc >= 2.34 carries pthreads in libc and this adds nothing; an older glibc
 # needs -lpthread at link time and was never told. THREADS_PREFER_PTHREAD_FLAG
