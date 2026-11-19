@@ -1713,6 +1713,33 @@ does) fails on it. Run such scripts from elsewhere.
   code was checked on the DECAYING budgets (it reproduces the paper's
   S/Omega over t = 2..10 to every printed digit) and on those runs relabelled
   as forced, never on a forced run.
+  **ROUND 2 (2026-11-19; `results/P_tg_mhd/pilot2/`, read through `pilot` only)
+  SELECTED F0 = 0.2, FM = 0.1** (D = 0.382, on the FM edge; A at Re = 1000:
+  eps 0.0254, E_M/E_V 0.462). All 24 runs at Re = 250 and 1000 reached t = 150
+  and none diverged; the selected pair's four settled by t = 5.5-89 and drifted
+  at most 8.1 % between the window's halves. The Re = 2000 pair had reached only
+  t = 28.5 and 38.0 when the data were copied, and is not in the repository.
+  **THE FORCED TEST IS `GPU/csf3/tg_mhd_forced.sub`, WHOSE HEADER IS THE RULE,
+  FIXED BEFORE ITS RUNS (2026-11-19).** Three rungs, the user's choice so as
+  not to wait for the top rung: Re = 250 / 500 / 1000 on the decaying ladder's
+  grids, FP64, A and B, to t = 250; window t = 100..250, 10 batches; every run
+  gated on stationarity (finite, umax_lat <= 0.08 in the window, E_V and E_M
+  within 25 % between the window's halves), and one failure means NO VERDICT.
+  Q0, the question the forced boxes exist for: Delta = F_B - F_A within delta,
+  with u the largest of the grid difference, twice the batch standard error
+  and the halves' difference; NO EXCESS if Delta - u <= 0 at any rung, else
+  p = ln(Delta(1000)/Delta(250))/ln 4 -- which IS the least-squares slope for
+  three rungs equally spaced in ln Re -- with its range from Delta +- u at the
+  ends, against -1/4, halfway between a laminar layer's Re^-1/2 and a share
+  that holds: WALLS HOLD, CASCADE or UNDECIDED. Q1 and Q2 are the stretching
+  rule over the same window. `tools/tg_mhd_forced.py test RUNS_DIR --registered
+  COMMIT` applies all three, refuses without the commit, and opens no f_w and
+  no budget.dat before every run has passed the gate; its PROD_* constants are
+  the header's numbers. Checked on decaying runs relabelled as forced, with the
+  window moved to t = 2..10: Delta = 0.0588 / 0.0551 / 0.0539, the paper's
+  Table III row to every printed digit. **The production's files all carry
+  near-wall quantities, the log's progress lines included (they end with
+  f_w1)**: read them through `test` only.
 - Left for the author: in `main.tex` the department, funding, the AI-use
   disclosure AIP asks for, and the DOI; in `ARCHIVING.md` a LICENSE (the
   repository has none, so the code is readable but not reusable, and Zenodo will

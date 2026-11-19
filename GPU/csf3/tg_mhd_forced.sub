@@ -1,0 +1,189 @@
+#!/bin/bash --login
+#==============================================================================
+#  Phase 3 of the confined-MHD paper (paper/tg_mhd/): THE FORCED TEST. The
+#  production runs of the forced, statistically steady boxes, and the rules
+#  that judge them, all fixed here BEFORE the runs (2026-11-19). The pilot
+#  (tg_mhd_pilot.sub, tg_mhd_pilot2.sub) chose the forcing and the scales; the
+#  stretching part of the test was fixed earlier still, in the docstring of
+#  tools/tg_mhd_forced.py (2026-11-17, pushed as b1a37e8). This header adds what
+#  that docstring left to it, and the wall-share test the forced boxes were
+#  built for.
+#
+#  WHY. The decaying ladder's pre-registered verdict, "cascade", rested on WHEN
+#  an unsteady observable was read: the dissipation peak switched between
+#  rungs, every fixed window compared different phases, and the trend of the
+#  wall share in Re depended on the window (paper, Secs. IV D-E). A statistically
+#  steady box has no "when": its time averages are defined, with error bars
+#  from batch means. The paper's discussion names this as the next experiment,
+#  "with its own decision rule fixed before it runs". This is that rule.
+#
+#  WHAT HAD BEEN SEEN WHEN THIS WAS WRITTEN. Of the decaying runs, everything.
+#  Of the forced runs, only through `tools/tg_mhd_forced.py pilot`, which reads
+#  E_V, E_M, eps, umax_lat and div B: round 1 (2026-10-04, 38 runs) and round 2
+#  (2026-11-19, the 24 runs at Re = 250 and 1000; the Re = 2000 pair had
+#  reached t = 28.5 and 38.0 and gates nothing). Beyond that, of round 2: each
+#  log's wall-time and DIVERGED lines, and each series' header and last time.
+#  Of round 1's budget.dat files, the box mean of injM (tg_mhd_pilot2.sub says
+#  so). The laptop runs of tg_mhd_pilot.sub printed f_w in their logs, and one A
+#  value was seen in passing; no B - A was formed. The driven twin-check
+#  references at N = 65, Re = 200 (results/P_tg_mhd/xcheck_n65_re200/
+#  *_drive0.1_bdrive0.1_*, 1.4 cells in delta, not rungs) were compared byte for
+#  byte on 2026-10-03, so their f_w and budget may have been on screen; none was
+#  recorded, and none was read for this rule. No near-wall share, profile,
+#  budget or stretching of any pilot run has been read.
+#
+#  THE RUNS -- 12 elements, every one A or B with conducting walls (-mwall cond)
+#  from the decaying runs' initial condition (-ic tgc), FP64, u0 = 0.05, Pm = 1,
+#  the bulk forcing envelope at its default (zero within 0.15 of every wall, one
+#  beyond 0.35), to t = 250, probes every 0.5:
+#      0-1    Re = 1000, N = 512      (A if the index is even, B if odd)
+#      2-3    Re = 1000, N = 384
+#      4-5    Re =  500, N = 384
+#      6-7    Re =  500, N = 256
+#      8-9    Re =  250, N = 256
+#      10-11  Re =  250, N = 192
+#  THE FORCING: F0 = 0.2, FM = 0.1, selected by round 2's rule (D = 0.382; its
+#  free-slip box at Re = 1000, N = 256: eps 0.0254, E_M/E_V 0.462 against the
+#  decaying target's 0.0369 and 0.467).
+#  THE GRIDS are the decaying ladder's at these rungs, delta/h from 3.6 to 5.5,
+#  so the forced and decaying shares are measured alike. THREE RUNGS, not four:
+#  the user's choice (2026-11-19), so as not to wait for the top rung's pilot,
+#  which had not settled when this was written. Three is the least the rules
+#  below accept, and every rung must give a reading.
+#
+#  THE WINDOW: t = 100..250, the first 100 discarded. In the selected pair's
+#  pilot runs E_T last left three r.m.s. of its window mean at t = 5.5 (A) and
+#  89.0 (B) at Re = 1000, and 80.5 and 83.0 at Re = 250; nothing was run at
+#  Re = 500, which is assumed to lie between. 150 time units are at least 90
+#  integral times of eps, which were 0.67-1.64 in those runs.
+#  THE BATCHES: 10 of 15 time units, at least 9 integral times each; the tools
+#  print the batches' lag-1 correlation, which should be small.
+#  STATIONARITY, A GATE ON EVERY RUN: finite to t = 250; umax_lat <= 0.08
+#  (Ma 0.139) over the window; and E_V and E_M, averaged over each half of the
+#  window, differ by less than 25 % of their window means -- the pilot's guard,
+#  which the selected pair met with at most 8.1 %. A run that fails any of
+#  these leaves its rung without a reading, and every question below then has
+#  NO VERDICT. Extending the runs would be a new registration, not a rescue.
+#  div B/|j| over the window is reported and gates nothing: the source is
+#  solenoidal analytically, to O(h^2) on the nodes (1.3e-2 at N = 256 in the
+#  pilot).
+#
+#  Q0, THE WALL SHARE -- the question the forced boxes exist for. With
+#  F_X = int eps f_w1 dt / int eps dt over the window (the share of box X's
+#  dissipation within delta = Re^-1/2 of the walls, read from the profile as
+#  every f_w here is), the excess of the no-slip box at each rung is
+#      Delta = F_B - F_A        on the finer grid,
+#  with the uncertainty u, the largest of
+#      the grid:        |Delta(finer) - Delta(coarser)|,
+#      the statistics:  2 sqrt(se_A^2 + se_B^2), each se from the 10 batches,
+#      the drift:       |Delta(first half) - Delta(second half)|.
+#  EXCESS at a rung if Delta - u > 0. If any rung lacks it, Q0 is "NO EXCESS"
+#  and no exponent is judged. Otherwise the exponent of Delta in Re is
+#      p = ln(Delta(1000) / Delta(250)) / ln 4,
+#  which with three rungs equally spaced in ln Re IS the least-squares slope:
+#  the middle rung enters through its excess and the curvature, which is
+#  reported and judges nothing. Its range [p_min, p_max] takes each end's Delta
+#  to Delta +- u. The two limits that frame it (paper, Sec. V, "Scalings"): a
+#  laminar layer beside a bulk whose dissipation does not depend on Re keeps
+#  its share falling with its volume, as Re^-1/2; a wall share that holds as
+#  Re -> infinity has exponent 0. Halfway in ln:
+#      "WALLS HOLD"   if p_min > -1/4,
+#      "CASCADE"      if p_max < -1/4,
+#      "UNDECIDED"    otherwise.
+#  Reported beside it and judging nothing: Delta within 2 and 4 delta, its
+#  viscous and Ohmic parts, F_B's own exponent, and A's and B's shares.
+#  Q1 AND Q2, THE STRETCHING: tools/tg_mhd_forced.py's docstring, unchanged,
+#  over this window with these 10 batches.
+#
+#  Q0 to Q2 are applied by
+#      python3 tools/tg_mhd_forced.py test runs/tg_mhd_forced --registered <commit>
+#  where <commit> is the commit that added this file. It refuses without
+#  --registered, gates every run on stationarity first, and opens no f_w and no
+#  budget.dat before that. Its constants (PROD_* in that file) are this header's
+#  numbers; a difference between the two is a bug in the file, and this header
+#  is the rule.
+#
+#  COST, from the selected pair's pilot runs (28-35 s per unit time at N = 256,
+#  10.6-12.8 at N = 192, FP64, probes included), scaled as N^4 -- a little
+#  pessimistic on the larger grids, where the probes are a smaller share:
+#      N = 512   A ~39 h, B ~31 h          N = 256   A ~2.5 h, B ~2.0 h
+#      N = 384   A ~12 h, B ~10 h          N = 192   A ~0.9 h, B ~0.7 h
+#  about 125 GPU-hours in all.
+#
+#  SUBMIT from the repo root, after git pull, chained on the verify job, which
+#  rebuilds build64 from the current source and checks the device's forced runs
+#  against host references before anything here starts. Add -p gpuH to every
+#  line to run on the H200s, as the pilot's second round did; the build targets
+#  sm_80, which runs on both.
+#
+#      jid=$(sbatch --parsable GPU/csf3/tg_mhd_verify.sub)
+#      sbatch --dependency=afterok:$jid --array=0-1   --time=3-00:00:00 GPU/csf3/tg_mhd_forced.sub
+#      sbatch --dependency=afterok:$jid --array=2-5   --time=20:00:00   GPU/csf3/tg_mhd_forced.sub
+#      sbatch --dependency=afterok:$jid --array=6-9   --time=5:00:00    GPU/csf3/tg_mhd_forced.sub
+#      sbatch --dependency=afterok:$jid --array=10-11 --time=2:00:00    GPU/csf3/tg_mhd_forced.sub
+#
+#  OUTPUT: runs/tg_mhd_forced/<A|B>_re<Re>_n<N>_f0.2_m0.1/ with series.dat,
+#  profile*.dat, budget.dat and log.txt. All four carry near-wall quantities --
+#  the log's progress lines end with f_w1 -- so read them through the test above,
+#  and the logs only for their wall-time and DIVERGED lines. Then copy back,
+#  from the laptop's repo root:
+#      rsync -av --include='*/' --include='series.dat' --include='profile*.dat' \
+#            --include='budget.dat' --include='log.txt' --exclude='*' \
+#            csf3:scratch/M3LB/runs/tg_mhd_forced/ results/P_tg_mhd/forced/
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-5:00               # elements 6-9; see the header for the others
+#SBATCH -J tg_mhd_forced
+#SBATCH -o tg_mhd_forced-%A_%a.log
+
+set -euo pipefail
+
+module purge
+module load libs/cuda/12.8.1
+
+ROOT=${M3LB_ROOT:-$SLURM_SUBMIT_DIR}
+i=${SLURM_ARRAY_TASK_ID:?"submit as an array job; see the header"}
+
+F0=0.2
+FM=0.1
+RES=(1000 1000 500 500 250 250)
+NS=(512 384 384 256 256 192)
+if [ "$i" -lt 0 ] || [ "$i" -gt 11 ]; then
+  echo "ERROR: element $i -- this job has elements 0-11 (see the header)" >&2
+  exit 1
+fi
+RE=${RES[$(( i / 2 ))]}
+N=${NS[$(( i / 2 ))]}
+if [ $(( i % 2 )) -eq 0 ]; then NAME=A; else NAME=B; fi
+
+BIN="$ROOT/GPU/build64/tg_mhd"
+if [ ! -x "$BIN" ]; then
+  echo "ERROR: no executable at $BIN -- run tg_mhd_verify.sub first, which builds it" >&2
+  exit 1
+fi
+# A binary older than any source it depends on is stale: refuse, and say which.
+STALE=$(find "$ROOT/GPU/src/tg_mhd.cu" "$ROOT/GPU/include" -newer "$BIN" -type f | head -3)
+if [ -n "$STALE" ]; then
+  echo "ERROR: $BIN is older than:" >&2
+  echo "$STALE" | sed 's/^/    /' >&2
+  echo "  Rebuild by running tg_mhd_verify.sub, or: cd $ROOT/GPU && cmake --build build64 --target tg_mhd -j8" >&2
+  exit 1
+fi
+
+# A bash array, not a string: a flag list in one variable does not split under
+# zsh, and the run would fall back to the driver's defaults in silence.
+case $NAME in
+  A) FLAGS=(-vwall slip   -mwall cond -ic tgc) ;;
+  B) FLAGS=(-vwall noslip -mwall cond -ic tgc) ;;
+esac
+
+OUT="$ROOT/runs/tg_mhd_forced/${NAME}_re${RE}_n${N}_f${F0}_m${FM}"
+mkdir -p "$OUT"
+echo "element $i: setup $NAME, Re $RE, N $N, FP64, drive $F0, bdrive $FM -> $OUT"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+"$BIN" -n "$N" "${FLAGS[@]}" -drive "$F0" -bdrive "$FM" -re "$RE" -tmax 250 -probe 0.5 \
+       -out "$OUT" 2>&1 | tee "$OUT/log.txt"

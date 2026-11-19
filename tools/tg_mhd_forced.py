@@ -4,6 +4,7 @@
     tg_mhd_forced.py pilot PILOT_DIR [--round 1|2] [--window T0 T1] [--round2 DIR]
     tg_mhd_forced.py shares RUN_DIR... --window T0 T1 --batches NB
     tg_mhd_forced.py stretch RUNS_DIR... --window T0 T1 --batches NB [--registered COMMIT]
+    tg_mhd_forced.py test RUNS_DIR --registered COMMIT
 
 PILOT_DIR holds what a pilot job writes -- GPU/csf3/tg_mhd_pilot.sub (round 1,
 runs/tg_mhd_pilot/ or results/P_tg_mhd/pilot/) or tg_mhd_pilot2.sub (round 2,
@@ -124,9 +125,26 @@ closure read, on 2026-10-03; tg_mhd_budget.py's table has an S-within-delta
 column, so a value may have been on screen then. None was recorded, and none
 was read for this rule. Pilot round 2 had not been run.
 
-Exit status 0 when a pair was selected (pilot), every run was read (shares) or
-both verdicts were issued (stretch), 1 otherwise, and 2 when `stretch` read
-nothing -- no runs, several runs for one box, Re and N, or forced runs without
+THE FORCED TEST (`test`), REGISTERED 2026-11-19 IN GPU/csf3/tg_mhd_forced.sub,
+whose header is the rule; the PROD_* constants below are its numbers, and a
+difference between the two is a bug here. On the production's directory, and
+only with --registered naming the commit that added that file, it
+  1. gates every run on stationarity (finite to the window's end, umax_lat
+     <= 0.08 over the window, E_V and E_M over the window's halves within 25 %
+     of their means) and stops with NO VERDICT if any run fails -- before any
+     f_w, profile or budget.dat is read;
+  2. applies Q0, the wall share: Delta = F_B - F_A within delta on the finer
+     grid of each rung, its uncertainty the largest of the grid difference,
+     twice the batch standard error and the halves' difference; NO EXCESS if
+     Delta - u <= 0 at any rung, else the exponent p = ln(Delta_hi/Delta_lo) /
+     ln(Re_hi/Re_lo) with its range from Delta +- u at the ends, against -1/4:
+     WALLS HOLD, CASCADE or UNDECIDED;
+  3. applies Q1 and Q2 through `stretch` over the registered window and batches.
+
+Exit status 0 when a pair was selected (pilot), every run was read (shares),
+both verdicts were issued (stretch) or all three were (test), 1 otherwise, and
+2 when `stretch` or `test` read nothing -- no runs, several runs for one box, Re
+and N, runs that are not the production's, or forced runs without
 --registered. Pure stdlib.
 """
 import argparse
@@ -144,6 +162,12 @@ UMAX = 0.08                    # the Mach bound on umax_lat, Ma = 0.139
 UNSTEADY = 0.01                # r.m.s./mean of eps above which a run is unsteady
 EDGE_D = 0.5                   # round 1: a selection on the scan's edge further than this is no selection
 STATIONARY = 0.25              # round 2: largest drift of E_V or E_M between the window's halves
+# The production and its wall-share test, as GPU/csf3/tg_mhd_forced.sub registers them.
+PROD_PAIR = (0.2, 0.1)                                     # (F0, FM), pilot round 2's selection
+PROD_GRIDS = {250: (192, 256), 500: (256, 384), 1000: (384, 512)}   # Re: (coarser, finer)
+PROD_WINDOW = (100.0, 250.0)
+PROD_BATCHES = 10
+PROD_THRESHOLD = -0.25                                     # halfway in ln between Re^-1/2 and Re^0
 DIR_RE = re.compile(r"^(A|B)_re(\d+)_n(\d+)_f([0-9.]+)_m([0-9.]+)(_fp32)?$")
 
 
@@ -523,6 +547,117 @@ def stretch(args):
     return rc
 
 
+def test(args):
+    """The forced test registered in GPU/csf3/tg_mhd_forced.sub (the docstring's summary):
+    stationarity first, then Q0, then Q1 and Q2 through `stretch`."""
+    if not args.registered:
+        print("test: --registered COMMIT is required: the commit that added GPU/csf3/tg_mhd_forced.sub,\n"
+              "whose header fixes this test. Nothing was read.")
+        return 2
+    t0, t1 = PROD_WINDOW
+    runs = {}
+    for name in sorted(os.listdir(args.runs_dir)):
+        r = load(os.path.join(args.runs_dir, name))
+        if r is None:
+            continue
+        if (r["F0"], r["FM"]) != PROD_PAIR or r["fp32"] or r["re"] not in PROD_GRIDS \
+                or r["n"] not in PROD_GRIDS[r["re"]]:
+            print("test: %s is not one of the production's runs (F0 %g, FM %g, FP64, the grids of %s);"
+                  " give it the production's directory. Nothing was judged." % (
+                      name, PROD_PAIR[0], PROD_PAIR[1], "GPU/csf3/tg_mhd_forced.sub"))
+            return 2
+        runs[(r["box"], r["re"], r["n"])] = r
+    if not runs:
+        print("test: no production run under %s" % args.runs_dir)
+        return 2
+    keys = [(b, Re, N) for Re, Ns in sorted(PROD_GRIDS.items()) for N in Ns for b in ("A", "B")]
+
+    print("THE FORCED TEST (GPU/csf3/tg_mhd_forced.sub, registered in %s): F0 = %g, FM = %g, window t = %g..%g,"
+          " %d batches" % (args.registered, PROD_PAIR[0], PROD_PAIR[1], t0, t1, PROD_BATCHES))
+    print()
+    print("STATIONARITY, a gate on every run (energies, eps, Mach and div B only):")
+    print("  %-22s %8s %8s %8s %8s %13s %8s %8s %8s  %s" % (
+        "run", "<E_V>", "<E_M>", "<eps>", "eps rms", "drift V / M", "umax win", "divb/j", "t_int", "gate"))
+    failed = []
+    for key in keys:
+        tag = "%s Re %4d N %d" % key
+        r = runs.get(key)
+        st = window_stats(r, t0, t1) if r is not None else "missing"
+        if isinstance(st, str):
+            why = st
+        elif st["umax_win"] > UMAX:
+            why = "umax_lat %.4f > %g in the window" % (st["umax_win"], UMAX)
+        elif max(st["drift_V"], st["drift_M"]) >= STATIONARY:
+            why = "drift %.1f %% >= %g %%" % (100 * max(st["drift_V"], st["drift_M"]), 100 * STATIONARY)
+        else:
+            why = None
+        if isinstance(st, str):
+            print("  %-22s %s  FAIL" % (tag, st))
+        else:
+            print("  %-22s %8.4f %8.4f %8.4f %7.1f%% %5.1f%% / %4.1f%% %8.4f %8.1e %8.2f  %s" % (
+                tag, st["E_V"], st["E_M"], st["eps"], 100 * st["eps_rms"] / st["eps"], 100 * st["drift_V"],
+                100 * st["drift_M"], st["umax_win"], st["divb"], st["tau_int"], "pass" if why is None else
+                "FAIL: " + why))
+        if why is not None:
+            failed.append(tag)
+    if failed:
+        print("  NO VERDICT on Q0, Q1 or Q2: %d run(s) failed the gate (%s). Nothing near the walls was read."
+              % (len(failed), ", ".join(failed)))
+        return 1
+
+    # ---- Q0, the wall share -------------------------------------------------
+    bm = {key: batch_means(runs[key], t0, t1, PROD_BATCHES) for key in keys}
+    bad = [k for k in keys if isinstance(bm[k], str)]
+    if bad:
+        print("  NO VERDICT: no shares for %s (%s)" % ("%s Re %d N %d" % bad[0], bm[bad[0]]))
+        return 1
+    print()
+    print("Q0, THE WALL SHARE within delta: Delta = F_B - F_A on the finer grid; u = max(grid, 2 s.e., halves)")
+    rungs = sorted(PROD_GRIDS)
+    D, U, FB, calls = {}, {}, {}, []
+    for Re in rungs:
+        nc, nf = PROD_GRIDS[Re]
+        a, b, ac, bc = bm[("A", Re, nf)], bm[("B", Re, nf)], bm[("A", Re, nc)], bm[("B", Re, nc)]
+        d, dc = b["F"][0] - a["F"][0], bc["F"][0] - ac["F"][0]
+        grid = abs(d - dc)
+        stat = 2.0 * math.sqrt(a["se"] ** 2 + b["se"] ** 2)
+        halves = abs((b["halves"][0] - a["halves"][0]) - (b["halves"][1] - a["halves"][1]))
+        u = max(grid, stat, halves)
+        D[Re], U[Re], FB[Re] = d, u, b["F"][0]
+        calls.append(d - u > 0)
+        parts = ("; viscous %+.4f, Ohmic %+.4f" % (b["F"][3] - a["F"][3], b["F"][4] - a["F"][4])
+                 if len(a["F"]) > 3 and len(b["F"]) > 3 else "")
+        print("  Re %4d N %d/%d: F_A %.4f, F_B %.4f, Delta %+.4f (coarser %+.4f); u = %.4f = max(grid %.4f,"
+              " 2 s.e. %.4f, halves %.4f) -> %s" % (Re, nc, nf, a["F"][0], b["F"][0], d, dc, u, grid, stat, halves,
+                                                    "EXCESS" if d - u > 0 else "no excess"))
+        print("           within 2 and 4 delta: Delta %+.4f, %+.4f%s; batches' r1 A %+.2f, B %+.2f" % (
+            b["F"][1] - a["F"][1], b["F"][2] - a["F"][2], parts, a["r1"], b["r1"]))
+    lo, mid, hi = rungs[0], rungs[len(rungs) // 2], rungs[-1]
+    L = math.log(hi / lo)
+    if not all(calls):
+        q0 = "NO EXCESS at Re = %s: no exponent is judged" % ", ".join(
+            "%d" % Re for Re, c in zip(rungs, calls) if not c)
+        if D[lo] > 0 and D[hi] > 0:
+            print("  (reported, judging nothing) p = %+.3f" % (math.log(D[hi] / D[lo]) / L))
+    else:
+        p = math.log(D[hi] / D[lo]) / L
+        p_min = math.log((D[hi] - U[hi]) / (D[lo] + U[lo])) / L
+        p_max = math.log((D[hi] + U[hi]) / (D[lo] - U[lo])) / L
+        print("  exponent of Delta in Re: p = %+.3f, range [%+.3f, %+.3f], against %g" % (
+            p, p_min, p_max, PROD_THRESHOLD))
+        print("  (reported, judging nothing) the middle rung off the ends' line: %+.3f in ln Delta;"
+              " F_B's own exponent %+.3f" % (math.log(D[mid]) - 0.5 * (math.log(D[lo]) + math.log(D[hi]))
+                                              if D[mid] > 0 else float("nan"), math.log(FB[hi] / FB[lo]) / L))
+        q0 = ("WALLS HOLD" if p_min > PROD_THRESHOLD else "CASCADE" if p_max < PROD_THRESHOLD else "UNDECIDED")
+    print("  Q0 verdict: %s" % q0)
+    print()
+
+    # ---- Q1 and Q2, the stretching -------------------------------------------
+    rc = stretch(argparse.Namespace(runs_dirs=[args.runs_dir], window=[t0, t1], batches=PROD_BATCHES,
+                                    registered=args.registered))
+    return rc
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -543,6 +678,10 @@ def main(argv):
     s.add_argument("--registered", default=None, metavar="COMMIT",
                    help="the commit that fixed the window, the batches, the rungs and the stationarity"
                         " test; forced runs are refused without it")
+    w = sub.add_parser("test", help="the forced test registered in GPU/csf3/tg_mhd_forced.sub")
+    w.add_argument("runs_dir")
+    w.add_argument("--registered", default=None, metavar="COMMIT",
+                   help="the commit that added GPU/csf3/tg_mhd_forced.sub; required")
     args = ap.parse_args(argv)
     if args.cmd == "pilot":
         return pilot(args)
@@ -550,6 +689,8 @@ def main(argv):
         return shares(args)
     if args.cmd == "stretch":
         return stretch(args)
+    if args.cmd == "test":
+        return test(args)
     return 2
 
 
