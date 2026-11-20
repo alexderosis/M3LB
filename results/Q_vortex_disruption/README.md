@@ -130,13 +130,17 @@ All at Re = Rm = 2000, R0 = 20, to t = 151.2.
 
 ## gpu_port
 
-The GPU/ driver, `GPU/src/vortex_disruption.cu`, on its HOST builds (no CUDA on
-the laptop). D3Q27 + D3Q7 with nz = 1.
+The GPU/ driver, `GPU/src/vortex_disruption.cu`. D3Q27 + D3Q7 with nz = 1. All
+but `device_verify/` are its HOST builds (no CUDA on the laptop).
 
 - `twin/`: the FP64 host build against the parent's `-lat d3q27` (Kokkos, FP64)
   at R0 = 10, box 20 R0, Re = Rm = 500, to t = 20, M = 0.05 and M = 0. Every
   column agrees to all ten printed digits at all 21 probes; Delta at t = 0 is
   round-off in both.
+- `device_verify/`: the DEVICE build on a CSF3 A100 (job 24933077), the same
+  two twin runs: every column within 4.6e-14 of its scale of the parent, every
+  printed value but Delta at t = 0 identical; and a throughput run at
+  R0 = 80, 1600^2 (1599 MLUPS FP64 without probes).
 - `precision/`: R0 = 20, box 10 R0. Case `a`, Re = Rm = 4000, M^2 Rm = 1.77, to
   t = 12 Rm^(1/3): early Delta 0.19214 / 0.19213 / 0.19214 (FP64 / FP32 /
   FP32-shifted), largest Delta 0.698 / 0.580 / 0.729. Case `b`, Re = Rm = 16000,

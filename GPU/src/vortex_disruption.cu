@@ -85,10 +85,16 @@
 //  central moments and no force, so on a cluster build with
 //  -DLBM_ONLY_OP=cm -DLBM_ONLY_FORCE=none.
 //
-//  NOT DONE, AND NOT CLAIMED.  The device build has not been compiled here --
-//  this laptop has no CUDA. The driver adds no solver method and calls only
-//  interfaces other drivers already exercise on a device, but CMakeLists.txt's
-//  warning stands: a CUDA class is checked only when nvcc sees it.
+//  THE DEVICE BUILD, 2026-11-19 (GPU/csf3/vortex_disruption_verify.sub, job
+//  24933077 on a CSF3 A100; log and series in results/Q_vortex_disruption/
+//  gpu_port/device_verify/). It compiles under nvcc with -DLBM_ONLY_OP=cm
+//  -DLBM_ONLY_FORCE=none and reproduces the twin runs above: worst column
+//  3.4e-15 (M = 0.05) and 4.6e-14 (M = 0) of its scale against the Kokkos
+//  parent, Delta at t = 0 in both, and every other printed value identical --
+//  to the host build in 671 of 672. FP64 throughput at the Rm = 16000 rung's
+//  size (1600^2): 1599 MLUPS without probes, the probes 50 ns per node each,
+//  so the map job's largest element (Rm = 32000, 3200^2) is ~2.2 h, not the
+//  3.4 h its header estimated from tg_mhd's 1100 MLUPS.
 //==============================================================================
 #include "lbm/backend.cuh"
 #include "lbm/ehd.cuh"          // Field: the host/device-neutral N-element array

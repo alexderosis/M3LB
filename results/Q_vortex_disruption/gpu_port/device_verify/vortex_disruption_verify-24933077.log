@@ -1,0 +1,33 @@
+NVIDIA A100-SXM4-80GB, 81920 MiB, 595.71.05
+
+[ 50%] Building CUDA object CMakeFiles/vortex_disruption.dir/src/vortex_disruption.cu.o
+/net/scratch/f07459ad/M3LB/GPU/include/lbm/core.cuh(176): warning #20013-D: calling a constexpr __host__ function("make_dir_table") from a __host__ __device__ function("pi") is not allowed. The experimental flag '--expt-relaxed-constexpr' can be used to allow this.
+    constexpr DirTable t = make_dir_table();
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+[100%] Linking CUDA executable vortex_disruption
+[100%] Built target vortex_disruption
+  ran to t = 20.000
+  peak field bmax = 7.966 B0 at t = 13.00   (Rm^(1/3) = 7.94)
+  survival at the last probe = 0.80502   lowest = 0.80502 at t = 20.00   angular momentum = 0.99940
+  worst osc = 0.07560   (resolved: << 1; checkerboard: 1)   worst divb / jmax = 5.65e-02
+  mass drift -2.098e-14   wall clock 0.2 s, of which probes 0.0 s   1318.6 MLUPS without them
+  peak field bmax = 8.625 B0 at t = 14.00   (Rm^(1/3) = 7.94)
+  survival at the last probe = 0.99847   lowest = 0.99835 at t = 2.00   angular momentum = 0.99977
+  worst osc = 0.08246   (resolved: << 1; checkerboard: 1)   worst divb / jmax = 6.11e-02
+  mass drift -3.331e-15   wall clock 0.2 s, of which probes 0.0 s   1464.9 MLUPS without them
+  viscosity delivered / viscosity set = 1.0199   (exact: coh = (1 + t/Re)^-2; gate 5%)   PASS
+M = 0.05: device vs Kokkos parent, worst column dow 3.39e-15 of its scale  PASS
+M = 0: device vs Kokkos parent, worst column dow 4.56e-14 of its scale  PASS
+
+  ran to t = 10.000
+  peak field bmax = 11.972 B0 at t = 10.00   (Rm^(1/3) = 25.20)
+  survival at the last probe = 0.99612   lowest = 0.99612 at t = 10.00   angular momentum = 0.99998
+  worst osc = 0.00155   (resolved: << 1; checkerboard: 1)   worst divb / jmax = 1.04e-03
+  mass drift -5.501e-13   wall clock 27.0 s, of which probes 1.4 s   1598.8 MLUPS without them
+measured: 1599 MLUPS without probes, 49.7 ns per node per probe
+projected element Rm 16000, R0 80 : 0.23 h   (the map job asks 1.0 h)
+projected element Rm 32000, R0 160: 2.22 h   (the map job asks 6.0 h)
+projected element grid Rm 16000, R0 120: 0.75 h   (the map job asks 2.0 h)
