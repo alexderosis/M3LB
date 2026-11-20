@@ -87,7 +87,14 @@
 #      sbatch --dependency=afterok:$jid --array=32-39 --time=6:00:00 GPU/csf3/vortex_disruption_map.sub
 #
 #  and read the verify job's projected-wallclock lines before the last group
-#  starts: raise its --time with `scontrol update` if they say so.
+#  starts. A SLURM USER CANNOT RAISE A TIME LIMIT -- `scontrol update` only
+#  lowers it; raising needs an administrator -- so if a line says TOO SHORT,
+#  cancel that group while it is still pending and resubmit it with the --time
+#  the line prints, e.g. for the Rm = 32000 rung:
+#      scancel <jobid>_[32-39]
+#      sbatch --array=32-39 --time=<printed> GPU/csf3/vortex_disruption_map.sub
+#  The elements are independent, so nothing else has to be rerun. An element
+#  that hits its limit while running is lost and is rerun the same way.
 #
 #  OUTPUT: runs/vortex_disruption/<map|grid|scatter>/re<Re>_rm<Rm>_r<R0>_x<M^2 Rm>[_e1e-5]/
 #  with series.dat and log.txt. A run that goes non-finite exits 1 and its series

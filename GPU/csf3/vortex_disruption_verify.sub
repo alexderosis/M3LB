@@ -27,9 +27,11 @@
 #       The series header must say `native FP64`.
 #    3. A SHORT RUN AT A PRODUCTION SIZE -- the Rm = 16000 rung's grid, R0 = 80,
 #       1600^2, to t = 10 -- for MLUPS and the host probes' cost, and from them
-#       the projected wallclock of the map job's largest elements. READ THAT
-#       LINE: the map job's --time values assume ~1100 MLUPS, from tg_mhd's FP64
-#       runs on gpuA.
+#       the projected wallclock of the map job's largest elements. READ THOSE
+#       LINES: the map job's --time values assume ~1100 MLUPS, from tg_mhd's
+#       FP64 runs on gpuA. A line marked TOO SHORT names the elements and the
+#       --time to resubmit them with; a user cannot raise a submitted job's
+#       limit (the map job's header says how).
 #
 #  Submit from the repo root, after git pull:
 #      sbatch GPU/csf3/vortex_disruption_verify.sub
@@ -121,10 +123,18 @@ def element(R0, tmax, probe):
     steps = tmax * R0 / 0.05
     return (steps * N * N / (mlups * 1e6) + (tmax / probe + 1) * per_node_probe * N * N) / 3600
 print(f"measured: {mlups:.0f} MLUPS without probes, {per_node_probe * 1e9:.1f} ns per node per probe")
-for name, R0, tmax, probe, asked in (("Rm 16000, R0 80 ", 80, 302.4, 1, 1.0),
-                                     ("Rm 32000, R0 160", 160, 381.0, 1, 6.0),
-                                     ("grid Rm 16000, R0 120", 120, 302.4, 1, 2.0)):
+import math
+for name, elems, R0, tmax, probe, asked in (
+        ("Rm 16000, R0 80      ", "24-31", 80, 302.4, 1, 1.0),
+        ("Rm 32000, R0 160     ", "32-39", 160, 381.0, 1, 6.0),
+        ("grid Rm 16000, R0 120", "45-49", 120, 302.4, 1, 2.0)):
     h = element(R0, tmax, probe)
-    print(f"projected element {name}: {h:.2f} h   (the map job asks {asked:.1f} h)"
-          f"{'   RAISE --time' if h > 0.85 * asked else ''}")
+    line = f"projected element {name}: {h:.2f} h   (the map job asks {asked:.1f} h)"
+    if h > 0.85 * asked:
+        # A user cannot raise a submitted job's limit: cancel and resubmit, with
+        # 30 % over the projection, rounded up to the hour.
+        need = max(1, math.ceil(1.3 * h))
+        line += (f"   TOO SHORT: scancel <jobid>_[{elems}] and resubmit with"
+                 f" --array={elems} --time={need}:00:00")
+    print(line)
 EOF

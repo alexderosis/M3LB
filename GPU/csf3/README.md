@@ -402,7 +402,10 @@ with the field force. It checks the device against the Kokkos parent's tracked
 series to 1e-7 of each column's scale -- the host build already matches them to
 every printed digit -- and then times a run at the Rm = 16000 rung's size and
 projects the largest elements' wallclock. **Read those projections before the
-`--time=6:00:00` group starts.** The map job's header fixes, before the runs,
+`--time=6:00:00` group starts.** A line marked TOO SHORT prints the elements and
+the `--time` to use: a user cannot raise a submitted job's limit (`scontrol
+update` only lowers it), so `scancel` that group while it is pending and
+resubmit it. The map job's header fixes, before the runs,
 the rule its verdict comes from (the exponent of the destruction threshold
 against -1/2 and -1/3), and `tools/vortex_disruption_campaign.py` applies it.
 55 elements, about 38 GPU-hours, 27 of them the Rm = 32000 rung's eight:
