@@ -146,11 +146,44 @@ but `device_verify/` are its HOST builds (no CUDA on the laptop).
   FP32-shifted), largest Delta 0.698 / 0.580 / 0.729. Case `b`, Re = Rm = 16000,
   M^2 Rm = 1.25: non-finite in all three (R0 = 20 is too coarse there).
 
-## gpu_campaign (not run yet)
+## gpu_campaign (INTERIM: 47 of 55 elements)
 
-Where `GPU/csf3/vortex_disruption_map.sub`'s series land when copied back:
-`map/`, `grid/`, `scatter/`. Its rule is fixed in that job's header and in
-`tools/vortex_disruption_campaign.py`, before any run.
+`GPU/csf3/vortex_disruption_map.sub`'s series and logs, copied back on
+2026-11-23: `map/` at Rm = 2000, 4000, 8000, 16000 (elements 0-31), `grid/`
+(40-49) and `scatter/` (50-54). D3Q27 + D3Q7, FP64, A100. **The Rm = 32000 rung,
+elements 32-39, had not run** (resubmitted as job 25174641). Its rule is fixed in
+that job's header and in `tools/vortex_disruption_campaign.py`, before any run;
+over all five rungs it gives the verdict, and over four it gives only this:
+
+```bash
+python3 tools/vortex_disruption_campaign.py results/Q_vortex_disruption/gpu_campaign
+```
+
+| Rm | 2000 | 4000 | 8000 | 16000 |
+|---|---|---|---|---|
+| M_c (largest Delta = 0.8) | 0.0300 | 0.0216 | 0.0165 | 0.0103 |
+| M_c^2 Rm | 1.81 | 1.87 | 2.16 | 1.71 |
+
+p = -0.502 with U = 0.061 (the grid shift; the ladder allows 0.050, the scatter
+0.004), so the rule's reading on four rungs is "M^2 Rm DECIDES DESTRUCTION". The
+wind-up exponent is -0.339 / -0.335 along the rows 0.625 / 1.25; the change of
+lattice moves M_c by +1.1 % at Rm = 2000 and -3.3 % at 4000 against `map_r020`,
+inside the ladder's +-4.4 %. `map/re16000_rm16000_r80_x3.5355` and `_x5` went
+non-finite at t = 118 and 124; both are above the threshold.
+
+**What the rule does not see, found reading these runs.** Near the threshold
+Delta is STILL RISING when the window t = 12 Rm^(1/3) closes: at Rm = 16000
+every run that sets the crossing has its largest Delta in the window's last
+tenth, three on its last probe (`x1.7678`: 0.716 at 0.8 t_end, 0.915 at
+t_end). So the threshold is "destroyed within the window", and destruction comes
+later in that window as Rm rises -- `x2.5` is destroyed by 0.55 t_end at
+Rm = 8000 and reaches 0.678 by t_end at 16000. And the largest Delta is not
+monotonic in M at Rm = 8000 and 16000 (0.34, 0.73, 0.58, 0.73, 1.15 along
+M^2 Rm = 1.25 .. 2.5 at 8000), single runs moving by up to 0.2 under a 1e-5
+perturbation: the +14 % grid shift at Rm = 16000 is the one run `x1.7678`
+(0.915 here, 0.506 on R0 = 120), the next two fields shifting the other way.
+A window growing faster than Rm^(1/3), or the time to destruction as the
+observable, would be a new test with a rule of its own.
 
 ## What is not here
 
