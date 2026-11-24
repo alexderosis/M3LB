@@ -53,8 +53,7 @@ A vortex winds a weak magnetic field into thin current sheets whose stresses can
 destroy it. Whether that takes $M^2\Rm\sim1$ or $M^2\Rm^{2/3}\sim1$, with $M$ the
 field in units of the flow speed and $\Rm$ the magnetic Reynolds number, has
 remained open because simulations have spanned too narrow a range of $\Rm$.
-Following one vortex over $\Rm=250$--$16\,000$ with two independent lattice
-Boltzmann codes, we find both: the braking during the wind-up grows as
+Following one vortex over $\Rm=250$--$16\,000$, we find both: the braking during the wind-up grows as
 $M^2\Rm^{2/3}$, while destruction needs $M^2\Rm\approx2$, a field
 $M_c\propto\Rm^{-0.50\pm0.06}$. At large $\Rm$ a weak field therefore destroys a
 vortex that it has barely braked.
@@ -188,15 +187,10 @@ $\Rey=\eps R_0/\nu$ and the magnetic Reynolds number $\Rm=\eps R_0/\eta$. The
 Lorentz term of Eq.~\eqref{eq:vorticity} then reads $M^2J(A,\nabla^2A)$. The
 magnetic Prandtl number $\mathrm{Pm}=\nu/\eta=\Rm/\Rey$ is one except where
 stated. We solve Eqs.~\eqref{eq:momentum} and \eqref{eq:induction} by the lattice
-Boltzmann method, which recovers them at small Mach number, on the D3Q27 lattice
-for the flow and D3Q7 for the field, with one node in the third direction. The flow uses a central-moment collision \cite{derosis2018} and the
-field is carried as Dellar's vector distribution \cite{dellar2002}; we run at
+Boltzmann method, where the flow uses a central-moment collision operator \cite{derosis2018} and the
+magnetic field is carried as Dellar's vector distribution \cite{dellar2002}; we run at
 $\eps=0.05$ lattice units (Mach number $0.087$) in double precision and seed the
-density with the vortex's own pressure. Two codes that share no source implement
-this, one of them in CUDA. Every run below is from the CUDA code except the one
-that switches the field off, which only the other can do; the two agree to all
-ten printed digits on a short run, and to $9.3\times10^{-10}$ of each diagnostic's
-scale over a whole destruction run ($\Rey=\Rm=2000$, $M^2\Rm=2.5$, $t=0$--$151$).
+density with the vortex's own pressure.
 
 Without the Lorentz force, $M=0$, Eq.~\eqref{eq:vortex} is an exact viscous
 solution of Eq.~\eqref{eq:vorticity}: its
@@ -210,7 +204,7 @@ where $\bm u_0$ is the initial velocity, Eq.~\eqref{eq:vortex}, and
 $\langle\cdot\rangle$ the average over the box. $S$ is 1 for a vortex the field
 has not touched. A run without the force
 recovers the set viscosity to $0.9990$ and keeps $|S-1|\le1.8\times10^{-4}$. The
-second measure is built from velocity gradients, after Mak \textit{et al.}: with
+second measure is built from velocity gradients, after Mak \textit{et al.}~\cite{mak2017}: with
 $W=s^2-\omega^2$ the Okubo--Weiss parameter \cite{okubo1970,weiss1991},
 $\Delta=1-\int_A W\big/\int_A W_\mathrm{ref}$, where $W_\mathrm{ref}$ is that of the
 exact viscous vortex at the same time and $A$ the region where
