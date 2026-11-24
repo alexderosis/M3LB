@@ -155,7 +155,9 @@ but `device_verify/` are its HOST builds (no CUDA on the laptop).
 2026-11-23: `map/` at Rm = 2000, 4000, 8000, 16000 (elements 0-31), `grid/`
 (40-49) and `scatter/` (50-54). D3Q27 + D3Q7, FP64, A100. **The Rm = 32000 rung,
 elements 32-39, has not run**: resubmitted as job 25174641 and cancelled by the
-user on 2026-11-24 before it started, to be tried later. Its rule is fixed in
+user on 2026-11-24 before it started, and resubmitted the same day as job
+25227362 with --time=2:30:00 (the verify job projected 2.22 h an element). Its
+rule is fixed in
 that job's header and in `tools/vortex_disruption_campaign.py`, before any run;
 over all five rungs it gives the verdict, and over four it gives only this:
 
