@@ -355,7 +355,7 @@ def fig_pair():
     for a in (ax, axS, axD):
         a.set_xlim(0, 12)
         a.set_xticks([0, 3, 6, 9, 12])
-        a.set_xlabel(r"$t\,\varepsilon/R_0\,/\,\mathrm{Rm}^{1/3}$", labelpad=1)
+        a.set_xlabel(r"$t\varepsilon/(R_0\,\mathrm{Rm}^{1/3})$", labelpad=1)
         a.grid(color=GRID, lw=0.3)
     save(fig, "fig_pair")
 
@@ -415,7 +415,7 @@ def fig_fixed():
                 label=r"$\mathrm{Rm}=%d$" % rm)
     ax.set_xlim(0, 12)
     ax.set_ylim(-0.05, 1.05)
-    ax.set_xlabel(r"$t\,\varepsilon/R_0\,/\,\mathrm{Rm}^{1/3}$", labelpad=1)
+    ax.set_xlabel(r"$t\varepsilon/(R_0\,\mathrm{Rm}^{1/3})$", labelpad=1)
     ax.set_ylabel(r"$S$")
     ax.grid(color=GRID, lw=0.3)
     ax.legend(frameon=False, fontsize=6.5, ncol=3, loc="upper right")
