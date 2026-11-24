@@ -64,20 +64,24 @@ vortex that it has barely braked.
 
 A vortex in a weak, uniform magnetic field winds the field lines up until
 diffusion lets them reconnect; the field is then expelled from the core and
-concentrated at its edge \cite{weiss1966}. During the wind-up the field is
-amplified to $b\sim\Rm^{1/3}B_0$ on a scale $\Rm^{-1/3}$ of the vortex
-\cite{weiss1966}, so at the large magnetic Reynolds numbers of astrophysical flows a
-field far too weak to matter on the large scale can be dynamically important on the
-small one. Such fields suppress turbulent transport \cite{cattaneo1991} and the
+concentrated at its edge \cite{weiss1966}. For a vortex of speed $U$ and size $L$
+in a fluid of magnetic diffusivity $\eta$, the magnetic Reynolds number
+$\Rm=UL/\eta$ measures how far the flow can wind the field before it diffuses.
+During the wind-up an applied field of strength $B_0$ is amplified to
+$b\sim\Rm^{1/3}B_0$ on a scale $\Rm^{-1/3}L$ \cite{weiss1966}, so at the
+large magnetic Reynolds numbers of astrophysical flows a field far too weak to
+matter on the large scale can be dynamically important on the small one. Such fields suppress turbulent transport \cite{cattaneo1991} and the
 formation of jets in $\beta$-plane turbulence \cite{tobias2007}. For a single
 vortex the question is how strong the field has to be to disrupt it, and two
 answers have been given. Mak, Griffiths and Hughes \cite{mak2017} compared the curl
 of the magnetic tension of the wound field with the inertia of the vortex and
-obtained $M^2\Rm\sim1$, with $M$ the ratio of the Alfv\'en speed to the flow speed.
-Gilbert, Mason and Tobias \cite{gilbert2016}, in a quasilinear model in which the
-flow is held axisymmetric and the magnetic Prandtl number is small, found that the
-Lorentz force takes over above
-$b_0=O(U\Rm^{-1/3})$, that is at $M^2\Rm^{2/3}\sim1$. The simulations of
+obtained $M^2\Rm\sim1$, with $M=B_0/U$ the ratio of the Alfv\'en speed of the
+applied field to the speed of the vortex (the field measured in velocity units,
+$\bm B/\sqrt{\mu_0\rho}$). Gilbert, Mason and Tobias \cite{gilbert2016}, in a
+quasilinear model in which the flow is held axisymmetric and the magnetic Prandtl
+number, the ratio of viscosity to magnetic diffusivity, is small, found that the
+Lorentz force takes over once $B_0=O(U\Rm^{-1/3})$, that is at
+$M^2\Rm^{2/3}\sim1$. The simulations of
 Ref.~\cite{mak2017} spanned $\Rm=50$--$1000$, and its authors noted that the two
 scalings could not be told apart there. Tessier, Poulin and Hughes
 \cite{tessier2025} have since mapped the regimes of vortex arrays as the field
@@ -86,13 +90,13 @@ criteria differ by a factor $10^4$ in field energy.
 
 \begin{figure*}
 \includegraphics[width=\textwidth]{fig_pair}
-\caption{(a) The same braking, two fates: vortices with the same
+\caption{The same braking, two fates: vortices with the same
 $M^2\Rm^{2/3}=0.198$ at $\Rm=250$ ($M^2\Rm=1.25$) and $\Rm=4000$ ($M^2\Rm=3.15$),
-both at $\Rey=1000$ ($R_0=40$ cells), at the same times in units of
-$\Rm^{1/3}$, and their survival $S$ (lower left). Colour: vorticity; lines:
-magnetic field lines, contours of the flux function every $0.5B_0R_0$; the central
-$10R_0$ of the $20R_0$ box. (b) One field, $M^2\Rm=2.5$, at $\Rm=\Rey=250$, $1000$,
-$4000$, $8000$ and $16\,000$: $S$ and $\Delta$ against $t/\Rm^{1/3}$; dashed,
+both at $\Rey=1000$ ($R_0=40$ cells). (a) The vortices at the same times in units
+of $\Rm^{1/3}$. Colour: vorticity; lines: magnetic field lines, contours of the
+flux function every $0.5B_0R_0$; the central $10R_0$ of the $20R_0$ box. (b) Their
+survival $S$. (c,d) One field, $M^2\Rm=2.5$, at $\Rm=\Rey=250$, $1000$, $4000$,
+$8000$ and $16\,000$: (c) $S$ and (d) $\Delta$ against $t/\Rm^{1/3}$; dashed,
 $\Delta=0.8$.}
 \label{fig:pair}
 \end{figure*}
@@ -147,19 +151,44 @@ scalings hold, for two different things. The braking of the vortex during the
 wind-up grows as $M^2\Rm^{2/3}$; its destruction, which comes later and is
 non-axisymmetric, needs $M^2\Rm\approx2$.
 
-\textit{Setup.}---The vortex is the one whose stream function is a Gaussian,
+\textit{Setup.}---We solve the equations of incompressible magnetohydrodynamics in
+two dimensions, with the magnetic field $\bm B$ in velocity units,
+\begin{align}
+\partial_t\bm u+(\bm u\cdot\nabla)\bm u&=-\nabla P+(\bm B\cdot\nabla)\bm B
++\nu\nabla^2\bm u,\label{eq:momentum}\\
+\partial_t\bm B&=\nabla\times(\bm u\times\bm B)+\eta\nabla^2\bm B,\label{eq:induction}
+\end{align}
+with $\nabla\cdot\bm u=\nabla\cdot\bm B=0$. Here $\bm u$ is the velocity, $P$ the
+total, fluid plus magnetic, pressure divided by the density, $\nu$ the kinematic
+viscosity and $\eta$ the magnetic diffusivity. In two dimensions the field derives
+from a flux function, $\bm B=\nabla\times(A\hat{\bm z})$, whose contours are the
+field lines and which Eq.~\eqref{eq:induction} advects and diffuses,
+$\partial_tA+\bm u\cdot\nabla A=\eta\nabla^2A$. The curl of
+Eq.~\eqref{eq:momentum} governs the vorticity $\omega=\hat{\bm z}\cdot\nabla\times\bm u$,
+\begin{equation}
+\partial_t\omega+\bm u\cdot\nabla\omega=J(A,\nabla^2A)+\nu\nabla^2\omega,
+\label{eq:vorticity}
+\end{equation}
+with $J(f,g)=\partial_xf\,\partial_yg-\partial_yf\,\partial_xg$: the field acts on
+the flow through the gradient of its current, $j=-\nabla^2A$, along the field
+lines.
+
+Initially the field is uniform, $\bm B=B_0\hat{\bm x}$ ($A=B_0y$), and the flow is
+the vortex whose stream function is a Gaussian,
 \begin{equation}
 u_\theta(r)=\eps\,\frac{r}{R_0}\exp\!\left[\frac{1}{2}\left(1-\frac{r^2}{R_0^2}\right)\right],
 \label{eq:vortex}
 \end{equation}
 with peak speed $\eps$ at $r=R_0$ and no net circulation: its core is surrounded by
 a ring of opposite vorticity. It sits at the centre of a periodic square of side
-$20R_0$ in a uniform field $B_0\hat{\bm x}$. With the field in velocity units,
-$M=B_0/\eps$, $\Rey=\eps R_0/\nu$ and $\Rm=\eps R_0/\eta$, and time is in units of
-$R_0/\eps$. The magnetic Prandtl number is one except where stated. We solve the
-two-dimensional MHD equations by the lattice Boltzmann method on the D3Q27
-lattice for the flow and D3Q7 for the field, with one node in the third
-direction. The flow uses a central-moment collision \cite{derosis2018} and the
+$20R_0$. Measuring lengths in $R_0$, speeds in $\eps$, time in $R_0/\eps$ and the
+field in $B_0$, the problem has three parameters: $M=B_0/\eps$, the Reynolds number
+$\Rey=\eps R_0/\nu$ and the magnetic Reynolds number $\Rm=\eps R_0/\eta$. The
+Lorentz term of Eq.~\eqref{eq:vorticity} then reads $M^2J(A,\nabla^2A)$. The
+magnetic Prandtl number $\mathrm{Pm}=\nu/\eta=\Rm/\Rey$ is one except where
+stated. We solve Eqs.~\eqref{eq:momentum} and \eqref{eq:induction} by the lattice
+Boltzmann method, which recovers them at small Mach number, on the D3Q27 lattice
+for the flow and D3Q7 for the field, with one node in the third direction. The flow uses a central-moment collision \cite{derosis2018} and the
 field is carried as Dellar's vector distribution \cite{dellar2002}; we run at
 $\eps=0.05$ lattice units (Mach number $0.087$) in double precision and seed the
 density with the vortex's own pressure. Two codes that share no source implement
@@ -168,7 +197,8 @@ that switches the field off, which only the other can do; the two agree to all
 ten printed digits on a short run, and to $9.3\times10^{-10}$ of each diagnostic's
 scale over a whole destruction run ($\Rey=\Rm=2000$, $M^2\Rm=2.5$, $t=0$--$151$).
 
-Without the Lorentz force Eq.~\eqref{eq:vortex} is an exact viscous solution: its
+Without the Lorentz force, $M=0$, Eq.~\eqref{eq:vortex} is an exact viscous
+solution of Eq.~\eqref{eq:vorticity}: its
 vorticity, the Laplacian of a Gaussian, only spreads, and its projection on the
 initial flow is $(1+t/\Rey)^{-2}$. We therefore measure what the field takes beyond
 viscosity by
@@ -195,7 +225,8 @@ apart in $M$ near the threshold, and up to $\Rm=4000$ two more, $0.3125$ and
 $10$. Every run lasts $t=12\Rm^{1/3}$; two of the 66 went non-finite, both at
 $\Rm=16\,000$ and above the destruction threshold ($M^2\Rm=3.54$ and $5$).
 
-\textit{Two stages.}---Figure~\ref{fig:pair}(a) puts the result in one picture. The
+\textit{Two stages.}---Figures~\ref{fig:pair}(a) and \ref{fig:pair}(b) put the
+result in one picture. The
 two vortices have the same $M^2\Rm^{2/3}$ and, as shown below, therefore the same
 braking: the vortex winds the field into a spiral and expels it from its core, and
 their survival curves agree within $0.022$ up to $t=5\Rm^{1/3}$. Then they part.
@@ -203,7 +234,7 @@ At $\Rm=4000$, where $M^2\Rm=3.15$ is above the destruction threshold, the core 
 drawn into an elongated vortex with two satellites, a tripole, and torn apart,
 with $S=-0.026$ at the end; at $\Rm=250$, where $M^2\Rm=1.25$ is below it, the
 core is eroded but not destroyed, with $S=0.493$ and $\Delta=0.708$ at the end.
-Figure~\ref{fig:pair}(b) follows one field across
+Figures~\ref{fig:pair}(c) and \ref{fig:pair}(d) follow one field across
 $\Rm=250$--$16\,000$. During the wind-up $\Delta$ rises to a plateau that falls with
 $\Rm$, from $0.701$ at $\Rm=250$ to $0.170$ at $\Rm=16\,000$ at $t=3\Rm^{1/3}$; on
 the weakest row, $M^2\Rm=0.3125$, the peak field reaches
@@ -296,10 +327,10 @@ $M^2\Rm=2.5$ the vortex is still axisymmetric at $t=50$ ($S=0.713$) and is gone 
 $t=126$ ($S=-0.054$). Removing the field at $t=50$, after the wind-up, the vortex
 dips to $S=0.590$ at $t=82$ and recovers to $0.674$. Destruction therefore needs
 the field to keep acting during the second stage. That is the picture behind Mak
-\textit{et al.}'s estimate \cite{mak2017}, in which the curl of the tension of the
-wound field, $M^2J(A,\nabla^2A)$ in the vorticity equation, grows as $M^2\Rm$ in
-units of $\eps^2/R_0^2$ and disrupts the vortex when it rivals the vortex's own
-advection. We have tested the outcome of that estimate, not its intermediate
+\textit{et al.}'s estimate \cite{mak2017}, in which the Lorentz term of
+Eq.~\eqref{eq:vorticity}, $M^2J(A,\nabla^2A)$, the curl of the tension of the
+wound field, grows as $M^2\Rm$ and disrupts the vortex when it rivals the vortex's
+own advection. We have tested the outcome of that estimate, not its intermediate
 steps.
 
 \textit{Magnetic, not viscous.}---The maps move $\Rey$ with $\Rm$. Two slices through

@@ -4,10 +4,10 @@
     python3 paper/vortex_disruption/figures.py [--only pair|collapse|threshold|gallery|fixed]
 
 Letter:
-fig_pair        Fig. 1. (a) the same braking, M^2 Rm^(2/3) = 0.198, at Rm = 250 and
-                4000 with Re = 1000 for both (R0 = 40): snapshots and S against
-                t / Rm^(1/3); (b) one field, M^2 Rm = 2.5, across Rm = 250..16000: S
-                and Delta against t / Rm^(1/3).
+fig_pair        Fig. 1. The same braking, M^2 Rm^(2/3) = 0.198, at Rm = 250 and 4000
+                with Re = 1000 for both (R0 = 40): (a) snapshots, (b) S against
+                t / Rm^(1/3). One field, M^2 Rm = 2.5, across Rm = 250..16000: (c) S
+                and (d) Delta against t / Rm^(1/3).
 fig_collapse    Fig. 2. the wind-up and the destruction against M^2 Rm^(2/3) and M^2 Rm.
 fig_threshold   Fig. 3. M_c against Rm, and the exponent against the level.
 fig_gallery_t6, fig_gallery_t12   Figs. 4, 5. Rm = 250, 1000, 4000 against
@@ -331,7 +331,7 @@ def fig_pair():
     ax.set_ylabel(r"$S$", labelpad=1)
     ax.set_ylim(-0.05, 1.05)
     ax.legend(frameon=False, loc="lower left", fontsize=6.5)
-    ax.text(0.97, 0.94, "(a)", transform=ax.transAxes, ha="right", va="top")
+    ax.text(0.97, 0.94, "(b)", transform=ax.transAxes, ha="right", va="top")
     mp = the_map()
     sets = [(250, mp), (1000, mp), (4000, mp), (8000, mp), (16000, mp)]
     axS, axD = fig.add_subplot(bot[1]), fig.add_subplot(bot[2])
@@ -346,8 +346,8 @@ def fig_pair():
     axD.axhline(0.8, color=INK2, lw=0.5, ls="--")
     axS.legend(frameon=False, loc="lower left", fontsize=6, title=r"$\mathrm{Rm}$",
                title_fontsize=6, ncol=2, handlelength=1.2, columnspacing=0.8)
-    axS.text(0.97, 0.94, r"(b) $M^2\mathrm{Rm}=2.5$", transform=axS.transAxes, ha="right", va="top")
-    axD.text(0.03, 0.94, "(b)", transform=axD.transAxes, ha="left", va="top")
+    axS.text(0.97, 0.94, r"(c) $M^2\mathrm{Rm}=2.5$", transform=axS.transAxes, ha="right", va="top")
+    axD.text(0.03, 0.94, "(d)", transform=axD.transAxes, ha="left", va="top")
     for a in (ax, axS, axD):
         a.set_xlim(0, 12)
         a.set_xticks([0, 3, 6, 9, 12])
