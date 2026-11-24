@@ -151,7 +151,7 @@ scalings hold, for two different things. The braking of the vortex during the
 wind-up grows as $M^2\Rm^{2/3}$; its destruction, which comes later and is
 non-axisymmetric, needs $M^2\Rm\approx2$.
 
-\textit{Setup.}---We solve the equations of incompressible magnetohydrodynamics in
+\textit{Setup.} We solve the equations of incompressible magnetohydrodynamics in
 two dimensions, with the magnetic field $\bm B$ in velocity units,
 \begin{align}
 \partial_t\bm u+(\bm u\cdot\nabla)\bm u&=-\nabla P+(\bm B\cdot\nabla)\bm B
@@ -190,9 +190,9 @@ stated. We solve Eqs.~\eqref{eq:momentum} and \eqref{eq:induction} by the lattic
 Boltzmann method, where the flow uses a central-moment collision operator \cite{derosis2018} and the
 magnetic field is carried as Dellar's vector distribution \cite{dellar2002}; we run at
 $\eps=0.05$ lattice units (Mach number $0.087$) in double precision and seed the
-density with the vortex's own pressure.
+density with the vortex's own pressure~\cite{PhysRevE.101.043306}.
 
-Without the Lorentz force, $M=0$, Eq.~\eqref{eq:vortex} is an exact viscous
+Without the Lorentz force, \textit{i.e.} $M=0$, Eq.~\eqref{eq:vortex} is an exact viscous
 solution of Eq.~\eqref{eq:vorticity}: its
 vorticity, the Laplacian of a Gaussian, only spreads, and its projection on the
 initial flow is $(1+t/\Rey)^{-2}$. We therefore measure what the field takes beyond
@@ -212,19 +212,16 @@ $W_\mathrm{ref}<-0.2$ times its root-mean-square value. $\Delta=0$ for an intact
 vortex and $\Delta\gtrsim1$ once strain has replaced rotation where the core was.
 Unlike Ref.~\cite{mak2017} we fix $A$ by the reference rather than by the run's own
 largest rotation-dominated patch, so the two $\Delta$ are not comparable number for
-number.
-
-The map covers $\Rm=\Rey=250$, 500, 1000, 2000, 4000, 8000 and $16\,000$, at
+number.\\
+\indent The map covers $\Rm=\Rey=250$, 500, 1000, 2000, 4000, 8000 and $16\,000$, at
 $R_0=20$ cells up to $\Rm=4000$, 40 at 8000 and 80 at $16\,000$, which keeps the
 relaxation times at least $7.5\times10^{-4}$ above their stability limit of
 $1/2$. Each $\Rm$ has eight fields from $M^2\Rm=0.625$ to $5$, a factor 1.09
 apart in $M$ near the threshold, and up to $\Rm=4000$ two more, $0.3125$ and
 $10$. Every run lasts $t=12\Rm^{1/3}$; two of the 66 went non-finite, both at
-$\Rm=16\,000$ and above the destruction threshold ($M^2\Rm=3.54$ and $5$).
-
-\textit{Two stages.}---Figures~\ref{fig:pair}(a) and \ref{fig:pair}(b) put the
-result in one picture. The
-two vortices have the same $M^2\Rm^{2/3}$ and, as shown below, therefore the same
+$\Rm=16\,000$ and above the destruction threshold ($M^2\Rm=3.54$ and $5$).\\
+\indent \textit{Two stages.} Figures~\ref{fig:pair}(a) and \ref{fig:pair}(b) put the
+result in one picture. The two vortices have the same $M^2\Rm^{2/3}$ and, as shown below, therefore the same
 braking: the vortex winds the field into a spiral and expels it from its core, and
 their survival curves agree within $0.022$ up to $t=5\Rm^{1/3}$. Then they part.
 At $\Rm=4000$, where $M^2\Rm=3.15$ is above the destruction threshold, the core is
@@ -238,9 +235,8 @@ the weakest row, $M^2\Rm=0.3125$, the peak field reaches
 $1.04$--$1.10\,\Rm^{1/3}B_0$. From $\Rm=1000$ up a second, separate rise follows
 the plateau. At $\Rm=250$ the two merge into a steady erosion, and the vortex is
 sheared away during the wind-up itself; we return to these routes, across the
-map, after the threshold.
-
-\textit{Braking.}---Read at $t=3\Rm^{1/3}$, near the peak of the wound field,
+map, after the threshold.\\
+\indent \textit{Braking.} Read at $t=3\Rm^{1/3}$, near the peak of the wound field,
 $1-S$ along each row of fixed $M^2\Rm$ falls as $\Rm^q$ with $q=-0.337$ to
 $-0.359$ on the six rows with $M^2\Rm\le2.1$, and $\Delta$ gives $q=-0.350$ to
 $-0.400$. (Above them the braking is no longer small and $q$ flattens, to
@@ -253,9 +249,8 @@ $\Rm=250$--$16\,000$, changes $1-S$ by at most $0.31\%$ and $\Delta$ by at most
 $0.62\%$. It is the scaling
 Gilbert \textit{et al.} \cite{gilbert2016} found for the onset of the dynamical
 regime with an axisymmetric flow, and in this stage the vortex stays axisymmetric
-[Fig.~\ref{fig:pair}(a)].
-
-\textit{Destruction.}---Defining the vortex as destroyed when $\Delta$ reaches
+[Fig.~\ref{fig:pair}(a)].\\
+\indent \textit{Destruction.} Defining the vortex as destroyed when $\Delta$ reaches
 $0.8$, and $M_c$ as the field that does it, interpolated in $\ln M$ between the
 two runs that bracket it, we find $M_c^2\Rm=1.70$--$2.27$ at all seven $\Rm$
 from 250 to $16\,000$ [Figs.~\ref{fig:collapse}(d) and
@@ -265,58 +260,50 @@ the spacing bound ($0.050$), the shift when the thresholds at $\Rm=8000$ and
 $16\,000$ are taken from a grid $1.5$ times finer ($0.061$), and the shift when the
 threshold at $\Rm=8000$ is taken from runs perturbed by an ellipticity of $10^{-5}$
 ($0.004$). It gives $p=-0.502\pm0.061$, excluding $-1/3$ by $0.168$. The same
-rule over all seven $\Rm$ gives $p=-0.507\pm0.027$, excluding $-1/3$ by $0.173$.
-
-The exponent depends on how much disruption is called a threshold
+rule over all seven $\Rm$ gives $p=-0.507\pm0.027$, excluding $-1/3$ by $0.173$.\\
+\indent The exponent depends on how much disruption is called a threshold
 [Fig.~\ref{fig:threshold}(b)]. For $\Delta$ it is $-0.357$, $-0.413$, $-0.479$,
 $-0.507$ and $-0.533$ at $D_c=0.25$, $0.5$, $0.7$, $0.8$ and $0.9$ (and
 $-0.33\pm0.18$ at $0.1$, which only three $\Rm$ reach), and $1-S$ steepens the
 same way, from $-0.373$ at $0.25$ to $-0.504$, $-0.523$ and $-0.540$ from $0.7$
-up.
-A low level is reached during the wind-up and inherits its scaling; only
+up. A low level is reached during the wind-up and inherits its scaling; only
 destruction needs the second stage. The $-1/2$ is a statement about destruction,
-not about every threshold.
-
-Because $\Rm^{-1/2}$ falls faster than $\Rm^{-1/3}$, the field that destroys a
+not about every threshold.\\
+\indent Because $\Rm^{-1/2}$ falls faster than $\Rm^{-1/3}$, the field that destroys a
 vortex brakes it less and less during the wind-up as $\Rm$ rises. Along
 $M^2\Rm=2.10$, next to the threshold, $1-S$ at $t=3\Rm^{1/3}$ falls from $0.448$ at
 $\Rm=250$ to $0.110$ at $\Rm=16\,000$, as $\Rm^{-0.34}$. At large $\Rm$ destruction is
 not the end point of braking; it is a separate, non-axisymmetric instability that a
-model with an axisymmetric flow cannot contain.
-
-\textit{Routes to destruction.}---Figures~\ref{fig:g6} and \ref{fig:g12} show the
+model with an axisymmetric flow cannot contain.\\
+\indent \textit{Routes to destruction.} Figures~\ref{fig:g6} and \ref{fig:g12} show the
 vortex across the map, at $\Rm=\Rey=250$, $1000$ and $4000$ and five fields from
 $M^2\Rm=0.625$ to $5$, at $t=6\Rm^{1/3}$ and at the end of the run; every run is
 one of the map's, rerun with frames where the map did not keep them, and
 reproduces its series of $S$ and $\Delta$ exactly. Figure~\ref{fig:fixed} follows
-one field above the threshold, $M^2\Rm=2.5$, at the same three $\Rm$.
-
-How the vortex is destroyed changes with $\Rm$. At $\Rm=250$ there is no second
+one field above the threshold, $M^2\Rm=2.5$, at the same three $\Rm$.\\
+\indent How the vortex is destroyed changes with $\Rm$. At $\Rm=250$ there is no second
 stage: the wound field brakes and shears the vortex during the wind-up and goes on
 eroding it, so that its largest $\Delta$ comes at the end of the run at every
 field up to $M^2\Rm=2.5$, and at $6.9\Rm^{1/3}$ at $M^2\Rm=5$. From $\Rm=1000$ up,
 near the threshold, the wind-up leaves a circular core and the destruction comes
 later, through a tripole (Fig.~\ref{fig:fixed}). The threshold stays near
 $M^2\Rm\approx2$ across this change [Fig.~\ref{fig:threshold}(a)], but the route
-to it does not.
-
-A tripole is not yet destruction. At $\Rm=4000$ and $t=6\Rm^{1/3}$ the core has
+to it does not.\\
+\indent A tripole is not yet destruction. At $\Rm=4000$ and $t=6\Rm^{1/3}$ the core has
 become a tripole at every field from $M^2\Rm=1.25$ (Fig.~\ref{fig:g6}), but the
 largest $\Delta$ of those runs is only $0.47$ at $M^2\Rm=1.25$ and $0.75$ at
 $1.77$. At $M^2\Rm=1.25$ the core recovers: $\Delta$ falls from $0.438$ at
 $t=6\Rm^{1/3}$ to $0.311$ at the end, and $S$ ends at $0.742$. At $1.77$ it does
 not, and $\Delta$ ends at $0.743$, just short of the threshold
 (Fig.~\ref{fig:g12}). From $M^2\Rm=2.5$, where the largest $\Delta$ is $1.01$, the
-vortex is torn apart.
-
-At that field all three vortices of Fig.~\ref{fig:fixed} are destroyed, with
+vortex is torn apart.\\
+\indent At that field all three vortices of Fig.~\ref{fig:fixed} are destroyed, with
 largest $\Delta$ of $0.967$, $0.939$ and $1.005$, but what they lose during the
 wind-up is not the same: at $t=3\Rm^{1/3}$, $S=0.479$, $0.676$ and $0.796$. A
 fixed $M^2\Rm$ fixes the outcome and not the braking on the way to it, which falls
 as $\Rm$ rises. At $\Rm=250$ the erosion is visible; at $\Rm=1000$ and $4000$ the
-tripole is.
-
-\textit{The second stage is the field's.}---Vortices with a shielding ring can
+tripole is.\\
+\indent \textit{The second stage is the field's.} Vortices with a shielding ring can
 form tripoles by themselves \cite{carton1989}, so we checked that this one does not
 within the time we follow. At $\Rey=\Rm=2000$ without the Lorentz force, a $1\%$
 elliptical perturbation leaves $S=0.9968$ at $t=151$. With the field at
@@ -328,35 +315,33 @@ the field to keep acting during the second stage. That is the picture behind Mak
 Eq.~\eqref{eq:vorticity}, $M^2J(A,\nabla^2A)$, the curl of the tension of the
 wound field, grows as $M^2\Rm$ and disrupts the vortex when it rivals the vortex's
 own advection. We have tested the outcome of that estimate, not its intermediate
-steps.
-
-\textit{Magnetic, not viscous.}---The maps move $\Rey$ with $\Rm$. Two slices through
+steps.\\
+\indent \textit{Magnetic, not viscous.} The maps move $\Rey$ with $\Rm$. Two slices through
 $\Rey=\Rm=1000$ separate them. With $\Rey=1000$ and $\Rm=250$--$4000$ the braking
 gives $q=-0.324$ and the destruction $p=-0.468\pm0.038$; with $\Rm=1000$ and
 $\Rey=250$--$4000$, $q=-0.040$ and $p=-0.065\pm0.038$. Both scalings belong to
 $\Rm$. What viscosity adds is a residue at low $\Rey$: $M_c^2\Rm=2.38$ at
-$\Rey=250$ against $1.66$--$1.72$ for $\Rey\ge1000$.
-
-\textit{Caveats.}---First, the threshold is destruction within $t=12\Rm^{1/3}$, and
-destruction comes later in that window as $\Rm$ rises: at $M^2\Rm=2.5$ the largest
-$\Delta$ is $1.153$ at $0.55$ of the window for $\Rm=8000$, but only $0.678$ at its
-end for $\Rm=16\,000$, where four of the five runs bracketing the threshold reach
-their largest $\Delta$ in the window's last tenth. A shorter window can only raise
-$M_c$, and it raises it most at the largest $\Rm$, so the truncation makes $p$
-shallower: it cannot have turned a $-1/3$ into the $-1/2$ we measure. Second, the second stage is chaotic: an ellipticity of $10^{-5}$ changes
-the largest $\Delta$ of a single run by up to $0.213$, and along $\Rm=8000$ the
-largest $\Delta$ is not monotonic in $M$. The finer grid moves $M_c$ at
-$\Rm=16\,000$ by $+14.4\%$ through one run whose neighbours shift the other way.
-Both effects are inside the quoted uncertainty, which was defined to contain them.
-Third, this is one vortex profile, in two dimensions, at unit magnetic Prandtl
-number apart from the two slices.
-
-\textit{Conclusion.}---The two criteria in the literature are both right, for
+$\Rey=250$ against $1.66$--$1.72$ for $\Rey\ge1000$.\\
+\indent \textit{Conclusion.} The two criteria in the literature are both right, for
 different things. $M^2\Rm^{2/3}$ measures how much the wound field brakes a vortex;
-$M^2\Rm$, near 2, decides whether it is destroyed. If these scalings persist, at
-astrophysical $\Rm$ the field that destroys a vortex is smaller than the one that
-would visibly brake it by $\Rm^{1/6}$, a factor of 100 at $\Rm=10^{12}$, and a
-vortex can disappear from a weakly magnetized flow without first slowing down.
+$M^2\Rm$, near 2, decides whether it is destroyed. Three limits qualify this. The
+threshold is destruction within $t=12\Rm^{1/3}$, and destruction comes later in
+that window as $\Rm$ rises: at $M^2\Rm=2.5$ the largest $\Delta$ is $1.153$ at
+$0.55$ of the window for $\Rm=8000$, but only $0.678$ at its end for
+$\Rm=16\,000$, where four of the five runs bracketing the threshold reach their
+largest $\Delta$ in the window's last tenth. A shorter window can only raise
+$M_c$, and most at the largest $\Rm$, so the truncation makes $p$ shallower: it
+cannot have turned a $-1/3$ into the $-1/2$ we measure. The second stage is
+chaotic: an ellipticity of $10^{-5}$ changes the largest $\Delta$ of a single run
+by up to $0.213$, along $\Rm=8000$ the largest $\Delta$ is not monotonic in $M$,
+and the finer grid moves $M_c$ at $\Rm=16\,000$ by $+14.4\%$ through one run whose
+neighbours shift the other way; both effects are inside the quoted uncertainty,
+which was defined to contain them. And this is one vortex profile, in two
+dimensions, at unit magnetic Prandtl number apart from the two slices. If the two
+scalings persist beyond these limits, at astrophysical $\Rm$ the field that
+destroys a vortex is smaller than the one that would visibly brake it by
+$\Rm^{1/6}$, a factor of 100 at $\Rm=10^{12}$, and a vortex can disappear from a
+weakly magnetized flow without first slowing down.
 
 \begin{acknowledgments}
 % TODO(author): funding; APS asks that any use of AI tools in preparing the
