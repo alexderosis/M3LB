@@ -1,0 +1,110 @@
+#!/bin/bash --login
+#==============================================================================
+#  The D3Q27 rerun of the vortex-disruption letter's laptop cases, on one of
+#  Bede's Grace Hopper nodes (N8 CIR, Durham): build GPU/ for sm_90, check the
+#  build against the Kokkos twin, then run GPU/csf3/vortex_disruption_d3q27.sub's
+#  96 runs UNCHANGED. That file is the run list and its banner says why the runs
+#  exist; this one only adapts the site.
+#
+#  WHY A GH200 AND NOT BEDE'S V100s. Bede's docs (bede-documentation.readthedocs
+#  .io, "Using Bede" and the cmake and nvcc pages) give the ppc64le V100 nodes
+#  cmake 3.18.4, below GPU/'s cmake_minimum_required(3.20), and the aarch64
+#  Grace Hopper nodes cmake 3.20.2 and CUDA up to 12.6. A job asking for one
+#  GPU on a gh node gets the whole node: one H100 (96 or 144 GB), 72 Grace
+#  cores, 480 GB. The partition allows two days; the queue is 8 nodes shared
+#  by every Bede user.
+#
+#  THE TWIN CHECK IS A GATE. This is a new compiler, host architecture and GPU
+#  generation for GPU/, so before any production run the binary must reproduce
+#  the Kokkos parent's series (results/Q_vortex_disruption/gpu_port/twin) to
+#  1e-7 of each column's scale, as vortex_disruption_verify.sub required on
+#  CSF3's A100. A failure stops the job.
+#
+#  SUBMIT from a Bede LOGIN node (ppc64le), from the repo root, with your
+#  project code -- ghbatch is Bede's sbatch for the Grace Hopper partitions:
+#      ghbatch --account=<project> GPU/bede/vortex_disruption_d3q27.sub
+#  Put the repo under /nobackup/projects/<project>/ (Lustre, no quota): the
+#  frames are a few GB. OUTPUT: runs/vortex_disruption_d3q27/<group>/<run>/,
+#  exactly as on CSF3. Copy back from the laptop's repo root with
+#      rsync -av bede:<repo>/runs/vortex_disruption_d3q27/ \
+#            results/Q_vortex_disruption/d3q27/
+#  and move the frames (w_*.bin, j_*.bin) to runs/, which git ignores.
+#==============================================================================
+#SBATCH --partition=gh
+#SBATCH --nodes=1
+#SBATCH --gres=gpu:1
+#SBATCH --time=3:00:00
+#SBATCH --job-name=vd_d3q27
+#SBATCH --output=vortex_disruption_d3q27_bede-%j.log
+
+set -euo pipefail
+
+ROOT=${M3LB_ROOT:-${SLURM_SUBMIT_DIR:-$PWD}}
+if [ ! -f "$ROOT/GPU/src/vortex_disruption.cu" ]; then
+  echo "ERROR: no GPU/src/vortex_disruption.cu under $ROOT -- submit from the repo root, or set M3LB_ROOT" >&2
+  exit 1
+fi
+if [ "$(uname -m)" != aarch64 ]; then
+  echo "ERROR: this is $(uname -m), not a Grace Hopper node -- submit with ghbatch, not sbatch" >&2
+  exit 1
+fi
+
+module purge
+module load cuda/12.6.1 2>/dev/null || module load cuda
+echo "$(nvcc --version | tail -1);  $(cmake --version | head -1);  $(g++ --version | head -1)"
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+echo
+
+# ---- 1. build (its own directory: build64_vd is CSF3's A100 build) -------------
+cd "$ROOT/GPU"
+cmake -S . -B build64_vd_gh -DCMAKE_BUILD_TYPE=Release -DLBM_GPU_ARCH=90 \
+      -DLBM_ONLY_OP=cm -DLBM_ONLY_FORCE=none -DLBM_DOUBLE=ON \
+      -DCMAKE_CXX_FLAGS=-Wno-psabi -DCMAKE_CUDA_FLAGS=-Xcompiler=-Wno-psabi > /dev/null
+cmake --build build64_vd_gh --target vortex_disruption -j32
+BIN="$ROOT/GPU/build64_vd_gh/vortex_disruption"
+
+# ---- 2. the twin check against the Kokkos parent ---------------------------------
+TWIN="$ROOT/runs/vortex_disruption_verify_bede"
+mkdir -p "$TWIN"
+for M in 0.05 0; do
+  "$BIN" -r0 10 -nr 20 -re 500 -M $M -tmax 20 -probe 1 -out "$TWIN/twin_M$M" 2>&1 | tail -3
+done
+python3 - "$ROOT" "$TWIN" <<'EOF'
+import sys
+root, out = sys.argv[1], sys.argv[2]
+def load(p):
+    head, rows = "", []
+    for l in open(p):
+        if l.startswith('#'):
+            head = head or l
+        else:
+            rows.append([float(x) for x in l.split()])
+    return head, rows
+bad = 0
+for M in ("0.05", "0"):
+    _, ref = load(f"{root}/results/Q_vortex_disruption/gpu_port/twin/kokkos_M{M}/series.dat")
+    head, dev = load(f"{out}/twin_M{M}/series.dat")
+    if "native FP64" not in head:
+        print(f"M = {M}: the series header does not say 'native FP64' -- FAIL\n  {head.strip()}")
+        bad += 1
+        continue
+    if len(ref) != len(dev):
+        print(f"M = {M}: {len(dev)} probes against {len(ref)} -- FAIL"); bad += 1; continue
+    names = "t EK B2 bmax coh surv ang wmax jmax Lb divb osc Ma mass ens dow".split()
+    worst = []
+    for i, n in enumerate(names):
+        sc = max(max(abs(r[i]) for r in ref), 1e-300)
+        d = max(abs(a[i] - b[i]) for a, b in zip(ref, dev))
+        worst.append((d / sc, n))
+    worst.sort(reverse=True)
+    ok = worst[0][0] < 1e-7
+    bad += 0 if ok else 1
+    print(f"M = {M}: device vs Kokkos parent, worst column {worst[0][1]} {worst[0][0]:.2e}"
+          f" of its scale  {'PASS' if ok else 'FAIL'}")
+sys.exit(1 if bad else 0)
+EOF
+echo
+
+# ---- 3. the 96 runs, from the CSF3 file unchanged ----------------------------------
+cd "$ROOT"
+VD_BIN="$BIN" VD_NO_MODULES=1 M3LB_ROOT="$ROOT" bash GPU/csf3/vortex_disruption_d3q27.sub

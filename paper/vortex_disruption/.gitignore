@@ -1,0 +1,14 @@
+# LaTeX by-products; the .aux and .log files are caught by the top-level rules.
+# vd_numbers.txt is generated too, but tracked: it is the record of every number
+# in the letter. The figures are tracked as PDFs (main.tex needs them); the PNGs
+# are previews that figures.py writes beside them.
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.out
+*Notes.bib
+build*.log
+fig_*.png
+# the D2Q9 draft's Fig. 1, no longer used
+fig_snapshots.pdf

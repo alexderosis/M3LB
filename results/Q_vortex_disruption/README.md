@@ -3,7 +3,10 @@
 Series behind the numbers in the banner of `validation/vortex_disruption.cpp`.
 All runs: laptop, Kokkos Threads, FP64, D2Q9 + D2Q5, eps = 0.05, Pm = 1, box
 20 R0, time in R0/eps. Made on 2026-11-19. Each directory holds the run's
-`series.dat` and its log; field frames were not kept.
+`series.dat` and its log; field frames were not kept. The exceptions say so in
+their own sections: `gpu_port`, `gpu_campaign`, `d3q27` and `d3q27_laptop` are
+D3Q27 + D3Q7 with nz = 1, and **the letter in `paper/vortex_disruption/` uses
+only those**.
 
 Columns of `series.dat`: `t EK B2 bmax coh surv ang wmax jmax Lb divb osc Ma
 mass ens dow`, defined in the case's banner. `surv` is the projection of the
@@ -151,7 +154,8 @@ but `device_verify/` are its HOST builds (no CUDA on the laptop).
 `GPU/csf3/vortex_disruption_map.sub`'s series and logs, copied back on
 2026-11-23: `map/` at Rm = 2000, 4000, 8000, 16000 (elements 0-31), `grid/`
 (40-49) and `scatter/` (50-54). D3Q27 + D3Q7, FP64, A100. **The Rm = 32000 rung,
-elements 32-39, had not run** (resubmitted as job 25174641). Its rule is fixed in
+elements 32-39, has not run**: resubmitted as job 25174641 and cancelled by the
+user on 2026-11-24 before it started, to be tried later. Its rule is fixed in
 that job's header and in `tools/vortex_disruption_campaign.py`, before any run;
 over all five rungs it gives the verdict, and over four it gives only this:
 
@@ -184,6 +188,42 @@ perturbation: the +14 % grid shift at Rm = 16000 is the one run `x1.7678`
 (0.915 here, 0.506 on R0 = 120), the next two fields shifting the other way.
 A window growing faster than Rm^(1/3), or the time to destruction as the
 observable, would be a new test with a rule of its own.
+
+## d3q27 (the letter's lattice)
+
+`GPU/csf3/vortex_disruption_d3q27.sub`, job 25203000, 2026-11-24: 96 runs in 17
+minutes on one A100, D3Q27 + D3Q7 with nz = 1, FP64, none non-finite. They redo
+on the CUDA code's lattice every laptop case the letter uses, because D2Q5 and
+D3Q7 are different field schemes (c_s^2 = 1/3 against 1/4, so one resistivity
+takes a different tau and truncation) and a letter on one lattice could not
+honestly quote both: `map/` (Rm = Re = 250, 500, 1000 at ten fields, and 2000,
+4000 at M^2 Rm = 0.3125 and 10, which with `gpu_campaign/map` makes one map from
+Rm = 250 to 16000), `gallery/` (the map's Rm = 4000 runs again with frames; their
+series equal the map's exactly), `fixRe1000/`, `fixRm1000/`, `controls/`,
+`grid/` (R0 = 30), `exact/` and `pair/` (Fig. 1(a), R0 = 40). Frames are in
+`runs/vortex_disruption_d3q27/` (git ignores it), and only the five per run the
+figures read, k = 3, 6, 12, 18, 24; the rest are on CSF3 scratch.
+
+Against `map_r020`, run for run (45 pairs at Rm = 250-4000): the readings at
+t = 3 Rm^(1/3) move by at most 0.002 in Delta and 0.001 in 1 - surv; a run's
+largest Delta by at most 0.075 (Rm 4000, M^2 Rm 1.77: 0.673 -> 0.748); M_c at
+Delta = 0.8 by 0.2 % or less up to Rm = 1000, +1.1 % at 2000 and -3.3 % at 4000.
+`paper/vortex_disruption/vd_numbers.txt` has every number the letter quotes.
+
+## d3q27_laptop
+
+Kokkos, `-lat d3q27`, the only driver with `-off`. `field_kept/` and
+`field_off_at_50/` are Re = Rm = 2000, M^2 Rm = 2.5 to t = 151.2 with the field
+kept and removed at t = 50; the first is the twin of `gpu_campaign/map`'s run,
+equal to 9.3e-10 of each column's scale. `axisym_t50/` is the same run to t = 50
+with frames, to see that the core is still circular there (S = 0.7132).
+
+## gallery_r020 and letter_r040 (D2Q9, superseded)
+
+The D2Q9 runs behind the first drafts of the letter's snapshot figures: the
+gallery at Rm = Re = 250, 1000, 4000 (R0 = 20), and the first draft's Fig. 1,
+Re = Rm = 2000 at R0 = 40 and M^2 Rm = 0.625 and 2.5. Kept as the record of what
+those drafts showed; `d3q27/` replaces them in the letter.
 
 ## What is not here
 

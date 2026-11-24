@@ -1,0 +1,148 @@
+#!/bin/bash --login
+#==============================================================================
+#  Every laptop case the vortex-disruption letter uses, again on D3Q27 + D3Q7
+#  with nz = 1 (src/vortex_disruption.cu), so that the whole letter rests on one
+#  lattice pair.
+#
+#  WHY. The laptop sweeps (results/Q_vortex_disruption/map_r020, pm_*, controls,
+#  grid_check*, author_case, gallery_r020) ran on D2Q9 + D2Q5 to be affordable.
+#  For the FLOW that is D3Q27 at nz = 1 exactly (D3Q27 = D2Q9 x D1Q3). For the
+#  FIELD it is not: D3Q7 at nz = 1 is a five-velocity lattice with rest weight 1/2
+#  and c_s^2 = 1/4, D2Q5 one with 1/3 and 1/3, so the same resistivity takes a
+#  different tau and carries a different truncation error -- measured where the
+#  two maps overlap as +1.1 % and -3.3 % in M_c. These runs replace the D2Q9 ones
+#  in the letter; those stay in results/ as the record.
+#
+#  WHAT. 96 runs, one GPU, in sequence (each is seconds to two minutes on an A100):
+#    map        Rm = Re = 250, 500, 1000 at R0 = 20, M^2 Rm = 0.3125, 0.625, 1.25,
+#               1.4865, 1.7678, 2.1022, 2.5, 3.5355, 5, 10, frames 24      (30)
+#               -- the CSF3 map's ladder (vortex_disruption_map.sub) plus 0.3125
+#               and 10, extended down to Rm = 250; with it the D3Q27 map runs
+#               from Rm = 250 to 16000
+#    map        Rm = Re = 2000, 4000 at R0 = 20, M^2 Rm = 0.3125 and 10       (4)
+#    gallery    Rm = Re = 4000, R0 = 20, M^2 Rm = 0.625, 1.25, 1.7678, 2.5, 5,
+#               frames 24: the map's own runs again, for their frames        (5)
+#    fixRe1000  Re = 1000, Rm = 250, 500, 2000, 4000, six fields 0.625..2.5  (24)
+#    fixRm1000  Rm = 1000, Re = 250, 500, 2000, 4000, the same six fields    (24)
+#               (both slices pass through map/re1000_rm1000_*)
+#    controls   Re = Rm = 2000, R0 = 20, no Lorentz force (-M 0): no seed, and
+#               ellipticity 1e-3 and 1e-2, to t = 151.2                      (3)
+#    grid       R0 = 30, M^2 Rm = 1.25, Rm = Re = 250, 1000, 4000, to 6 Rm^(1/3) (3)
+#    exact      the kinematic check, Re = Rm = 500, R0 = 30, -M 0, to t = 50  (1)
+#    pair       Re = 1000, R0 = 40, frames 24: Rm = 250 at M^2 Rm = 1.25 and
+#               Rm = 4000 at 3.15, the same M^2 Rm^(2/3) = 0.198             (2)
+#  Every run to t = 12 Rm^(1/3) unless said, probes every 0.5. M = sqrt(X / Rm)
+#  to eight decimals and t_max to one, exactly as vortex_disruption_map.sub.
+#  The field-off control needs -off, which only the Kokkos driver has: it runs on
+#  a laptop with -lat d3q27, beside a twin of map/re2000_rm2000_r20_x2.5.
+#
+#  COST. About 1.3e12 node updates in all, plus probes: well under an hour on an
+#  A100 at the verify job's 1599 MLUPS. One GPU, so it does not count against the
+#  map job's four.
+#
+#  SUBMIT from the repo root, with the binary the verify job built:
+#      sbatch GPU/csf3/vortex_disruption_d3q27.sub
+#  DRY_RUN=1 bash GPU/csf3/vortex_disruption_d3q27.sub prints the commands.
+#  OUTPUT: runs/vortex_disruption_d3q27/<group>/<run>/ with series.dat, log.txt
+#  and, where asked, frames. Copy back from the laptop's repo root:
+#      rsync -av csf3:scratch/M3LB/runs/vortex_disruption_d3q27/ \
+#            results/Q_vortex_disruption/d3q27/
+#  and move the frames (w_*.bin, j_*.bin) to runs/, which git ignores.
+#==============================================================================
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -c 4
+#SBATCH -t 0-2:00
+#SBATCH -J vd_d3q27
+#SBATCH -o vortex_disruption_d3q27-%j.log
+
+set -euo pipefail
+
+ROOT=${M3LB_ROOT:-${SLURM_SUBMIT_DIR:-$PWD}}
+# VD_BIN and VD_NO_MODULES let another site's job reuse this run list as it is
+# (GPU/bede/vortex_disruption_d3q27.sub builds its own binary, loads its own
+# modules, then runs this file with both set). On CSF3 leave them unset.
+BIN="${VD_BIN:-$ROOT/GPU/build64_vd/vortex_disruption}"
+OUT="$ROOT/runs/vortex_disruption_d3q27"
+
+if [ "${DRY_RUN:-0}" = 0 ]; then
+  if [ -z "${VD_NO_MODULES:-}" ]; then
+    module purge
+    module load libs/cuda/12.8.1
+  fi
+  if [ ! -x "$BIN" ]; then
+    echo "ERROR: no executable at $BIN -- run vortex_disruption_verify.sub first, which builds it" >&2
+    exit 1
+  fi
+  STALE=$(find "$ROOT/GPU/src/vortex_disruption.cu" "$ROOT/GPU/include" -newer "$BIN" -type f | head -3)
+  if [ -n "$STALE" ]; then
+    echo "ERROR: $BIN is older than:" >&2
+    echo "$STALE" | sed 's/^/    /' >&2
+    exit 1
+  fi
+  nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
+fi
+
+LADDER=(0.3125 0.625 1.25 1.4865 1.7678 2.1022 2.5 3.5355 5 10)
+SIX=(0.625 1.25 1.4865 1.7678 2.1022 2.5)
+GALLERY=(0.625 1.25 1.7678 2.5 5)
+
+m_of() { awk -v x="$1" -v r="$2" 'BEGIN{printf "%.8f", sqrt(x/r)}'; }
+t_of() { awk -v r="$1" -v c="$2" 'BEGIN{printf "%.1f", c*exp(log(r)/3)}'; }
+
+n=0
+bad=0
+run() {   # group name R0 Re Rm M tmax [extra...]
+  local group=$1 name=$2 r0=$3 re=$4 rm=$5 m=$6 tmax=$7
+  shift 7
+  local dir="$OUT/$group/$name"
+  local cmd=("$BIN" -r0 "$r0" -nr 20 -re "$re" -rm "$rm" -M "$m" -tmax "$tmax" -probe 0.5
+             ${@+"$@"} -out "$dir")
+  n=$((n + 1))
+  if [ "${DRY_RUN:-0}" != 0 ]; then
+    echo "$n  ${cmd[*]}"
+    return
+  fi
+  mkdir -p "$dir"
+  set +e
+  "${cmd[@]}" > "$dir/log.txt" 2>&1
+  local rc=$?
+  set -e
+  [ $rc -eq 0 ] || bad=$((bad + 1))
+  echo "$n $group/$name  exit $rc  $(grep -o 'wall clock [0-9.]* s' "$dir/log.txt" || true)"
+}
+
+for RM in 250 500 1000; do
+  for X in "${LADDER[@]}"; do
+    run map "re${RM}_rm${RM}_r20_x$X" 20 "$RM" "$RM" "$(m_of "$X" "$RM")" "$(t_of "$RM" 12)" -frames 24
+  done
+done
+for RM in 2000 4000; do
+  for X in 0.3125 10; do
+    run map "re${RM}_rm${RM}_r20_x$X" 20 "$RM" "$RM" "$(m_of "$X" "$RM")" "$(t_of "$RM" 12)"
+  done
+done
+for X in "${GALLERY[@]}"; do
+  run gallery "re4000_rm4000_r20_x$X" 20 4000 4000 "$(m_of "$X" 4000)" "$(t_of 4000 12)" -frames 24
+done
+for RM in 250 500 2000 4000; do
+  for X in "${SIX[@]}"; do
+    run fixRe1000 "re1000_rm${RM}_r20_x$X" 20 1000 "$RM" "$(m_of "$X" "$RM")" "$(t_of "$RM" 12)"
+  done
+done
+for RE in 250 500 2000 4000; do
+  for X in "${SIX[@]}"; do
+    run fixRm1000 "re${RE}_rm1000_r20_x$X" 20 "$RE" 1000 "$(m_of "$X" 1000)" "$(t_of 1000 12)"
+  done
+done
+run controls kin_noseed 20 2000 2000 0 151.2
+run controls kin_ellip1e-3 20 2000 2000 0 151.2 -ellip 1e-3
+run controls kin_ellip1e-2 20 2000 2000 0 151.2 -ellip 1e-2
+for RM in 250 1000 4000; do
+  run grid "re${RM}_rm${RM}_r30_x1.25" 30 "$RM" "$RM" "$(m_of 1.25 "$RM")" "$(t_of "$RM" 6)"
+done
+run exact kinematic_re500_r30 30 500 500 0 50
+run pair re1000_rm250_r40_x1.25 40 1000 250 "$(m_of 1.25 250)" "$(t_of 250 12)" -frames 24
+run pair re1000_rm4000_r40_x3.15 40 1000 4000 "$(m_of 3.15 4000)" "$(t_of 4000 12)" -frames 24
+
+echo "$n runs, $bad with a non-zero exit (1: non-finite -- its series is still data)"

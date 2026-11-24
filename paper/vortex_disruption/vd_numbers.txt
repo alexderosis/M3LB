@@ -1,0 +1,118 @@
+NUMBERS FOR THE VORTEX-DISRUPTION LETTER  (paper/vortex_disruption/vd_numbers.py)
+All runs D3Q27 + D3Q7, nz = 1.
+
+DATA
+  map (d3q27/map + gpu_campaign/map)    66 runs  Rm 250/500/1000/2000/4000/8000/16000  Re 250/500/1000/2000/4000/8000/16000  R0 20/40/80
+  grid (gpu_campaign)                   10 runs  Rm 8000/16000  Re 8000/16000  R0 60/120
+  seed (gpu_campaign/scatter)            5 runs  Rm 8000  Re 8000  R0 40
+  Re = 1000, Rm varied                  30 runs  Rm 250/500/1000/2000/4000  Re 1000  R0 20
+  Rm = 1000, Re varied                  30 runs  Rm 1000  Re 250/500/1000/2000/4000  R0 20
+  map R0 by Rm: 250: 20  500: 20  1000: 20  2000: 20  4000: 20  8000: 40  16000: 80
+  non-finite before t = 12 Rm^(1/3): 2 of 66 map runs: Rm 16000 X 3.535 at t 117.0, Rm 16000 X 5 at t 123.0
+  Rm span: 250 .. 16000, a factor 64; 7 values
+  fields per Rm: 250: 10  500: 10  1000: 10  2000: 10  4000: 10  8000: 8  16000: 8
+  eps = 0.05 lattice units: Mach number eps sqrt(3) = 0.087
+  smallest tau - 1/2 over the map: flow 7.50e-04, field 1.00e-03
+  field spacing near the threshold: M ratios 1.091, 1.091, 1.090, 1.091, 1.189
+
+1. THE WIND-UP: read at t = 3 Rm^(1/3), along each row of fixed M^2 Rm
+  1-surv q per row: 0.3125:-0.359(5 Rm, 250-4000)  0.625:-0.350(7 Rm, 250-16000)  1.25:-0.345(7 Rm, 250-16000)  1.487:-0.343(7 Rm, 250-16000)  1.768:-0.341(7 Rm, 250-16000)  2.102:-0.337(7 Rm, 250-16000)  2.5:-0.333(7 Rm, 250-16000)  3.536:-0.323(7 Rm, 250-16000)  5:-0.305(7 Rm, 250-16000)  10:-0.166(5 Rm, 250-4000)
+  1-surv q range over the rows with M^2 Rm <= 2.1: -0.359 .. -0.337 (6 rows)
+  1-surv rows above: 2.5: -0.333  3.536: -0.323  5: -0.305  10: -0.166
+  Delta  q per row: 0.3125:-0.400(5 Rm, 250-4000)  0.625:-0.378(7 Rm, 250-16000)  1.25:-0.367(7 Rm, 250-16000)  1.487:-0.362(7 Rm, 250-16000)  1.768:-0.357(7 Rm, 250-16000)  2.102:-0.350(7 Rm, 250-16000)  2.5:-0.342(7 Rm, 250-16000)  3.536:-0.320(7 Rm, 250-16000)  5:-0.278(7 Rm, 250-16000)  10:-0.021(5 Rm, 250-4000)
+  Delta  q range over the rows with M^2 Rm <= 2.1: -0.400 .. -0.350 (6 rows)
+  Delta  rows above: 2.5: -0.342  3.536: -0.320  5: -0.278  10: -0.021
+  M^2 Rm <= 1.25: (1-surv)/(M^2 Rm^(2/3)) = 1.33 .. 1.47 over 19 runs
+  weakest row M^2 Rm = 0.3125: peak |b| / (B0 Rm^(1/3)) = Rm 250: 1.04  Rm 500: 1.05  Rm 1000: 1.06  Rm 2000: 1.08  Rm 4000: 1.10  (range 1.04 .. 1.10)
+
+2. DESTRUCTION: the field at which the largest Delta crosses 0.8
+  Rm 250    M_c 0.0859  M_c^2 Rm 1.84  M_c^2 Rm^(2/3) 0.293  (+/- 4.4 % in M)
+  Rm 500    M_c 0.0674  M_c^2 Rm 2.27  M_c^2 Rm^(2/3) 0.287  (+/- 4.4 % in M)
+  Rm 1000   M_c 0.0415  M_c^2 Rm 1.72  M_c^2 Rm^(2/3) 0.172  (+/- 4.4 % in M)
+  Rm 2000   M_c 0.0300  M_c^2 Rm 1.81  M_c^2 Rm^(2/3) 0.143  (+/- 4.4 % in M)
+  Rm 4000   M_c 0.0216  M_c^2 Rm 1.86  M_c^2 Rm^(2/3) 0.117  (+/- 4.4 % in M)
+  Rm 8000   M_c 0.0164  M_c^2 Rm 2.16  M_c^2 Rm^(2/3) 0.108  (+/- 4.4 % in M)
+  Rm 16000  M_c 0.0103  M_c^2 Rm 1.70  M_c^2 Rm^(2/3) 0.068  (+/- 4.4 % in M)
+  all Rm (250..16000, 7 values): p = -0.507, spacing bound 0.027
+  finer grid Rm 8000   M_c 0.0168 against 0.0164 (+2.0 %)
+  finer grid Rm 16000  M_c 0.0118 against 0.0103 (+14.4 %)
+  seed 1e-5  Rm 8000   M_c 0.0170 against 0.0164 (+3.1 %)
+  all Rm                       p = -0.507; spacing 0.027, grid shift 0.023, seed shift 0.003 -> U = 0.027;  |p + 1/2| = 0.007, |p + 1/3| = 0.173
+  registered, Rm 2000..16000   p = -0.502; spacing 0.050, grid shift 0.061, seed shift 0.004 -> U = 0.061;  |p + 1/2| = 0.002, |p + 1/3| = 0.168
+  M_c^2 Rm over all thresholds: 1.70 .. 2.27 (7)
+  excluded (stopped before t = 12 Rm^(1/3)): Rm 16000 X 3.54, Rm 16000 X 5
+
+3. THE EXPONENT AGAINST THE LEVEL (largest value in the run), all Rm
+  Delta  0.10: -0.325 +/- 0.179 (3 Rm)   0.25: -0.357 +/- 0.087 (7 Rm)   0.50: -0.413 +/- 0.067 (7 Rm)   0.70: -0.479 +/- 0.027 (7 Rm)   0.80: -0.507 +/- 0.027 (7 Rm)   0.90: -0.533 +/- 0.031 (7 Rm)
+  1-surv 0.10: -0.329 +/- 0.200 (4 Rm)   0.25: -0.373 +/- 0.074 (7 Rm)   0.50: -0.453 +/- 0.047 (7 Rm)   0.70: -0.504 +/- 0.037 (6 Rm)   0.80: -0.523 +/- 0.039 (6 Rm)   0.90: -0.540 +/- 0.054 (6 Rm)
+
+4. THE BRAKING AT THE DESTRUCTION THRESHOLD: 1 - surv at t = 3 Rm^(1/3)
+  row M^2 Rm = 1.768: Rm 250: 0.384  Rm 500: 0.299  Rm 1000: 0.235  Rm 2000: 0.185  Rm 4000: 0.147  Rm 8000: 0.117  Rm 16000: 0.093   q = -0.341
+  row M^2 Rm = 2.102: Rm 250: 0.448  Rm 500: 0.351  Rm 1000: 0.276  Rm 2000: 0.218  Rm 4000: 0.173  Rm 8000: 0.138  Rm 16000: 0.110   q = -0.337
+
+5. THE WINDOW: where in t = 0 .. 12 Rm^(1/3) the largest Delta falls
+  Rm 8000   X 1.25    max Delta 0.336 at 0.50 t_end; Delta(0.8 t_end) 0.234, Delta(t_end) 0.264
+  Rm 8000   X 1.486   max Delta 0.730 at 0.94 t_end; Delta(0.8 t_end) 0.566, Delta(t_end) 0.686
+  Rm 8000   X 1.768   max Delta 0.583 at 0.99 t_end; Delta(0.8 t_end) 0.374, Delta(t_end) 0.565
+  Rm 8000   X 2.102   max Delta 0.729 at 1.00 t_end; Delta(0.8 t_end) 0.685, Delta(t_end) 0.729
+  Rm 8000   X 2.5     max Delta 1.153 at 0.55 t_end; Delta(0.8 t_end) 1.003, Delta(t_end) 1.000
+  Rm 16000  X 1.25    max Delta 0.237 at 0.59 t_end; Delta(0.8 t_end) 0.208, Delta(t_end) 0.173
+  Rm 16000  X 1.487   max Delta 0.365 at 0.95 t_end; Delta(0.8 t_end) 0.269, Delta(t_end) 0.332
+  Rm 16000  X 1.768   max Delta 0.915 at 1.00 t_end; Delta(0.8 t_end) 0.716, Delta(t_end) 0.915
+  Rm 16000  X 2.102   max Delta 0.603 at 0.99 t_end; Delta(0.8 t_end) 0.490, Delta(t_end) 0.574
+  Rm 16000  X 2.5     max Delta 0.678 at 1.00 t_end; Delta(0.8 t_end) 0.576, Delta(t_end) 0.678
+  Rm 16000, M^2 Rm 1.25..2.5: 4 of 5 runs have their largest Delta in the last tenth of the window
+  seed 1e-5 at Rm 8000, largest Delta map -> seeded: X 1.25: 0.336 -> 0.399  X 1.486: 0.730 -> 0.787  X 1.768: 0.583 -> 0.587  X 2.102: 0.729 -> 0.516  X 2.5: 1.153 -> 1.065
+  largest single-run change 0.213
+  Rm 8000 largest Delta along M^2 Rm 1.25..2.5: 0.34, 0.73, 0.58, 0.73, 1.15
+
+6. Re AGAINST Rm: the two slices through Re = Rm = 1000
+  Re = 1000, Rm varied   early Delta q -0.319, early 1-surv q -0.324; threshold p(0.8) -0.468 +/- 0.038, p(0.9) -0.520 +/- 0.037
+  Re = 1000, Rm varied   M_c^2 Rm at 0.8: Rm 250: 1.44  Rm 500: 1.33  Rm 1000: 1.72  Rm 2000: 1.55  Rm 4000: 1.67
+  Rm = 1000, Re varied   early Delta q -0.090, early 1-surv q -0.040; threshold p(0.8) -0.065 +/- 0.038, p(0.9) -0.010 +/- 0.063
+  Rm = 1000, Re varied   M_c^2 Rm at 0.8: Re 250: 2.38  Re 500: 2.02  Re 1000: 1.72  Re 2000: 1.67  Re 4000: 1.66
+
+7. CONTROLS AND CHECKS (Re = Rm = 2000, R0 = 20, M^2 Rm = 2.5 where there is a field)
+  no Lorentz force, no seed            surv(151.2) = 0.9999, lowest 0.9996 at t = 2.0
+  no Lorentz force, ellipticity 1e-3   surv(151.2) = 0.9986, lowest 0.9986 at t = 151.2
+  no Lorentz force, ellipticity 1e-2   surv(151.2) = 0.9968, lowest 0.9968 at t = 151.2
+  field kept (map, CUDA)               surv(50) = 0.713, surv(151.2) = -0.0355, lowest -0.054 at t = 126.0
+  field removed at t = 50 (Kokkos)     surv(151.2) = 0.6741, lowest 0.590 at t = 82.0
+  kinematic, Re = Rm = 500, R0 = 30: delivered / set viscosity 0.9990 from coh(50); max |surv - 1| 1.8e-04
+  wind-up grid check, Delta  at 3 (and 6) Rm^(1/3), M^2 Rm 1.25, 1.5x finer grid: Rm 1000 c3 +0.22%  Rm 1000 c6 +0.04%  Rm 250 c3 +0.10%  Rm 250 c6 +0.11%  Rm 4000 c3 +0.47%  Rm 4000 c6 -0.62%  Rm 16000 c3 +0.16%  Rm 8000 c3 +0.27%; worst 0.62 %
+  wind-up grid check, 1-surv at 3 (and 6) Rm^(1/3), M^2 Rm 1.25, 1.5x finer grid: Rm 1000 c3 +0.08%  Rm 1000 c6 +0.12%  Rm 250 c3 +0.00%  Rm 250 c6 +0.02%  Rm 4000 c3 +0.19%  Rm 4000 c6 -0.31%  Rm 16000 c3 +0.07%  Rm 8000 c3 +0.13%; worst 0.31 %
+
+8. THE TWO CODES AGAINST EACH OTHER
+  R0 = 10, Re = Rm = 500, t = 0..20: Kokkos against CUDA code, host build  worst 0.0e+00 (0 = identical to the ten printed digits)
+  R0 = 10, Re = Rm = 500, t = 0..20: Kokkos against CUDA code, A100        worst 0.0e+00 (0 = identical to the ten printed digits)
+  production run Re = Rm = 2000, M^2 Rm = 2.5, R0 = 20, t = 0..151.2: Kokkos (laptop) against CUDA (A100) worst 9.3e-10 of a column's scale
+
+10. ONE FIELD ACROSS Rm (Fig. 1b): M^2 Rm = 2.5, time in Rm^(1/3)
+  Rm 250    R0 20  Delta(3 Rm^1/3) 0.701  S(3 Rm^1/3) 0.479  largest Delta 0.967 at 12.0 Rm^1/3  Delta(end) 0.967
+  Rm 500    R0 20  Delta(3 Rm^1/3) 0.551  S(3 Rm^1/3) 0.590  largest Delta 0.840 at 12.0 Rm^1/3  Delta(end) 0.840
+  Rm 1000   R0 20  Delta(3 Rm^1/3) 0.431  S(3 Rm^1/3) 0.676  largest Delta 0.939 at 10.9 Rm^1/3  Delta(end) 0.924
+  Rm 2000   R0 20  Delta(3 Rm^1/3) 0.339  S(3 Rm^1/3) 0.743  largest Delta 1.098 at 7.7 Rm^1/3  Delta(end) 1.001
+  Rm 4000   R0 20  Delta(3 Rm^1/3) 0.267  S(3 Rm^1/3) 0.796  largest Delta 1.005 at 10.1 Rm^1/3  Delta(end) 0.994
+  Rm 8000   R0 40  Delta(3 Rm^1/3) 0.213  S(3 Rm^1/3) 0.837  largest Delta 1.153 at 6.6 Rm^1/3  Delta(end) 1.000
+  Rm 16000  R0 80  Delta(3 Rm^1/3) 0.170  S(3 Rm^1/3) 0.870  largest Delta 0.678 at 12.0 Rm^1/3  Delta(end) 0.678
+
+11. SAME BRAKING, DIFFERENT FATE (Fig. 1a): M^2 Rm^(2/3) = 0.198, Re = 1000, R0 = 40
+  Rm 250 / 4000, M^2 Rm 1.25 / 3.15, M^2 Rm^(2/3) 0.198 / 0.198
+    max |S(Rm 250) - S(Rm 4000)| for t <= 3 Rm^(1/3): 0.008
+    max |S(Rm 250) - S(Rm 4000)| for t <= 5 Rm^(1/3): 0.022
+    t =  3 Rm^(1/3): S 0.739 / 0.731   Delta 0.353 / 0.363
+    t =  6 Rm^(1/3): S 0.672 / 0.643   Delta 0.374 / 0.412
+    t = 12 Rm^(1/3): S 0.493 / -0.026   Delta 0.708 / 1.006
+    largest Delta 0.708 / 1.029
+
+12. THE GALLERY (Supplemental Figs. S1-S3): Re = Rm, R0 = 20
+  gallery re4000_rm4000_r20_x0.625 against the map's run: S, Delta within 0.0e+00
+  gallery re4000_rm4000_r20_x1.25 against the map's run: S, Delta within 0.0e+00
+  gallery re4000_rm4000_r20_x1.7678 against the map's run: S, Delta within 0.0e+00
+  gallery re4000_rm4000_r20_x2.5 against the map's run: S, Delta within 0.0e+00
+  gallery re4000_rm4000_r20_x5 against the map's run: S, Delta within 0.0e+00
+  Rm 250   largest Delta (at t / Rm^1/3): 0.625: 0.36 at 12.0   1.25: 0.65 at 12.0   1.768: 0.78 at 12.0   2.5: 0.97 at 12.0   5: 1.01 at 6.9
+  Rm 1000  largest Delta (at t / Rm^1/3): 0.625: 0.34 at 10.2   1.25: 0.61 at 8.3   1.768: 0.83 at 12.0   2.5: 0.94 at 10.9   5: 0.97 at 7.2
+  Rm 4000  largest Delta (at t / Rm^1/3): 0.625: 0.22 at 7.2   0.625: 0.22 at 7.2   1.25: 0.47 at 6.1   1.25: 0.47 at 6.1   1.768: 0.75 at 11.2   1.768: 0.75 at 11.2   2.5: 1.01 at 10.1   2.5: 1.01 at 10.1   5: 1.02 at 5.6   5: 1.02 at 5.6
+  Rm 4000, M^2 Rm 1.25   Delta at 6 Rm^(1/3) 0.438, at 12 Rm^(1/3) 0.311; S at the end 0.742
+  Rm 4000, M^2 Rm 1.7678 Delta at 6 Rm^(1/3) 0.510, at 12 Rm^(1/3) 0.743; S at the end 0.496
