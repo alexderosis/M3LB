@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Every number the vortex-disruption letter and its Supplemental Material quote.
+"""Every number the vortex-disruption letter quotes.
 
     python3 paper/vortex_disruption/vd_numbers.py         # prints, and writes vd_numbers.txt
 
 Reads results/Q_vortex_disruption/ through tools/vortex_disruption_map.py and
 tools/vortex_disruption_campaign.py -- the same reading, crossing, fit and
 spacing bound the tools print -- and prints the quantities the text cites,
-section by section. A number in main.tex or supplementary.tex that
+section by section. A number in main.tex that
 vd_numbers.txt does not contain is a number to distrust. Everything here is
 computed from tracked series; nothing is typed in. Pure stdlib.
 
@@ -410,7 +410,7 @@ else:
     say("  not run yet")
 
 say("")
-say("12. THE GALLERY (Supplemental Figs. S1-S3): Re = Rm, R0 = 20")
+say("12. THE GALLERY (Figs. 4-6): Re = Rm, R0 = 20")
 gal = load(D3, "gallery")
 for g in gal:
     tw = pick(load(Q, "gpu_campaign", "map"), g["Rm"], X(g))
@@ -419,7 +419,9 @@ for g in gal:
         say("  gallery %s against the map's run: S, Delta within %.1e" % (g["name"], dev))
 for rm in (250, 1000, 4000):
     cells = []
-    for r in sorted((r for r in MAP + gal if r["Rm"] == rm and r["name"].startswith("re%d_" % rm)
+    # the map's own runs: at Rm = 4000 the gallery's are the same runs again
+    # (equal series, checked above), so counting both would list each field twice
+    for r in sorted((r for r in MAP if r["Rm"] == rm and r["name"].startswith("re%d_" % rm)
                      and any(near(X(r), x) for x in (0.625, 1.25, 1.7678, 2.5, 5))), key=X):
         T, D = r["d"]["t"], r["d"]["dow"]
         k = max(range(len(D)), key=lambda i: D[i])

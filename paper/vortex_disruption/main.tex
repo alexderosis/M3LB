@@ -118,6 +118,30 @@ bound. Points are offset slightly in $D_c$.}
 \label{fig:threshold}
 \end{figure}
 
+\begin{figure*}
+\includegraphics[width=\textwidth]{fig_gallery_t6}
+\caption{The vortex at $t=6\Rm^{1/3}$ for $\Rm=\Rey=250$, $1000$, $4000$ (rows) and
+$M^2\Rm=0.625$--$5$ (columns). Colour: vorticity; lines: magnetic field lines,
+contours of the flux function every $0.5B_0R_0$. The central $10R_0$ of the
+$20R_0$ box is shown. $R_0=20$ cells. $\Delta_\mathrm{max}$: the largest $\Delta$
+in the run.}
+\label{fig:g6}
+\end{figure*}
+
+\begin{figure*}
+\includegraphics[width=\textwidth]{fig_gallery_t12}
+\caption{As Fig.~\ref{fig:g6}, at the end of each run, $t=12\Rm^{1/3}$.}
+\label{fig:g12}
+\end{figure*}
+
+\begin{figure*}
+\includegraphics[width=\textwidth]{fig_fixed}
+\caption{One field above the threshold, $M^2\Rm=2.5$, at $\Rm=\Rey=250$, $1000$
+and $4000$ (rows), at $t=1.5$, $3$, $6$, $9$ and $12\,\Rm^{1/3}$, and the survival
+$S$ of the three against $t/\Rm^{1/3}$. $R_0=20$ cells.}
+\label{fig:fixed}
+\end{figure*}
+
 Here we follow a single vortex over a factor of 64 in $\Rm$ and find that both
 scalings hold, for two different things. The braking of the vortex during the
 wind-up grows as $M^2\Rm^{2/3}$; its destruction, which comes later and is
@@ -184,11 +208,9 @@ $\Rm=250$--$16\,000$. During the wind-up $\Delta$ rises to a plateau that falls 
 $\Rm$, from $0.701$ at $\Rm=250$ to $0.170$ at $\Rm=16\,000$ at $t=3\Rm^{1/3}$; on
 the weakest row, $M^2\Rm=0.3125$, the peak field reaches
 $1.04$--$1.10\,\Rm^{1/3}B_0$. From $\Rm=1000$ up a second, separate rise follows
-the plateau. At $\Rm=250$ the two merge into a steady erosion: the vortex is
-sheared away during the wind-up itself, without a tripole (Figs.~S1--S3 of the
-Supplemental Material). And a tripole is not by itself destruction: at
-$\Rm=4000$ and $M^2\Rm=1.25$ one forms, but the largest $\Delta$ is $0.47$ and the
-core recovers, $\Delta$ falling to $0.311$ by the end (Fig.~S1).
+the plateau. At $\Rm=250$ the two merge into a steady erosion, and the vortex is
+sheared away during the wind-up itself; we return to these routes, across the
+map, after the threshold.
 
 \textit{Braking.}---Read at $t=3\Rm^{1/3}$, near the peak of the wound field,
 $1-S$ along each row of fixed $M^2\Rm$ falls as $\Rm^q$ with $q=-0.337$ to
@@ -233,6 +255,38 @@ $M^2\Rm=2.10$, next to the threshold, $1-S$ at $t=3\Rm^{1/3}$ falls from $0.448$
 $\Rm=250$ to $0.110$ at $\Rm=16\,000$, as $\Rm^{-0.34}$. At large $\Rm$ destruction is
 not the end point of braking; it is a separate, non-axisymmetric instability that a
 model with an axisymmetric flow cannot contain.
+
+\textit{Routes to destruction.}---Figures~\ref{fig:g6} and \ref{fig:g12} show the
+vortex across the map, at $\Rm=\Rey=250$, $1000$ and $4000$ and five fields from
+$M^2\Rm=0.625$ to $5$, at $t=6\Rm^{1/3}$ and at the end of the run; every run is
+one of the map's, rerun with frames where the map did not keep them, and
+reproduces its series of $S$ and $\Delta$ exactly. Figure~\ref{fig:fixed} follows
+one field above the threshold, $M^2\Rm=2.5$, at the same three $\Rm$.
+
+How the vortex is destroyed changes with $\Rm$. At $\Rm=250$ there is no second
+stage: the wound field brakes and shears the vortex during the wind-up and goes on
+eroding it, so that its largest $\Delta$ comes at the end of the run at every
+field up to $M^2\Rm=2.5$, and at $6.9\Rm^{1/3}$ at $M^2\Rm=5$. From $\Rm=1000$ up,
+near the threshold, the wind-up leaves a circular core and the destruction comes
+later, through a tripole (Fig.~\ref{fig:fixed}). The threshold stays near
+$M^2\Rm\approx2$ across this change [Fig.~\ref{fig:threshold}(a)], but the route
+to it does not.
+
+A tripole is not yet destruction. At $\Rm=4000$ and $t=6\Rm^{1/3}$ the core has
+become a tripole at every field from $M^2\Rm=1.25$ (Fig.~\ref{fig:g6}), but the
+largest $\Delta$ of those runs is only $0.47$ at $M^2\Rm=1.25$ and $0.75$ at
+$1.77$. At $M^2\Rm=1.25$ the core recovers: $\Delta$ falls from $0.438$ at
+$t=6\Rm^{1/3}$ to $0.311$ at the end, and $S$ ends at $0.742$. At $1.77$ it does
+not, and $\Delta$ ends at $0.743$, just short of the threshold
+(Fig.~\ref{fig:g12}). From $M^2\Rm=2.5$, where the largest $\Delta$ is $1.01$, the
+vortex is torn apart.
+
+At that field all three vortices of Fig.~\ref{fig:fixed} are destroyed, with
+largest $\Delta$ of $0.967$, $0.939$ and $1.005$, but what they lose during the
+wind-up is not the same: at $t=3\Rm^{1/3}$, $S=0.479$, $0.676$ and $0.796$. A
+fixed $M^2\Rm$ fixes the outcome and not the braking on the way to it, which falls
+as $\Rm$ rises. At $\Rm=250$ the erosion is visible; at $\Rm=1000$ and $4000$ the
+tripole is.
 
 \textit{The second stage is the field's.}---Vortices with a shielding ring can
 form tripoles by themselves \cite{carton1989}, so we checked that this one does not

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The letter's figures and the Supplemental Material's, PDF and PNG, into this directory.
+"""The letter's figures, PDF and PNG, into this directory.
 
     python3 paper/vortex_disruption/figures.py [--only pair|collapse|threshold|gallery|fixed]
 
@@ -10,10 +10,9 @@ fig_pair        Fig. 1. (a) the same braking, M^2 Rm^(2/3) = 0.198, at Rm = 250 
                 and Delta against t / Rm^(1/3).
 fig_collapse    Fig. 2. the wind-up and the destruction against M^2 Rm^(2/3) and M^2 Rm.
 fig_threshold   Fig. 3. M_c against Rm, and the exponent against the level.
-Supplemental Material:
-fig_gallery_t6, fig_gallery_t12   Figs. S1, S2. Rm = 250, 1000, 4000 against
+fig_gallery_t6, fig_gallery_t12   Figs. 4, 5. Rm = 250, 1000, 4000 against
                 M^2 Rm = 0.625..5 at t = 6 and 12 Rm^(1/3) (Re = Rm, R0 = 20).
-fig_fixed       Fig. S3. M^2 Rm = 2.5 at Rm = 250, 1000, 4000, at matched wind-up times.
+fig_fixed       Fig. 6. M^2 Rm = 2.5 at Rm = 250, 1000, 4000, at matched wind-up times.
 
 EVERY RUN IS D3Q27 + D3Q7 WITH nz = 1: the map is d3q27/map (Rm = 250..1000, and
 two more fields at 2000 and 4000) with gpu_campaign/map (Rm = 2000..16000).
