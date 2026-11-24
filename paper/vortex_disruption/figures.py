@@ -72,8 +72,12 @@ def the_map():
 
 
 def save(fig, name):
+    # cropped to the content (pad 0.01 in, not matplotlib's 0.1), as the author
+    # cropped them by hand on 2026-11-24 -- here so the PDFs stay vector, which a
+    # crop in a viewer does not guarantee (that one came back as 300-dpi bitmaps)
     for ext in ("pdf", "png"):
-        fig.savefig(os.path.join(HERE, "%s.%s" % (name, ext)), bbox_inches="tight")
+        fig.savefig(os.path.join(HERE, "%s.%s" % (name, ext)), bbox_inches="tight",
+                    pad_inches=0.01)
     plt.close(fig)
     print("  wrote %s.pdf, .png" % name)
 
