@@ -19,7 +19,8 @@
 \usepackage[T1]{fontenc}
 \usepackage{graphicx}
 \usepackage{bm}
-\usepackage[hidelinks]{hyperref}
+%\usepackage[hidelinks]{hyperref}
+\usepackage[colorlinks,linkcolor=red,citecolor=red,urlcolor=blue]{hyperref}% add hypertext 
 
 \newcommand{\Rm}{\mathrm{Rm}}
 \newcommand{\Rey}{\mathrm{Re}}
@@ -87,7 +88,6 @@ scalings could not be told apart there. Tessier, Poulin and Hughes
 \cite{tessier2025} have since mapped the regimes of vortex arrays as the field
 grows, at one $\Rm$. The difference is not academic: at $\Rm=10^{12}$ the two
 criteria differ by a factor $10^4$ in field energy.
-
 \begin{figure*}
 \includegraphics[width=\textwidth]{fig_pair}
 \caption{The same braking, two fates: vortices with the same
@@ -100,7 +100,6 @@ $8000$ and $16\,000$: (c) $S$ and (d) $\Delta$ against $t/\Rm^{1/3}$; dashed,
 $\Delta=0.8$.}
 \label{fig:pair}
 \end{figure*}
-
 \begin{figure}[!tb]
 \includegraphics[width=\columnwidth]{fig_collapse}
 \caption{(a,b) The braking during the wind-up, $1-S$ at $t=3\Rm^{1/3}$, against
@@ -109,7 +108,6 @@ run, against the same. Lines join the runs of one $\Rm$, from 250 to
 $16\,000$. The dashed line is the threshold $\Delta=0.8$.}
 \label{fig:collapse}
 \end{figure}
-
 \begin{figure}[!tb]
 \includegraphics[width=\columnwidth]{fig_threshold}
 \caption{(a) $M_c^2\Rm$ for destruction, $\Delta=0.8$, against $\Rm$. Error bars:
@@ -121,7 +119,6 @@ called a threshold, for $\Delta$ (filled) and $1-S$ (open); bars are the spacing
 bound. Points are offset slightly in $D_c$.}
 \label{fig:threshold}
 \end{figure}
-
 \begin{figure*}
 \includegraphics[width=\textwidth]{fig_gallery_t6}
 \caption{The vortex at $t=6\Rm^{1/3}$ for $\Rm=\Rey=250$, $1000$, $4000$ (rows) and
@@ -131,13 +128,11 @@ $20R_0$ box is shown. $R_0=20$ cells. $\Delta_\mathrm{max}$: the largest $\Delta
 in the run.}
 \label{fig:g6}
 \end{figure*}
-
 \begin{figure*}
 \includegraphics[width=\textwidth]{fig_gallery_t12}
 \caption{As Fig.~\ref{fig:g6}, at the end of each run, $t=12\Rm^{1/3}$.}
 \label{fig:g12}
 \end{figure*}
-
 \begin{figure*}
 \includegraphics[width=\textwidth]{fig_fixed}
 \caption{One field above the threshold, $M^2\Rm=2.5$, at $\Rm=\Rey=250$, $1000$
@@ -145,23 +140,22 @@ and $4000$ (rows), at $t=1.5$, $3$, $6$, $9$ and $12\,\Rm^{1/3}$, and the surviv
 $S$ of the three against $t/\Rm^{1/3}$. $R_0=20$ cells.}
 \label{fig:fixed}
 \end{figure*}
-
-Here we follow a single vortex over a factor of 64 in $\Rm$ and find that both
+\\
+\indent Here we follow a single vortex over a factor of 64 in $\Rm$ and find that both
 scalings hold, for two different things. The braking of the vortex during the
 wind-up grows as $M^2\Rm^{2/3}$; its destruction, which comes later and is
-non-axisymmetric, needs $M^2\Rm\approx2$.
-
-\textit{Setup.} We solve the equations of incompressible magnetohydrodynamics in
-two dimensions,
+non-axisymmetric, needs $M^2\Rm\approx2$.\\
+\indent \textit{Setup.} In a two-dimensional Cartesian frame $(x,y)$, the flow obeys the
+equations of incompressible magnetohydrodynamics,
 \begin{align}
 \partial_t\bm u+(\bm u\cdot\nabla)\bm u&=-\nabla P+(\bm B\cdot\nabla)\bm B
 +\nu\nabla^2\bm u,\label{eq:momentum}\\
 \partial_t\bm B&=\nabla\times(\bm u\times\bm B)+\eta\nabla^2\bm B,\label{eq:induction}
 \end{align}
-with $\nabla\cdot\bm u=\nabla\cdot\bm B=0$. Here $\bm u$ is the velocity, $P$ the
+with $\nabla\cdot\bm u=\nabla\cdot\bm B=0$. Here $\bm u=[u_x, \, u_y]$ is the velocity, $P$ the
 total, fluid plus magnetic, pressure divided by the density, $\nu$ the kinematic
 viscosity and $\eta$ the magnetic diffusivity. In two dimensions the field derives
-from a flux function, $\bm B=\nabla\times(A\hat{\bm z})$, whose contours are the
+from a flux function, $\bm B = [B_x, \, B_y] =\nabla\times(A\hat{\bm z})$, whose contours are the
 field lines and which Eq.~\eqref{eq:induction} advects and diffuses,
 $\partial_tA+\bm u\cdot\nabla A=\eta\nabla^2A$. The curl of
 Eq.~\eqref{eq:momentum} governs the vorticity $\omega=\hat{\bm z}\cdot\nabla\times\bm u$,
@@ -187,7 +181,7 @@ $\Rey=\eps R_0/\nu$ and the magnetic Reynolds number $\Rm=\eps R_0/\eta$. The
 Lorentz term of Eq.~\eqref{eq:vorticity} then reads $M^2J(A,\nabla^2A)$. The
 magnetic Prandtl number $\mathrm{Pm}=\nu/\eta=\Rm/\Rey$ is one unless otherwise
 stated. We solve Eqs.~\eqref{eq:momentum} and \eqref{eq:induction} by the lattice
-Boltzmann method, where the flow uses a central-moment collision operator \cite{derosis2018} and the
+Boltzmann method, where the flow uses a central-moment collision operator \cite{derosis2018, PhysRevE.95.013310} and the
 magnetic field is carried as Dellar's vector distribution \cite{dellar2002}; we run at
 $\eps=0.05$ lattice units (Mach number $0.087$) in double precision and seed the
 density with the vortex's own pressure~\cite{PhysRevE.101.043306}.
