@@ -2,27 +2,27 @@ NUMBERS FOR THE VORTEX-DISRUPTION LETTER  (paper/vortex_disruption/vd_numbers.py
 All runs D3Q27 + D3Q7, nz = 1.
 
 DATA
-  map (d3q27/map + gpu_campaign/map)    66 runs  Rm 250/500/1000/2000/4000/8000/16000  Re 250/500/1000/2000/4000/8000/16000  R0 20/40/80
+  map (d3q27/map + gpu_campaign/map)    74 runs  Rm 250/500/1000/2000/4000/8000/16000/32000  Re 250/500/1000/2000/4000/8000/16000/32000  R0 20/40/80/160
   grid (gpu_campaign)                   10 runs  Rm 8000/16000  Re 8000/16000  R0 60/120
   seed (gpu_campaign/scatter)            5 runs  Rm 8000  Re 8000  R0 40
   Re = 1000, Rm varied                  30 runs  Rm 250/500/1000/2000/4000  Re 1000  R0 20
   Rm = 1000, Re varied                  30 runs  Rm 1000  Re 250/500/1000/2000/4000  R0 20
-  map R0 by Rm: 250: 20  500: 20  1000: 20  2000: 20  4000: 20  8000: 40  16000: 80
-  non-finite before t = 12 Rm^(1/3): 2 of 66 map runs: Rm 16000 X 3.535 at t 117.0, Rm 16000 X 5 at t 123.0
-  Rm span: 250 .. 16000, a factor 64; 7 values
-  fields per Rm: 250: 10  500: 10  1000: 10  2000: 10  4000: 10  8000: 8  16000: 8
+  map R0 by Rm: 250: 20  500: 20  1000: 20  2000: 20  4000: 20  8000: 40  16000: 80  32000: 160
+  non-finite before t = 12 Rm^(1/3): 5 of 74 map runs: Rm 16000 X 3.535 at t 117.0, Rm 16000 X 5 at t 123.0, Rm 32000 X 2.102 at t 226.0, Rm 32000 X 3.536 at t 148.0, Rm 32000 X 5 at t 123.0
+  Rm span: 250 .. 32000, a factor 128; 8 values
+  fields per Rm: 250: 10  500: 10  1000: 10  2000: 10  4000: 10  8000: 8  16000: 8  32000: 8
   eps = 0.05 lattice units: Mach number eps sqrt(3) = 0.087
   smallest tau - 1/2 over the map: flow 7.50e-04, field 1.00e-03
   field spacing near the threshold: M ratios 1.091, 1.091, 1.090, 1.091, 1.189
 
 1. THE WIND-UP: read at t = 3 Rm^(1/3), along each row of fixed M^2 Rm
-  1-surv q per row: 0.3125:-0.359(5 Rm, 250-4000)  0.625:-0.350(7 Rm, 250-16000)  1.25:-0.345(7 Rm, 250-16000)  1.487:-0.343(7 Rm, 250-16000)  1.768:-0.341(7 Rm, 250-16000)  2.102:-0.337(7 Rm, 250-16000)  2.5:-0.333(7 Rm, 250-16000)  3.536:-0.323(7 Rm, 250-16000)  5:-0.305(7 Rm, 250-16000)  10:-0.166(5 Rm, 250-4000)
-  1-surv q range over the rows with M^2 Rm <= 2.1: -0.359 .. -0.337 (6 rows)
-  1-surv rows above: 2.5: -0.333  3.536: -0.323  5: -0.305  10: -0.166
-  Delta  q per row: 0.3125:-0.400(5 Rm, 250-4000)  0.625:-0.378(7 Rm, 250-16000)  1.25:-0.367(7 Rm, 250-16000)  1.487:-0.362(7 Rm, 250-16000)  1.768:-0.357(7 Rm, 250-16000)  2.102:-0.350(7 Rm, 250-16000)  2.5:-0.342(7 Rm, 250-16000)  3.536:-0.320(7 Rm, 250-16000)  5:-0.278(7 Rm, 250-16000)  10:-0.021(5 Rm, 250-4000)
-  Delta  q range over the rows with M^2 Rm <= 2.1: -0.400 .. -0.350 (6 rows)
-  Delta  rows above: 2.5: -0.342  3.536: -0.320  5: -0.278  10: -0.021
-  M^2 Rm <= 1.25: (1-surv)/(M^2 Rm^(2/3)) = 1.33 .. 1.47 over 19 runs
+  1-surv q per row: 0.3125:-0.359(5 Rm, 250-4000)  0.625:-0.347(8 Rm, 250-32000)  1.25:-0.343(8 Rm, 250-32000)  1.487:-0.341(8 Rm, 250-32000)  1.768:-0.338(8 Rm, 250-32000)  2.102:-0.335(8 Rm, 250-32000)  2.5:-0.332(8 Rm, 250-32000)  3.536:-0.322(8 Rm, 250-32000)  5:-0.307(8 Rm, 250-32000)  10:-0.166(5 Rm, 250-4000)
+  1-surv q range over the rows with M^2 Rm <= 2.1: -0.359 .. -0.335 (6 rows)
+  1-surv rows above: 2.5: -0.332  3.536: -0.322  5: -0.307  10: -0.166
+  Delta  q per row: 0.3125:-0.400(5 Rm, 250-4000)  0.625:-0.371(8 Rm, 250-32000)  1.25:-0.361(8 Rm, 250-32000)  1.487:-0.357(8 Rm, 250-32000)  1.768:-0.352(8 Rm, 250-32000)  2.102:-0.346(8 Rm, 250-32000)  2.5:-0.339(8 Rm, 250-32000)  3.536:-0.320(8 Rm, 250-32000)  5:-0.284(8 Rm, 250-32000)  10:-0.021(5 Rm, 250-4000)
+  Delta  q range over the rows with M^2 Rm <= 2.1: -0.400 .. -0.346 (6 rows)
+  Delta  rows above: 2.5: -0.339  3.536: -0.320  5: -0.284  10: -0.021
+  M^2 Rm <= 1.25: (1-surv)/(M^2 Rm^(2/3)) = 1.33 .. 1.47 over 21 runs
   weakest row M^2 Rm = 0.3125: peak |b| / (B0 Rm^(1/3)) = Rm 250: 1.04  Rm 500: 1.05  Rm 1000: 1.06  Rm 2000: 1.08  Rm 4000: 1.10  (range 1.04 .. 1.10)
 
 2. DESTRUCTION: the field at which the largest Delta crosses 0.8
@@ -33,22 +33,23 @@ DATA
   Rm 4000   M_c 0.0216  M_c^2 Rm 1.86  M_c^2 Rm^(2/3) 0.117  (+/- 4.4 % in M)
   Rm 8000   M_c 0.0164  M_c^2 Rm 2.16  M_c^2 Rm^(2/3) 0.108  (+/- 4.4 % in M)
   Rm 16000  M_c 0.0103  M_c^2 Rm 1.70  M_c^2 Rm^(2/3) 0.068  (+/- 4.4 % in M)
-  all Rm (250..16000, 7 values): p = -0.507, spacing bound 0.027
+  Rm 32000  M_c 0.0071  M_c^2 Rm 1.63  M_c^2 Rm^(2/3) 0.051  (+/- 4.4 % in M)
+  all Rm (250..32000, 8 values): p = -0.514, spacing bound 0.024
   finer grid Rm 8000   M_c 0.0168 against 0.0164 (+2.0 %)
   finer grid Rm 16000  M_c 0.0118 against 0.0103 (+14.4 %)
   seed 1e-5  Rm 8000   M_c 0.0170 against 0.0164 (+3.1 %)
-  all Rm                       p = -0.507; spacing 0.027, grid shift 0.023, seed shift 0.003 -> U = 0.027;  |p + 1/2| = 0.007, |p + 1/3| = 0.173
-  registered, Rm 2000..16000   p = -0.502; spacing 0.050, grid shift 0.061, seed shift 0.004 -> U = 0.061;  |p + 1/2| = 0.002, |p + 1/3| = 0.168
-  M_c^2 Rm over all thresholds: 1.70 .. 2.27 (7)
-  excluded (stopped before t = 12 Rm^(1/3)): Rm 16000 X 3.54, Rm 16000 X 5
+  all Rm                       p = -0.514; spacing 0.024, grid shift 0.013, seed shift 0.002 -> U = 0.024;  |p + 1/2| = 0.014, |p + 1/3| = 0.180
+  registered, Rm 2000..32000   p = -0.521; spacing 0.037, grid shift 0.019, seed shift 0.000 -> U = 0.037;  |p + 1/2| = 0.021, |p + 1/3| = 0.188
+  M_c^2 Rm over all thresholds: 1.63 .. 2.27 (8)
+  excluded (stopped before t = 12 Rm^(1/3)): Rm 16000 X 3.54, Rm 16000 X 5, Rm 32000 X 2.1, Rm 32000 X 3.54, Rm 32000 X 5
 
 3. THE EXPONENT AGAINST THE LEVEL (largest value in the run), all Rm
-  Delta  0.10: -0.325 +/- 0.179 (3 Rm)   0.25: -0.357 +/- 0.087 (7 Rm)   0.50: -0.413 +/- 0.067 (7 Rm)   0.70: -0.479 +/- 0.027 (7 Rm)   0.80: -0.507 +/- 0.027 (7 Rm)   0.90: -0.533 +/- 0.031 (7 Rm)
-  1-surv 0.10: -0.329 +/- 0.200 (4 Rm)   0.25: -0.373 +/- 0.074 (7 Rm)   0.50: -0.453 +/- 0.047 (7 Rm)   0.70: -0.504 +/- 0.037 (6 Rm)   0.80: -0.523 +/- 0.039 (6 Rm)   0.90: -0.540 +/- 0.054 (6 Rm)
+  Delta  0.10: -0.353 +/- 0.150 (4 Rm)   0.25: -0.385 +/- 0.084 (8 Rm)   0.50: -0.432 +/- 0.060 (8 Rm)   0.70: -0.484 +/- 0.024 (8 Rm)   0.80: -0.514 +/- 0.024 (8 Rm)   0.90: -0.537 +/- 0.028 (8 Rm)
+  1-surv 0.10: -0.374 +/- 0.150 (5 Rm)   0.25: -0.401 +/- 0.077 (8 Rm)   0.50: -0.470 +/- 0.039 (8 Rm)   0.70: -0.523 +/- 0.027 (7 Rm)   0.80: -0.538 +/- 0.029 (7 Rm)   0.90: -0.540 +/- 0.054 (6 Rm)
 
 4. THE BRAKING AT THE DESTRUCTION THRESHOLD: 1 - surv at t = 3 Rm^(1/3)
-  row M^2 Rm = 1.768: Rm 250: 0.384  Rm 500: 0.299  Rm 1000: 0.235  Rm 2000: 0.185  Rm 4000: 0.147  Rm 8000: 0.117  Rm 16000: 0.093   q = -0.341
-  row M^2 Rm = 2.102: Rm 250: 0.448  Rm 500: 0.351  Rm 1000: 0.276  Rm 2000: 0.218  Rm 4000: 0.173  Rm 8000: 0.138  Rm 16000: 0.110   q = -0.337
+  row M^2 Rm = 1.768: Rm 250: 0.384  Rm 500: 0.299  Rm 1000: 0.235  Rm 2000: 0.185  Rm 4000: 0.147  Rm 8000: 0.117  Rm 16000: 0.093  Rm 32000: 0.074   q = -0.338
+  row M^2 Rm = 2.102: Rm 250: 0.448  Rm 500: 0.351  Rm 1000: 0.276  Rm 2000: 0.218  Rm 4000: 0.173  Rm 8000: 0.138  Rm 16000: 0.110  Rm 32000: 0.088   q = -0.335
 
 5. THE WINDOW: where in t = 0 .. 12 Rm^(1/3) the largest Delta falls
   Rm 8000   X 1.25    max Delta 0.336 at 0.50 t_end; Delta(0.8 t_end) 0.234, Delta(t_end) 0.264
@@ -61,7 +62,15 @@ DATA
   Rm 16000  X 1.768   max Delta 0.915 at 1.00 t_end; Delta(0.8 t_end) 0.716, Delta(t_end) 0.915
   Rm 16000  X 2.102   max Delta 0.603 at 0.99 t_end; Delta(0.8 t_end) 0.490, Delta(t_end) 0.574
   Rm 16000  X 2.5     max Delta 0.678 at 1.00 t_end; Delta(0.8 t_end) 0.576, Delta(t_end) 0.678
-  Rm 16000, M^2 Rm 1.25..2.5: 4 of 5 runs have their largest Delta in the last tenth of the window
+  Rm 32000  X 1.25    max Delta 0.478 at 0.98 t_end; Delta(0.8 t_end) 0.343, Delta(t_end) 0.438
+  Rm 32000  X 1.486   max Delta 0.598 at 0.97 t_end; Delta(0.8 t_end) 0.349, Delta(t_end) 0.534
+  Rm 32000  X 1.768   max Delta 0.980 at 1.00 t_end; Delta(0.8 t_end) 0.878, Delta(t_end) 0.980
+  Rm 32000  X 2.102   NON-FINITE at t = 226.0, 0.59 of the window: excluded; largest Delta before that 0.779
+  Rm 32000  X 2.5     max Delta 0.965 at 0.94 t_end; Delta(0.8 t_end) 0.856, Delta(t_end) 0.948
+  Rm 16000, M^2 Rm 1.25..2.5, complete runs: 4 of 5 have their largest Delta in the last tenth of the window
+  Rm 32000, M^2 Rm 1.25..2.5, complete runs: 4 of 4 have their largest Delta in the last tenth of the window
+  Rm 16000 and 32000 together: 8 of 9
+  excluded runs that bracket a threshold: none
   seed 1e-5 at Rm 8000, largest Delta map -> seeded: X 1.25: 0.336 -> 0.399  X 1.486: 0.730 -> 0.787  X 1.768: 0.583 -> 0.587  X 2.102: 0.729 -> 0.516  X 2.5: 1.153 -> 1.065
   largest single-run change 0.213
   Rm 8000 largest Delta along M^2 Rm 1.25..2.5: 0.34, 0.73, 0.58, 0.73, 1.15
@@ -95,6 +104,7 @@ DATA
   Rm 4000   R0 20  Delta(3 Rm^1/3) 0.267  S(3 Rm^1/3) 0.796  largest Delta 1.005 at 10.1 Rm^1/3  Delta(end) 0.994
   Rm 8000   R0 40  Delta(3 Rm^1/3) 0.213  S(3 Rm^1/3) 0.837  largest Delta 1.153 at 6.6 Rm^1/3  Delta(end) 1.000
   Rm 16000  R0 80  Delta(3 Rm^1/3) 0.170  S(3 Rm^1/3) 0.870  largest Delta 0.678 at 12.0 Rm^1/3  Delta(end) 0.678
+  Rm 32000  R0 160 Delta(3 Rm^1/3) 0.136  S(3 Rm^1/3) 0.896  largest Delta 0.965 at 11.3 Rm^1/3  Delta(end) 0.948
 
 11. SAME BRAKING, DIFFERENT FATE (Fig. 1a): M^2 Rm^(2/3) = 0.198, Re = 1000, R0 = 40
   Rm 250 / 4000, M^2 Rm 1.25 / 3.15, M^2 Rm^(2/3) 0.198 / 0.198

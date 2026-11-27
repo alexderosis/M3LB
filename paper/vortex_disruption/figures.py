@@ -6,7 +6,7 @@
 Letter:
 fig_pair        Fig. 1. The same braking, M^2 Rm^(2/3) = 0.198, at Rm = 250 and 4000
                 with Re = 1000 for both (R0 = 40): (a) snapshots, (b) S against
-                t / Rm^(1/3). One field, M^2 Rm = 2.5, across Rm = 250..16000: (c) S
+                t / Rm^(1/3). One field, M^2 Rm = 2.5, across Rm = 250..32000: (c) S
                 and (d) Delta against t / Rm^(1/3).
 fig_collapse    Fig. 2. the wind-up and the destruction against M^2 Rm^(2/3) and M^2 Rm.
 fig_threshold   Fig. 3. M_c against Rm, and the exponent against the level.
@@ -15,7 +15,7 @@ fig_gallery_t6, fig_gallery_t12   Figs. 4, 5. Rm = 250, 1000, 4000 against
 fig_fixed       Fig. 6. M^2 Rm = 2.5 at Rm = 250, 1000, 4000, at matched wind-up times.
 
 EVERY RUN IS D3Q27 + D3Q7 WITH nz = 1: the map is d3q27/map (Rm = 250..1000, and
-two more fields at 2000 and 4000) with gpu_campaign/map (Rm = 2000..16000).
+two more fields at 2000 and 4000) with gpu_campaign/map (Rm = 2000..32000).
 Snapshots read the frames of GPU/csf3/vortex_disruption_d3q27.sub in
 runs/vortex_disruption_d3q27/, which git does not keep; a figure whose frames are
 missing is skipped and the rest are made. Their series are tracked in
@@ -24,9 +24,10 @@ results/Q_vortex_disruption/d3q27/.
 The numbers on the figures are vd_numbers.py's: the same readers, the same
 crossing and the same fits. Colours: the reference palette's first two
 categorical slots (validated: CVD dE 24.7, normal dE 33.6), blue for the map and
-for Delta, orange for the checks and for 1 - S. Five Rm in one panel take five
-steps of one blue ramp (validated as ordinal); seven do not fit one hue, so
-Fig. 2 labels its lines of one Rm directly.
+for Delta, orange for the checks and for 1 - S. Six Rm in one panel take six
+steps of one blue ramp (validated as ordinal: the palette's steps 250-650 and a
+sixth darker one, #0a2a55, since its step 700 is too close to 650); eight do not
+fit one hue, so Fig. 2 labels its lines of one Rm directly.
 """
 import glob
 import math
@@ -47,6 +48,7 @@ import vortex_disruption_campaign as vc             # noqa: E402
 Q = os.path.join(ROOT, "results", "Q_vortex_disruption")
 BLUE, ORANGE = "#2a78d6", "#eb6834"
 RAMP5 = ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281"]
+RAMP6 = RAMP5 + ["#0a2a55"]
 INK, INK2, GRID = "#0b0b0b", "#52514e", "#d9d8d4"
 plt.rcParams.update({
     "font.family": "serif", "font.serif": ["STIXGeneral", "DejaVu Serif"],
@@ -67,7 +69,7 @@ PAIR = ("re1000_rm250_r40_x1.25", "re1000_rm4000_r40_x3.15")
 
 def the_map():
     """The D3Q27 map: d3q27/map (Rm 250..1000 and two more fields at 2000, 4000)
-    with the registered CSF3 map (Rm 2000..16000). Every run D3Q27 + D3Q7, nz = 1."""
+    with the registered CSF3 map (Rm 2000..32000). Every run D3Q27 + D3Q7, nz = 1."""
     return (vc.load(os.path.join(D3, "map")) or []) + vc.load(os.path.join(Q, "gpu_campaign", "map"))
 
 
@@ -147,9 +149,14 @@ def fig_collapse():
                     ax.plot(a, b, "-", color=c, lw=0.5, alpha=0.6)
                     ax.plot(a, b, mk, color=c, mfc=mfc, ms=2.6, mew=0.6)
                     # Name each Rm where the fan spreads them: early, against M^2 Rm.
-                    if row == 0 and col == 1 and rm in (250, 16000):
-                        ax.annotate(r"$%g$" % rm, (a[-1], b[-1]), xytext=(2, 0),
-                                    textcoords="offset points", fontsize=6, va="center",
+                    if row == 0 and col == 1 and rm in (250, 32000):
+                        # the lowest line's label goes under its end: beside it,
+                        # it would cross the frame
+                        lo = rm == 32000
+                        ax.annotate(r"$%g$" % rm, (a[-1], b[-1]),
+                                    xytext=(3, -13) if lo else (2, 0),
+                                    textcoords="offset points", fontsize=6,
+                                    va="top" if lo else "center", ha="right" if lo else "left",
                                     color=INK2)
             ax.set_xscale("log")
             ticks(ax.xaxis, ((0.03, 0.1, 0.3, 1.0), (0.3, 1.0, 3.0, 10.0))[col])
@@ -198,7 +205,7 @@ def fig_threshold():
                     elinewidth=0.5, capsize=1.2, label=name)
         if runs is mp:
             pts += list(zip(rm, m))
-    rr = np.array([200, 22000])
+    rr = np.array([200, 45000])
     lm = np.mean([math.log(m) + 0.5 * math.log(r) for r, m in pts])
     ax.plot(rr, np.exp(lm) ** 2 * np.ones_like(rr), color=INK2, lw=0.7, ls="-",
             label=r"$M_c\propto\mathrm{Rm}^{-1/2}$")
@@ -337,9 +344,9 @@ def fig_pair():
     ax.legend(frameon=False, loc="lower left", fontsize=6.5)
     ax.text(0.97, 0.94, "(b)", transform=ax.transAxes, ha="right", va="top")
     mp = the_map()
-    sets = [(250, mp), (1000, mp), (4000, mp), (8000, mp), (16000, mp)]
+    sets = [(250, mp), (1000, mp), (4000, mp), (8000, mp), (16000, mp), (32000, mp)]
     axS, axD = fig.add_subplot(bot[1]), fig.add_subplot(bot[2])
-    for (rm, runs_), col in zip(sets, RAMP5):
+    for (rm, runs_), col in zip(sets, RAMP6):
         r = [g for g in runs_ if g["Rm"] == rm and abs(math.log(X(g) / 2.5)) < 0.02][0]
         t = np.array(r["d"]["t"]) / rm ** (1 / 3)
         axS.plot(t, r["d"]["surv"], color=col, lw=1.0, label=r"$%g$" % rm)

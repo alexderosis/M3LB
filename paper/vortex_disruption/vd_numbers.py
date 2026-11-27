@@ -11,7 +11,7 @@ vd_numbers.txt does not contain is a number to distrust. Everything here is
 computed from tracked series; nothing is typed in. Pure stdlib.
 
 EVERY RUN READ HERE IS D3Q27 + D3Q7 WITH nz = 1 (the letter names one lattice
-pair). The map is gpu_campaign/map (Rm = 2000..16000, the registered CSF3 job)
+pair). The map is gpu_campaign/map (Rm = 2000..32000, the registered CSF3 job)
 together with d3q27/map (Rm = 250..1000, and two more fields at 2000 and 4000,
 GPU/csf3/vortex_disruption_d3q27.sub); the slices, controls, grid check, exact
 check, gallery and Fig. 1 pair are d3q27/; the field-off control and the twin of
@@ -211,7 +211,7 @@ def shifted(sub, base):
     return fit(d)[0]
 
 
-for name, keep in (("all Rm", lambda rm: True), ("registered, Rm 2000..16000", lambda rm: rm >= 2000)):
+for name, keep in (("all Rm", lambda rm: True), ("registered, Rm 2000..32000", lambda rm: rm >= 2000)):
     base = {k: v for k, v in mc.items() if keep(k)}
     p, b = fit(base)
     g = abs(shifted(mcGr, base) - p)
@@ -248,19 +248,33 @@ for x in (1.7678, 2.1022):
 # ------------------------------------------------------------------------------
 say("")
 say("5. THE WINDOW: where in t = 0 .. 12 Rm^(1/3) the largest Delta falls")
-for rm in (8000, 16000):
+for rm in (8000, 16000, 32000):
     for r in sorted((r for r in MAP if r["Rm"] == rm and 1.2 < X(r) < 2.6), key=X):
         T, D = r["d"]["t"], r["d"]["dow"]
         te = T[-1]
         k = max(range(len(D)), key=lambda i: D[i])
+        if vm.ended_early(r):
+            say("  Rm %-6g X %-7.4g NON-FINITE at t = %.1f, %.2f of the window: excluded; "
+                "largest Delta before that %.3f" % (rm, X(r), te, te / (12 * rm ** (1 / 3)), D[k]))
+            continue
         i8 = max(i for i in range(len(T)) if T[i] <= 0.8 * te)
         say("  Rm %-6g X %-7.4g max Delta %.3f at %.2f t_end; Delta(0.8 t_end) %.3f, "
             "Delta(t_end) %.3f" % (rm, X(r), D[k], T[k] / te, D[i8], D[-1]))
-late = [r for r in MAP if r["Rm"] == 16000 and 1.2 < X(r) < 2.6]
-nlate = sum(1 for r in late if max(range(len(r["d"]["dow"])), key=lambda i: r["d"]["dow"][i])
-            >= 0.9 * (len(r["d"]["dow"]) - 1))
-say("  Rm 16000, M^2 Rm 1.25..2.5: %d of %d runs have their largest Delta in the last "
-    "tenth of the window" % (nlate, len(late)))
+tot = [0, 0]
+for rm in (16000, 32000):
+    late = [r for r in MAP if r["Rm"] == rm and 1.2 < X(r) < 2.6 and not vm.ended_early(r)]
+    nlate = sum(1 for r in late if max(range(len(r["d"]["dow"])), key=lambda i: r["d"]["dow"][i])
+                >= 0.9 * (len(r["d"]["dow"]) - 1))
+    tot = [tot[0] + nlate, tot[1] + len(late)]
+    say("  Rm %g, M^2 Rm 1.25..2.5, complete runs: %d of %d have their largest Delta in the last "
+        "tenth of the window" % (rm, nlate, len(late)))
+say("  Rm 16000 and 32000 together: %d of %d" % tuple(tot))
+# Is any excluded run one of the two that bracket a threshold? Each lies within the
+# bracket's whole ln-spacing, 2h, of M_c (crossing() returns h, half of it).
+brk = [e for e in ended if e[0] in mc and
+       abs(math.log(math.sqrt(e[1] / e[0]) / mc[e[0]][0])) <= 2 * mc[e[0]][1] + 1e-9]
+say("  excluded runs that bracket a threshold: %s" % (
+    ", ".join("Rm %g X %.3g" % e[:2] for e in brk) or "none"))
 diffs = []
 for r in SCAT:
     tw = pick(MAP, r["Rm"], X(r))
